@@ -1,0 +1,13 @@
+{
+  "name": "building-sales-system",
+  "version": "0.1.0",
+  "private": true,
+  "description": "建材销售开单系统",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node server.js"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}

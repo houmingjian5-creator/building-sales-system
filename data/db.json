@@ -1,0 +1,203 @@
+{
+  "users": [
+    {
+      "id": "u1",
+      "name": "钱锦健",
+      "phone": "13800000001",
+      "password": "888888",
+      "role": "超级管理员",
+      "status": "启用"
+    },
+    {
+      "id": "u2",
+      "name": "侯俊键",
+      "phone": "13800000002",
+      "password": "888888",
+      "role": "销售人员",
+      "status": "启用"
+    },
+    {
+      "id": "u3",
+      "name": "沈海峰",
+      "phone": "13800000003",
+      "password": "888888",
+      "role": "销售人员",
+      "status": "启用"
+    },
+    {
+      "id": "u4",
+      "name": "管理员",
+      "phone": "13800000004",
+      "password": "888888",
+      "role": "管理员",
+      "status": "启用"
+    },
+    {
+      "id": "u5",
+      "name": "财务",
+      "phone": "13800000005",
+      "password": "888888",
+      "role": "财务",
+      "status": "启用"
+    }
+  ],
+  "customers": [
+    {
+      "id": "c1",
+      "name": "钱勇6333",
+      "contact": "钱勇",
+      "phone": "15608096333",
+      "email": "",
+      "address": "明佑天府壹号28栋2单元102",
+      "ownerId": "u2",
+      "total": 4865.4,
+      "last": "2026/6/9",
+      "orders": 6
+    },
+    {
+      "id": "c2",
+      "name": "王美4949",
+      "contact": "王美",
+      "phone": "13668164949",
+      "email": "",
+      "address": "华府大道建材市场",
+      "ownerId": "u2",
+      "total": 7664.9,
+      "last": "2026/6/8",
+      "orders": 9
+    },
+    {
+      "id": "c3",
+      "name": "周9446",
+      "contact": "周先生",
+      "phone": "17628069446",
+      "email": "",
+      "address": "高新区工地库房",
+      "ownerId": "u3",
+      "total": 9604,
+      "last": "2026/6/7",
+      "orders": 11
+    },
+    {
+      "id": "c4",
+      "name": "露哥9561",
+      "contact": "露哥",
+      "phone": "13548029561",
+      "email": "",
+      "address": "双流区项目部",
+      "ownerId": "u2",
+      "total": 5438.12,
+      "last": "2026/6/6",
+      "orders": 6
+    },
+    {
+      "id": "c5",
+      "name": "张朝646",
+      "contact": "张朝",
+      "phone": "18109064646",
+      "email": "",
+      "address": "明佑天府壹号",
+      "ownerId": "u1",
+      "total": 2559.16,
+      "last": "2026/6/1",
+      "orders": 3
+    }
+  ],
+  "products": [
+    {
+      "id": "p1",
+      "brand": "木",
+      "cat1": "木",
+      "cat2": "木类小配件",
+      "name": "接头（好）",
+      "spec": "木工PITOU",
+      "unit": "个",
+      "price": 2,
+      "cost": 0.8,
+      "status": "在售",
+      "color": "#d9c3a1"
+    },
+    {
+      "id": "p2",
+      "brand": "木",
+      "cat1": "木",
+      "cat2": "木工辅材",
+      "name": "拼塑板（保温板隔热板）",
+      "spec": "灰色5cm / 1200*2400",
+      "unit": "张",
+      "price": 11,
+      "cost": 7.5,
+      "status": "在售",
+      "color": "#cbd5e1"
+    },
+    {
+      "id": "p3",
+      "brand": "水电",
+      "cat1": "水电",
+      "cat2": "水电辅材",
+      "name": "NM1-400S/3310315A AC230V",
+      "spec": "天正接触器",
+      "unit": "个",
+      "price": 580,
+      "cost": 430,
+      "status": "在售",
+      "color": "#bfdbfe"
+    },
+    {
+      "id": "p7",
+      "brand": "水电",
+      "cat1": "水电",
+      "cat2": "金杯线缆",
+      "name": "塔牌电线（双色ZA-BV6mm2）",
+      "spec": "双色ZA-BV6mm2",
+      "unit": "卷",
+      "price": 563,
+      "cost": 520,
+      "status": "在售",
+      "color": "#fca5a5"
+    }
+  ],
+  "orders": [
+    {
+      "id": "o1",
+      "no": "ORD1781230955350624",
+      "customerId": "c5",
+      "salesUserId": "u2",
+      "date": "2026/6/12",
+      "status": "待确认",
+      "payStatus": "未回款",
+      "amount": 4047.16,
+      "items": [
+        {
+          "productId": "p3",
+          "quantity": 1,
+          "price": 580
+        },
+        {
+          "productId": "p7",
+          "quantity": 2,
+          "price": 563
+        },
+        {
+          "productId": "p2",
+          "quantity": 35,
+          "price": 36
+        }
+      ]
+    }
+  ],
+  "loginLogs": [
+    {
+      "id": "79214312-c6cd-43e1-97f6-e51a6ac7f7c8",
+      "userId": "u1",
+      "phone": "13800000001",
+      "createdAt": "2026-06-12T09:15:00.567Z"
+    },
+    {
+      "id": "10a723e6-7a76-4226-8af6-01dcdc60419d",
+      "userId": "u1",
+      "phone": "13800000001",
+      "createdAt": "2026-06-12T09:14:00.486Z"
+    }
+  ]
+}
