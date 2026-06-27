@@ -11,6 +11,11 @@ const PORT = Number(process.env.PORT || 3000);
 
 const sessions = new Map();
 
+function newId() {
+  if (crypto.randomUUID) return crypto.randomUUID();
+  return crypto.randomBytes(16).toString("hex");
+}
+
 function readDb() {
   return JSON.parse(fs.readFileSync(DB_PATH, "utf8"));
 }
@@ -134,7 +139,7 @@ async function handleApi(req, res) {
     if (user.status !== "启用") return sendError(res, 403, "账号已停用");
     const token = crypto.randomBytes(24).toString("hex");
     sessions.set(token, user.id);
-    db.loginLogs.unshift({ id: crypto.randomUUID(), userId: user.id, phone: user.phone, createdAt: new Date().toISOString() });
+    db.loginLogs.unshift({ id: newId(), userId: user.id, phone: user.phone, createdAt: new Date().toISOString() });
     writeDb(db);
     res.setHeader("set-cookie", `sid=${token}; Path=/; HttpOnly; SameSite=Lax`);
     return sendJson(res, 200, { token, user: sanitizeUser(user) });
@@ -175,7 +180,7 @@ async function handleApi(req, res) {
       if (!payload.name || !payload.phone || !payload.password) return sendError(res, 400, "姓名、手机号和密码必填");
       if (db.users.some((user) => user.phone === payload.phone)) return sendError(res, 409, "手机号已存在");
       const user = {
-        id: crypto.randomUUID(),
+        id: newId(),
         name: payload.name,
         phone: payload.phone,
         password: payload.password,
@@ -218,7 +223,7 @@ async function handleApi(req, res) {
     if (method === "POST") {
       const payload = await readBody(req);
       const order = {
-        id: crypto.randomUUID(),
+        id: newId(),
         no: `${payload.type === "return" ? "TH" : "ORD"}${Date.now()}`,
         customerId: payload.customerId,
         salesUserId: payload.salesUserId || user.id,
