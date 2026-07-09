@@ -1,4 +1,5 @@
 const http = require("http");
+const https = require("https");
 const fs = require("fs");
 const path = require("path");
 const crypto = require("crypto");
@@ -8,6 +9,8 @@ const PUBLIC_DIR = path.join(ROOT, "public");
 const DATA_DIR = path.join(ROOT, "data");
 const DB_PATH = path.join(DATA_DIR, "db.json");
 const PORT = Number(process.env.PORT || 3000);
+const DEEPSEEK_API_KEY = process.env.DEEPSEEK_API_KEY || "";
+const DEEPSEEK_MODEL = process.env.DEEPSEEK_MODEL || "deepseek-chat";
 
 const sessions = new Map();
 
@@ -96,6 +99,202 @@ function requireAdmin(req, res) {
 function sanitizeUser(user) {
   const { password, ...rest } = user;
   return rest;
+}
+
+function normalizeText(value) {
+  return String(value || "")
+    .toLowerCase()
+    .replace(/\s+/g, "")
+    .replace(/[（）]/g, (char) => (char === "（" ? "(" : ")"));
+}
+
+function productAliases(product) {
+  const terms = [product.name, product.spec, product.brand, product.cat1, product.cat2];
+  const text = `${product.name} ${product.spec}`.toLowerCase();
+  const rules = [
+    [/石膏|螺丝|罗丝/, ["石膏罗丝", "石膏螺丝", "石膏丝"]],
+    [/螺母|罗母/, ["罗母", "螺母"]],
+    [/副骨|付骨|辅骨/, ["付骨", "副骨", "辅骨"]],
+    [/主骨/, ["主骨", "主龙骨"]],
+    [/木龙骨/, ["木龙骨", "木方"]],
+    [/石膏板/, ["石膏板"]],
+    [/钢钉/, ["钢钉", "38钢钉"]],
+    [/直钉/, ["直钉"]],
+    [/白乳胶/, ["白乳胶"]],
+    [/水泥/, ["水泥"]],
+    [/搬运/, ["搬运费", "搬运"]],
+    [/运费/, ["运费", "送货费"]],
+  ];
+  rules.forEach(([pattern, aliases]) => {
+    if (pattern.test(text)) terms.push(...aliases);
+  });
+  return [...new Set(terms.filter(Boolean))];
+}
+
+function catalogForAi(products) {
+  return products.map((product) => ({
+    id: product.id,
+    name: product.name,
+    spec: product.spec,
+    unit: product.unit,
+    price: product.price,
+    category: product.cat2 || product.cat1 || "",
+    aliases: productAliases(product),
+  }));
+}
+
+function parseJsonFromText(text) {
+  const raw = String(text || "").trim();
+  try {
+    return JSON.parse(raw);
+  } catch {
+    const start = raw.indexOf("{");
+    const end = raw.lastIndexOf("}");
+    if (start >= 0 && end > start) return JSON.parse(raw.slice(start, end + 1));
+    throw new Error("AI 返回内容不是有效 JSON");
+  }
+}
+
+function callDeepSeek(messages) {
+  if (!DEEPSEEK_API_KEY) {
+    return Promise.reject(new Error("DeepSeek API Key 尚未配置"));
+  }
+  const body = JSON.stringify({
+    model: DEEPSEEK_MODEL,
+    messages,
+    temperature: 0.1,
+    response_format: { type: "json_object" },
+  });
+  return new Promise((resolve, reject) => {
+    const req = https.request(
+      {
+        hostname: "api.deepseek.com",
+        path: "/chat/completions",
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          authorization: `Bearer ${DEEPSEEK_API_KEY}`,
+          "content-length": Buffer.byteLength(body),
+        },
+        timeout: 30000,
+      },
+      (res) => {
+        let raw = "";
+        res.on("data", (chunk) => {
+          raw += chunk;
+        });
+        res.on("end", () => {
+          let payload;
+          try {
+            payload = JSON.parse(raw);
+          } catch {
+            return reject(new Error("DeepSeek 返回格式异常"));
+          }
+          if (res.statusCode < 200 || res.statusCode >= 300) {
+            const message = payload.error && payload.error.message ? payload.error.message : "DeepSeek 调用失败";
+            return reject(new Error(message));
+          }
+          const choice = payload.choices && payload.choices[0];
+          const content = choice && choice.message ? choice.message.content : "";
+          resolve(content || "");
+        });
+      }
+    );
+    req.on("timeout", () => req.destroy(new Error("DeepSeek 请求超时")));
+    req.on("error", reject);
+    req.write(body);
+    req.end();
+  });
+}
+
+function validateAiDraft(db, aiResult) {
+  const lines = Array.isArray(aiResult.items) ? aiResult.items : [];
+  const matched = [];
+  const needsQuantity = [];
+  const uncertain = [];
+  const unmatched = [];
+
+  lines.forEach((line) => {
+    const rawName = String(line.rawName || line.name || "").trim();
+    const quantity = Number(line.quantity);
+    const candidates = Array.isArray(line.candidates) ? line.candidates : [];
+    const product = db.products.find((item) => item.id === line.productId);
+    const candidateIds = [...new Set([line.productId, ...candidates.map((item) => item.productId || item.id)].filter(Boolean))];
+    const candidateProducts = candidateIds
+      .map((id) => db.products.find((item) => item.id === id))
+      .filter(Boolean)
+      .map((item) => ({ productId: item.id, name: item.name, spec: item.spec, unit: item.unit, price: item.price }));
+
+    if (!product) {
+      if (candidateProducts.length) {
+        uncertain.push({ rawName, quantity: Number.isFinite(quantity) && quantity > 0 ? quantity : null, candidates: candidateProducts });
+        return;
+      }
+      unmatched.push({ rawName, note: line.note || "商品库中未确认匹配商品" });
+      return;
+    }
+
+    if (candidateProducts.length > 1 || line.confidence === "low") {
+      uncertain.push({ rawName, quantity: Number.isFinite(quantity) && quantity > 0 ? quantity : null, candidates: candidateProducts });
+      return;
+    }
+
+    if (!Number.isFinite(quantity) || quantity <= 0) {
+      needsQuantity.push({ rawName, productId: product.id, name: product.name, spec: product.spec, unit: product.unit, price: product.price });
+      return;
+    }
+
+    matched.push({
+      rawName,
+      productId: product.id,
+      name: product.name,
+      spec: product.spec,
+      unit: product.unit,
+      price: product.price,
+      quantity,
+    });
+  });
+
+  return { matched, needsQuantity, uncertain, unmatched };
+}
+
+async function buildAiOrderDraft(db, content) {
+  const catalog = catalogForAi(db.products);
+  const messages = [
+    {
+      role: "system",
+      content:
+        "你是建材销售系统的开单识别助手。你只能把用户输入的口语化材料清单匹配到给定商品库中的商品，不能创造商品、不能改价格、不能输出商品库外商品。数量不明确则 quantity=null。商品不确定时给 candidates。只返回 JSON。",
+    },
+    {
+      role: "user",
+      content: JSON.stringify({
+        task: "从 orderText 中识别商品和数量，并匹配 catalog 商品 id。",
+        outputSchema: {
+          items: [
+            {
+              rawName: "销售原文中的商品叫法",
+              productId: "确定匹配时填写商品 id，否则 null",
+              quantity: "数字，无法确定则 null",
+              confidence: "high 或 low",
+              candidates: [{ productId: "候选商品 id" }],
+              note: "可选",
+            },
+          ],
+        },
+        rules: [
+          "商品必须来自 catalog",
+          "最终开单名称、单位、价格由系统商品库决定",
+          "一小桶、一大桶、一袋等口语单位只用于理解数量，最终单位用商品库单位",
+          "错别字可以理解，例如罗母=螺母、罗丝=螺丝、付骨=副骨，但不确定要给候选",
+        ],
+        catalog,
+        orderText: content,
+      }),
+    },
+  ];
+  const text = await callDeepSeek(messages);
+  return validateAiDraft(db, parseJsonFromText(text));
 }
 
 function serveStatic(req, res) {
@@ -210,6 +409,20 @@ async function handleApi(req, res) {
       });
       writeDb(db);
       return sendJson(res, 200, { user: sanitizeUser(user) });
+    }
+  }
+
+  if (method === "POST" && url.pathname === "/api/ai/order-draft") {
+    const user = requireUser(req, res);
+    if (!user) return;
+    const { content } = await readBody(req);
+    if (!String(content || "").trim()) return sendError(res, 400, "请先输入需要识别的订单内容");
+    const db = readDb();
+    try {
+      const draft = await buildAiOrderDraft(db, String(content).slice(0, 2000));
+      return sendJson(res, 200, draft);
+    } catch (error) {
+      return sendError(res, 502, error.message || "AI 开单识别失败");
     }
   }
 

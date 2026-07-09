@@ -12,6 +12,9 @@ const state = {
   selectedCustomerId: "c1",
   salesUserId: "u2",
   orderType: "sale",
+  aiDraft: null,
+  aiLoading: false,
+  aiText: "",
 };
 
 let salesUsers = [
@@ -329,7 +332,10 @@ function renderCreateOrder() {
     </div>
     <div class="product-layout">
       <div>
-        <div class="toolbar"><input class="input" placeholder="搜索商品名称、编码、拼音..." value="${state.productQuery}" oninput="state.productQuery=this.value;render()" /></div>
+        <div class="toolbar">
+          <input class="input" placeholder="搜索商品名称、编码、拼音..." value="${state.productQuery}" oninput="state.productQuery=this.value;render()" />
+          <button class="btn primary" onclick="openAiOrderModal()">AI 帮我开单</button>
+        </div>
         ${categoryTabs()}
         <div class="product-grid">${productList.map(productCard).join("")}</div>
       </div>
@@ -391,6 +397,66 @@ function changeQty(productId, delta) {
 
 function cartTotal() {
   return state.cart.reduce((sum, item) => sum + item.quantity * item.price, 0);
+}
+
+function openAiOrderModal() {
+  state.aiDraft = null;
+  state.aiLoading = false;
+  state.aiText = "";
+  state.modal = { type: "aiOrder" };
+  render();
+}
+
+async function analyzeAiOrder() {
+  const content = document.getElementById("aiOrderText").value.trim();
+  if (!content) {
+    alert("请先粘贴客户发来的材料清单。");
+    return;
+  }
+  state.aiText = content;
+  state.aiLoading = true;
+  render();
+  try {
+    const response = await fetch("/api/ai/order-draft", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ content, customerId: state.selectedCustomerId }),
+    });
+    const data = await response.json();
+    if (!response.ok) throw new Error(data.error || "AI 识别失败");
+    state.aiDraft = data;
+    state.aiLoading = false;
+    render();
+  } catch (error) {
+    state.aiLoading = false;
+    render();
+    alert(error.message);
+  }
+}
+
+function addDraftLine(productId, quantity) {
+  const product = byId(products, productId);
+  if (!product) return;
+  const value = Number(quantity);
+  if (!Number.isFinite(value) || value <= 0) return;
+  const line = state.cart.find((item) => item.productId === productId);
+  if (line) line.quantity += value;
+  else state.cart.push({ productId, quantity: value, price: product.price });
+}
+
+function applyAiDraft() {
+  if (!state.aiDraft) return;
+  state.aiDraft.matched.forEach((item) => addDraftLine(item.productId, item.quantity));
+  document.querySelectorAll("[data-ai-quantity-product]").forEach((input) => {
+    addDraftLine(input.dataset.aiQuantityProduct, input.value);
+  });
+  document.querySelectorAll("[data-ai-candidate-product]").forEach((select) => {
+    const quantityInput = document.querySelector(`[data-ai-candidate-quantity="${select.dataset.aiCandidateProduct}"]`);
+    addDraftLine(select.value, quantityInput ? quantityInput.value : "");
+  });
+  const count = state.cart.reduce((sum, item) => sum + item.quantity, 0);
+  closeModal();
+  showToast(`AI 已填入 ${count} 件商品，请确认后保存订单`);
 }
 
 async function saveOrder() {
@@ -533,7 +599,89 @@ function renderModal() {
   if (type === "document") return documentModal(id);
   if (type === "editOrder") return editOrderModal(id);
   if (type === "user") return userModal();
+  if (type === "aiOrder") return aiOrderModal();
   return "";
+}
+
+function aiOrderModal() {
+  const customer = byId(customers, state.selectedCustomerId);
+  const draft = state.aiDraft;
+  return `
+    <div class="modal-backdrop" onclick="if(event.target.className==='modal-backdrop')closeModal()">
+      <div class="modal ai-modal">
+        <div class="modal-head">
+          <div><h3>AI 帮我开单</h3><div class="hint">当前客户：${customer ? `${customer.name} - ${customer.phone}` : "请先选择客户"}。AI 只匹配商品库商品，生成后还需要销售确认保存。</div></div>
+          <button class="icon-btn" onclick="closeModal()">×</button>
+        </div>
+        <div class="modal-body">
+          <div class="field">
+            <label>客户发来的材料清单</label>
+            <textarea id="aiOrderText" class="textarea ai-textarea" oninput="state.aiText=this.value" placeholder="例如：石膏板18张主骨25根付骨47根丝杆4根，38钢钉3盒直钉3盒白乳胶一小桶...">${state.aiText}</textarea>
+          </div>
+          <div class="ai-actions">
+            <button class="btn primary" onclick="analyzeAiOrder()" ${state.aiLoading ? "disabled" : ""}>${state.aiLoading ? "识别中..." : "开始识别"}</button>
+            <span class="hint">名称、单位、价格最终都以商品库为准。</span>
+          </div>
+          ${draft ? renderAiDraft(draft) : ""}
+        </div>
+        <div class="modal-foot">
+          <button class="btn" onclick="closeModal()">取消</button>
+          <button class="btn primary" onclick="applyAiDraft()" ${draft ? "" : "disabled"}>填入开单页面</button>
+        </div>
+      </div>
+    </div>
+  `;
+}
+
+function renderAiDraft(draft) {
+  return `
+    <div class="ai-result">
+      ${renderAiMatched(draft.matched || [])}
+      ${renderAiNeedsQuantity(draft.needsQuantity || [])}
+      ${renderAiUncertain(draft.uncertain || [])}
+      ${renderAiUnmatched(draft.unmatched || [])}
+    </div>
+  `;
+}
+
+function renderAiMatched(list) {
+  if (!list.length) return "";
+  return `
+    <section class="ai-section">
+      <h4>已匹配商品</h4>
+      ${list.map((item) => `<div class="ai-line"><div><strong>${item.name}</strong><div class="hint">${item.spec || ""} · ${item.unit} · 原文：${item.rawName || "-"}</div></div><div class="num">${item.quantity} ${item.unit}</div><div class="num">${money(item.price)}</div></div>`).join("")}
+    </section>
+  `;
+}
+
+function renderAiNeedsQuantity(list) {
+  if (!list.length) return "";
+  return `
+    <section class="ai-section">
+      <h4>需要补数量</h4>
+      ${list.map((item) => `<div class="ai-line"><div><strong>${item.name}</strong><div class="hint">${item.spec || ""} · ${item.unit} · 原文：${item.rawName || "-"}</div></div><input class="input ai-small-input" type="number" min="0" step="0.01" placeholder="数量" data-ai-quantity-product="${item.productId}" /><div class="num">${money(item.price)}</div></div>`).join("")}
+    </section>
+  `;
+}
+
+function renderAiUncertain(list) {
+  if (!list.length) return "";
+  return `
+    <section class="ai-section">
+      <h4>需要选择商品</h4>
+      ${list.map((item, index) => `<div class="ai-line ai-line-stack"><div><strong>原文：${item.rawName || "-"}</strong><div class="hint">请选择商品库中的准确商品</div></div><select class="select" data-ai-candidate-product="${index}">${(item.candidates || []).map((product) => `<option value="${product.productId}">${product.name} / ${product.spec || ""} / ${money(product.price)}</option>`).join("")}</select><input class="input ai-small-input" type="number" min="0" step="0.01" value="${item.quantity || ""}" placeholder="数量" data-ai-candidate-quantity="${index}" /></div>`).join("")}
+    </section>
+  `;
+}
+
+function renderAiUnmatched(list) {
+  if (!list.length) return "";
+  return `
+    <section class="ai-section">
+      <h4>未匹配，暂不加入订单</h4>
+      ${list.map((item) => `<div class="ai-line muted-line"><div><strong>${item.rawName || "-"}</strong><div class="hint">${item.note || "商品库中未找到明确商品"}</div></div></div>`).join("")}
+    </section>
+  `;
 }
 
 function customerModal(id) {
