@@ -160,6 +160,55 @@ button {
   box-shadow: 0 0 0 3px rgba(54, 88, 219, 0.12);
 }
 
+.password-field {
+  position: relative;
+}
+
+.password-field .input {
+  padding-right: 46px;
+}
+
+.password-toggle {
+  position: absolute;
+  right: 8px;
+  top: 50%;
+  width: 30px;
+  height: 30px;
+  transform: translateY(-50%);
+  display: grid;
+  place-items: center;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--muted);
+}
+
+.password-toggle:hover {
+  background: var(--soft);
+  color: var(--primary);
+}
+
+.password-toggle::before {
+  content: "";
+  width: 18px;
+  height: 11px;
+  border: 1.8px solid currentColor;
+  border-radius: 50%;
+}
+
+.password-toggle::after {
+  content: "";
+  position: absolute;
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: currentColor;
+}
+
+.password-toggle.active {
+  color: var(--primary);
+}
+
 .hint {
   color: var(--muted);
   font-size: 12px;
@@ -604,7 +653,8 @@ tbody tr:hover {
   margin-bottom: 14px;
 }
 
-.category-tabs button {
+.category-tabs button,
+.subcategory-tabs button {
   border: 1px solid var(--line);
   background: white;
   border-radius: 999px;
@@ -612,11 +662,27 @@ tbody tr:hover {
   color: var(--muted);
 }
 
-.category-tabs button.active {
+.category-tabs button.active,
+.subcategory-tabs button.active {
   border-color: var(--primary);
   background: var(--primary);
   color: white;
   font-weight: 750;
+}
+
+.subcategory-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  max-height: 96px;
+  overflow: auto;
+  margin: -4px 0 14px;
+  padding: 2px 0 6px;
+}
+
+.subcategory-tabs button {
+  padding: 6px 11px;
+  font-size: 12px;
 }
 
 .cart {
@@ -1121,7 +1187,7 @@ tbody tr:hover {
 }
 
 .product-table table {
-  min-width: 860px;
+  min-width: 980px;
 }
 
 .product-name-cell {

@@ -4,6 +4,7 @@ const state = {
   query: "",
   productQuery: "",
   category: "全部",
+  productSubcategory: "",
   orderStatus: "全部",
   modal: null,
   toast: "",
@@ -15,7 +16,10 @@ const state = {
   aiDraft: null,
   aiLoading: false,
   aiText: "",
+  loginPasswordVisible: false,
 };
+
+let inputRenderTimer = null;
 
 let salesUsers = [
   { id: "u1", name: "钱锦健", phone: "13800000001", password: "888888", role: "超级管理员", status: "启用" },
@@ -77,6 +81,57 @@ function showToast(text) {
   }, 1800);
 }
 
+function renderKeepingInput(inputId, selectionStart, selectionEnd) {
+  render();
+  setTimeout(() => {
+    const input = document.getElementById(inputId);
+    if (!input) return;
+    input.focus();
+    if (typeof input.setSelectionRange === "function") {
+      input.setSelectionRange(selectionStart, selectionEnd);
+    }
+  }, 0);
+}
+
+function scheduleInputRender(key, value, inputId, selectionStart, selectionEnd) {
+  state[key] = value;
+  clearTimeout(inputRenderTimer);
+  inputRenderTimer = setTimeout(() => renderKeepingInput(inputId, selectionStart, selectionEnd), 180);
+}
+
+function updatePageQuery(input) {
+  scheduleInputRender("query", input.value, input.id, input.selectionStart, input.selectionEnd);
+}
+
+function updateProductQuery(input) {
+  scheduleInputRender("productQuery", input.value, input.id, input.selectionStart, input.selectionEnd);
+}
+
+function setProductCategory(category) {
+  state.category = category;
+  state.productSubcategory = "";
+  render();
+}
+
+function setProductSubcategory(category) {
+  state.productSubcategory = category;
+  render();
+}
+
+function toggleLoginPassword() {
+  state.loginPasswordVisible = !state.loginPasswordVisible;
+  const phone = document.getElementById("loginPhone")?.value || "";
+  const password = document.getElementById("loginPassword")?.value || "";
+  renderLogin();
+  const phoneInput = document.getElementById("loginPhone");
+  const input = document.getElementById("loginPassword");
+  if (phoneInput) phoneInput.value = phone;
+  if (input) {
+    input.value = password;
+    input.focus();
+  }
+}
+
 function render() {
   if (state.loading) {
     app.innerHTML = `<div class="login-shell"><section class="login-panel"><div class="login-card"><div class="brand-row"><div class="brand-mark">建</div><div><h1 class="page-title">建材销售开单系统</h1><p class="page-subtitle">正在加载...</p></div></div></div></section><section class="login-visual"><div class="visual-board"></div></section></div>`;
@@ -134,7 +189,7 @@ function renderLogin() {
             <div><h1 class="page-title">建材销售开单系统</h1><p class="page-subtitle">手机号登录 · 客户产品订单一体化</p></div>
           </div>
           <div class="field"><label>手机号</label><input id="loginPhone" class="input" value="13800000002" placeholder="请输入已授权手机号" /></div>
-          <div class="field"><label>密码</label><input id="loginPassword" class="input" type="password" value="888888" placeholder="请输入登录密码" /></div>
+          <div class="field"><label>密码</label><div class="password-field"><input id="loginPassword" class="input" type="${state.loginPasswordVisible ? "text" : "password"}" value="888888" placeholder="请输入登录密码" /><button type="button" class="password-toggle ${state.loginPasswordVisible ? "active" : ""}" onclick="toggleLoginPassword()" title="${state.loginPasswordVisible ? "隐藏密码" : "显示密码"}" aria-label="${state.loginPasswordVisible ? "隐藏密码" : "显示密码"}"></button></div></div>
           <button class="btn primary" style="width:100%" onclick="login()">登录系统</button>
           <p class="hint">演示密码均为 888888。管理员手机号：13800000001 / 13800000004；销售：13800000002；财务：13800000005。</p>
         </div>
@@ -265,7 +320,7 @@ function renderCustomers() {
   const list = customers.filter((c) => !q || [c.name, c.contact, c.phone].some((v) => v.includes(q)));
   return `
     <div class="toolbar">
-      <input class="input" placeholder="搜索客户名称/联系人/电话" value="${state.query}" oninput="state.query=this.value;render()" />
+      <input id="customerSearchInput" class="input" placeholder="搜索客户名称/联系人/电话" value="${state.query}" oninput="updatePageQuery(this)" />
       <div class="spacer"></div>
       <button class="btn primary" onclick="openModal('customer')">＋ 新增客户</button>
     </div>
@@ -273,8 +328,19 @@ function renderCustomers() {
   `;
 }
 
+function customerStats(customerId) {
+  const list = orders.filter((order) => order.customerId === customerId && !String(order.no || "").startsWith("TH"));
+  const total = list.reduce((sum, order) => sum + Number(order.amount || 0), 0);
+  const last = list
+    .map((order) => order.date)
+    .filter(Boolean)
+    .sort((a, b) => new Date(b) - new Date(a))[0] || "-";
+  return { total, last, count: list.length };
+}
+
 function customerCard(c) {
   const owner = byId(salesUsers, c.ownerId);
+  const stats = customerStats(c.id);
   return `
     <div class="customer-card">
       <div>
@@ -282,9 +348,9 @@ function customerCard(c) {
         <div class="meta"><span>☎ ${c.phone}</span><span>录入：${owner?.name || "-"}</span></div>
       </div>
       <div class="meta">
-        <span>成交额：<strong>${money(c.total)}</strong></span>
-        <span>最近成交：${c.last}</span>
-        <span>共成交 ${c.orders} 单</span>
+        <span>成交额：<strong>${money(stats.total)}</strong></span>
+        <span>最近成交：${stats.last}</span>
+        <span>共成交 ${stats.count} 单</span>
       </div>
       <div>
         ${actionButton("历史订单", "orders", `openModal('customerOrders','${c.id}')`)}
@@ -299,7 +365,7 @@ function renderProducts() {
   const list = products.filter((p) => (state.category === "全部" || p.cat1 === state.category) && (!q || [p.name, p.spec, p.brand].some((v) => v.includes(q))));
   return `
     <div class="toolbar">
-      <input class="input" placeholder="搜索产品名称/编码/拼音" value="${state.productQuery}" oninput="state.productQuery=this.value;render()" />
+      <input id="productSearchInputLegacy" class="input" placeholder="搜索产品名称/编码/拼音" value="${state.productQuery}" oninput="updateProductQuery(this)" />
       <div class="spacer"></div>
       <button class="btn" onclick="showToast('产品列表已导出 CSV')">⇩ 下载</button>
       <button class="btn primary" onclick="openModal('product')">＋ 新增</button>
@@ -333,7 +399,7 @@ function renderCreateOrder() {
     <div class="product-layout">
       <div>
         <div class="toolbar">
-          <input class="input" placeholder="搜索商品名称、编码、拼音..." value="${state.productQuery}" oninput="state.productQuery=this.value;render()" />
+          <input id="orderProductSearchInput" class="input" placeholder="搜索商品名称、编码、拼音..." value="${state.productQuery}" oninput="updateProductQuery(this)" />
           <button class="btn primary" onclick="openAiOrderModal()">AI 帮我开单</button>
         </div>
         ${categoryTabs()}
@@ -529,7 +595,7 @@ function cycleStatus(orderId) {
 function renderUsers() {
   return `
     <div class="toolbar">
-      <input class="input" placeholder="搜索姓名/手机号/角色" value="${state.query}" oninput="state.query=this.value;render()" />
+      <input id="userSearchInput" class="input" placeholder="搜索姓名/手机号/角色" value="${state.query}" oninput="updatePageQuery(this)" />
       <div class="spacer"></div>
       <button class="btn primary" onclick="openModal('user')">＋ 添加人员</button>
     </div>
@@ -1166,14 +1232,35 @@ function productMeta(p) {
 }
 
 function categoryTabs() {
-  return `<div class="category-tabs">${PRODUCT_CATEGORIES.map((cat) => `<button class="${state.category === cat ? "active" : ""}" onclick="state.category='${cat}';render()">${cat}</button>`).join("")}</div>`;
+  return `<div class="category-tabs">${PRODUCT_CATEGORIES.map((cat) => `<button class="${state.category === cat ? "active" : ""}" onclick="setProductCategory('${cat}')">${cat}</button>`).join("")}</div>`;
+}
+
+function productSubcategories() {
+  if (state.category === "全部") return [];
+  return [...new Set(products
+    .filter((p) => p.cat1 === state.category)
+    .map((p) => p.cat2)
+    .filter(Boolean))]
+    .sort((a, b) => a.localeCompare(b, "zh-CN"));
+}
+
+function subcategoryTabs() {
+  const list = productSubcategories();
+  if (!list.length) return "";
+  return `
+    <div class="subcategory-tabs">
+      <button class="${!state.productSubcategory ? "active" : ""}" onclick="setProductSubcategory('')">全部二级分类</button>
+      ${list.map((cat) => `<button class="${state.productSubcategory === cat ? "active" : ""}" onclick="setProductSubcategory(${JSON.stringify(cat)})">${html(cat)}</button>`).join("")}
+    </div>
+  `;
 }
 
 function filteredProducts() {
   const q = state.productQuery.trim().toLowerCase();
   return products.filter((p) => {
     const categoryOk = state.category === "全部" || p.cat1 === state.category;
-    return categoryOk && (!q || productSearchText(p).includes(q));
+    const subcategoryOk = !state.productSubcategory || p.cat2 === state.productSubcategory;
+    return categoryOk && subcategoryOk && (!q || productSearchText(p).includes(q));
   });
 }
 
@@ -1182,20 +1269,22 @@ function renderProducts() {
   const visible = list.slice(0, 220);
   return `
     <div class="toolbar">
-      <input class="input" placeholder="搜索商品名称 / 规格 / 编码 / 别名" value="${html(state.productQuery)}" oninput="state.productQuery=this.value;render()" />
+      <input id="productSearchInput" class="input" placeholder="搜索商品名称 / 规格 / 编码 / 别名" value="${html(state.productQuery)}" oninput="updateProductQuery(this)" />
       <div class="spacer"></div>
       <button class="btn primary" onclick="openModal('product')">新增商品</button>
     </div>
     ${categoryTabs()}
+    ${subcategoryTabs()}
     <div class="hint" style="margin:8px 0 12px">共 ${list.length} 个商品${list.length > visible.length ? `，当前显示前 ${visible.length} 个，请用搜索缩小范围` : ""}</div>
     <div class="card table-wrap product-table">
       <table>
-        <thead><tr><th>商品名称</th><th>规格</th><th>分类</th><th>单位</th><th>销售价</th><th>状态</th><th>操作</th></tr></thead>
+        <thead><tr><th>商品名称</th><th>规格</th><th>一级分类</th><th>二级分类</th><th>单位</th><th>销售价</th><th>状态</th><th>操作</th></tr></thead>
         <tbody>${visible.map((p) => `
           <tr>
             <td><div class="product-name-cell"><strong>${html(p.name)}</strong><span>${html(p.code || p.id)}</span></div></td>
             <td>${html(p.spec || "-")}</td>
-            <td>${html(productMeta(p))}</td>
+            <td>${html(p.cat1 || "-")}</td>
+            <td>${html(p.cat2 || "-")}</td>
             <td>${html(p.unit)}</td>
             <td class="num">${money(p.price)}</td>
             <td><span class="badge ${isProductActive(p) ? "success" : "danger"}">${html(p.status || "在售")}</span></td>
