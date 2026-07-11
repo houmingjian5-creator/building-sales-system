@@ -1142,4 +1142,153 @@ function printOrder(orderId) {
   showToast("已生成可打印文档");
 }
 
+const PRODUCT_CATEGORIES = ["全部", "水电", "木", "瓦", "油", "辅助商品"];
+
+function html(value) {
+  return String(value ?? "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+}
+
+function productSearchText(p) {
+  return [p.code, p.name, p.spec, p.cat1, p.cat2, p.unit, ...(p.aliases || [])].join(" ").toLowerCase();
+}
+
+function isProductActive(p) {
+  return p.status !== "停用";
+}
+
+function productMeta(p) {
+  return [p.cat1, p.cat2].filter(Boolean).join(" / ") || "-";
+}
+
+function categoryTabs() {
+  return `<div class="category-tabs">${PRODUCT_CATEGORIES.map((cat) => `<button class="${state.category === cat ? "active" : ""}" onclick="state.category='${cat}';render()">${cat}</button>`).join("")}</div>`;
+}
+
+function filteredProducts() {
+  const q = state.productQuery.trim().toLowerCase();
+  return products.filter((p) => {
+    const categoryOk = state.category === "全部" || p.cat1 === state.category;
+    return categoryOk && (!q || productSearchText(p).includes(q));
+  });
+}
+
+function renderProducts() {
+  const list = filteredProducts();
+  const visible = list.slice(0, 220);
+  return `
+    <div class="toolbar">
+      <input class="input" placeholder="搜索商品名称 / 规格 / 编码 / 别名" value="${html(state.productQuery)}" oninput="state.productQuery=this.value;render()" />
+      <div class="spacer"></div>
+      <button class="btn primary" onclick="openModal('product')">新增商品</button>
+    </div>
+    ${categoryTabs()}
+    <div class="hint" style="margin:8px 0 12px">共 ${list.length} 个商品${list.length > visible.length ? `，当前显示前 ${visible.length} 个，请用搜索缩小范围` : ""}</div>
+    <div class="card table-wrap product-table">
+      <table>
+        <thead><tr><th>商品名称</th><th>规格</th><th>分类</th><th>单位</th><th>销售价</th><th>状态</th><th>操作</th></tr></thead>
+        <tbody>${visible.map((p) => `
+          <tr>
+            <td><div class="product-name-cell"><strong>${html(p.name)}</strong><span>${html(p.code || p.id)}</span></div></td>
+            <td>${html(p.spec || "-")}</td>
+            <td>${html(productMeta(p))}</td>
+            <td>${html(p.unit)}</td>
+            <td class="num">${money(p.price)}</td>
+            <td><span class="badge ${isProductActive(p) ? "success" : "danger"}">${html(p.status || "在售")}</span></td>
+            <td>${actionButton("编辑", "edit", `openModal('product',${JSON.stringify(p.id)})`)}</td>
+          </tr>
+        `).join("")}</tbody>
+      </table>
+    </div>
+  `;
+}
+
+function productCard(p) {
+  return `
+    <article class="product-card ${isProductActive(p) ? "" : "disabled"}">
+      <div class="material-thumb" style="--thumb:${p.color || "#dbe4ef"}"></div>
+      <div>
+        <h4 class="product-title">${html(p.name)}</h4>
+        <div class="product-spec">${html(p.spec || "无规格")}<br />${html(productMeta(p))} · ${html(p.unit)}</div>
+        <div class="price">${money(p.price)}</div>
+      </div>
+      ${isProductActive(p) ? actionButton("加入购物车", "plus", `addToCart(${JSON.stringify(p.id)})`) : `<span class="badge danger">停用</span>`}
+    </article>
+  `;
+}
+
+function productModal(id) {
+  const p = byId(products, id) || { cat1: "辅助商品", status: "在售", aliases: [] };
+  const aliases = Array.isArray(p.aliases) ? p.aliases.join("，") : (p.aliases || "");
+  return `
+    <div class="modal-backdrop" onclick="if(event.target.className==='modal-backdrop')closeModal()">
+      <div class="modal side">
+        <div class="modal-head"><h3>${id ? "编辑商品" : "新增商品"}</h3><button class="icon-btn" onclick="closeModal()">×</button></div>
+        <div class="modal-body">
+          <div class="form-grid">
+            <div class="field"><label>商品名称 *</label><input id="productName" class="input" value="${html(p.name || "")}" /></div>
+            <div class="field"><label>规格 *</label><input id="productSpec" class="input" value="${html(p.spec || "")}" placeholder="必须写清楚规格，便于开单选择" /></div>
+            <div class="field"><label>一级分类 *</label><select id="productCat1" class="select">${PRODUCT_CATEGORIES.filter((cat) => cat !== "全部").map((cat) => `<option ${p.cat1 === cat ? "selected" : ""}>${cat}</option>`).join("")}</select></div>
+            <div class="field"><label>二级分类</label><input id="productCat2" class="input" value="${html(p.cat2 || "")}" /></div>
+            <div class="field"><label>单位 *</label><input id="productUnit" class="input" value="${html(p.unit || "")}" /></div>
+            <div class="field"><label>销售价 *</label><input id="productPrice" class="input" type="number" step="0.01" value="${Number(p.price || 0)}" /></div>
+            <div class="field"><label>成本价</label><input id="productCost" class="input" type="number" step="0.01" value="${Number(p.cost || 0)}" /></div>
+            <div class="field"><label>状态</label><select id="productStatus" class="select">${["在售", "停用"].map((item) => `<option ${p.status === item ? "selected" : ""}>${item}</option>`).join("")}</select></div>
+          </div>
+          <details class="advanced-box">
+            <summary>高级设置</summary>
+            <div class="form-grid" style="margin-top:12px">
+              <div class="field"><label>商品编码</label><input id="productCode" class="input" value="${html(p.code || p.id || "")}" ${id ? "disabled" : ""} /></div>
+              <div class="field" style="grid-column:1/-1"><label>别名 / 关键词</label><textarea id="productAliases" class="textarea" placeholder="例如：付骨，副骨，副龙骨。多个别名用逗号隔开">${html(aliases)}</textarea><div class="hint">AI 开单会使用这里的别名，但开单显示仍以商品库名称、规格、单位、价格为准。</div></div>
+            </div>
+          </details>
+        </div>
+        <div class="modal-foot"><button class="btn" onclick="closeModal()">取消</button><button class="btn primary" onclick="saveProduct(${JSON.stringify(id || "")})">保存商品</button></div>
+      </div>
+    </div>
+  `;
+}
+
+async function saveProduct(id) {
+  const payload = {
+    code: document.getElementById("productCode")?.value.trim(),
+    name: document.getElementById("productName").value.trim(),
+    spec: document.getElementById("productSpec").value.trim(),
+    cat1: document.getElementById("productCat1").value,
+    cat2: document.getElementById("productCat2").value.trim(),
+    unit: document.getElementById("productUnit").value.trim(),
+    price: Number(document.getElementById("productPrice").value || 0),
+    cost: Number(document.getElementById("productCost").value || 0),
+    status: document.getElementById("productStatus").value,
+    aliases: document.getElementById("productAliases").value.split(/[,，、;\n]/).map((item) => item.trim()).filter(Boolean),
+  };
+  if (!payload.name || !payload.unit) {
+    alert("商品名称和单位必填。");
+    return;
+  }
+  try {
+    const response = await fetch(id ? `/api/products/${encodeURIComponent(id)}` : "/api/products", {
+      method: id ? "PUT" : "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+    const data = await response.json();
+    if (!response.ok) throw new Error(data.error || "保存商品失败");
+    if (id) {
+      const index = products.findIndex((item) => item.id === id);
+      if (index >= 0) products[index] = data.product;
+    } else {
+      products.unshift(data.product);
+    }
+    closeModal();
+    showToast("商品信息已保存");
+  } catch (error) {
+    alert(error.message);
+  }
+}
+
 boot();

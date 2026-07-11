@@ -1119,3 +1119,51 @@ tbody tr:hover {
     justify-content: flex-start;
   }
 }
+
+.product-table table {
+  min-width: 860px;
+}
+
+.product-name-cell {
+  display: grid;
+  gap: 4px;
+}
+
+.product-name-cell span {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.product-card.disabled {
+  opacity: 0.58;
+}
+
+.advanced-box {
+  margin-top: 10px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #f8fafc;
+  padding: 0;
+}
+
+.advanced-box summary {
+  cursor: pointer;
+  padding: 12px 14px;
+  font-weight: 700;
+  color: var(--text);
+}
+
+.advanced-box[open] {
+  padding: 0 14px 14px;
+}
+
+@media (max-width: 720px) {
+  .product-table table {
+    min-width: 760px;
+  }
+
+  .product-card {
+    grid-template-columns: 1fr auto;
+    min-height: 0;
+  }
+}

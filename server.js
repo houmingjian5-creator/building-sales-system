@@ -102,28 +102,38 @@ function sanitizeUser(user) {
 }
 
 function normalizeText(value) {
-  return String(value || "")
+  return String(value || '')
     .toLowerCase()
-    .replace(/\s+/g, "")
-    .replace(/[（）]/g, (char) => (char === "（" ? "(" : ")"));
+    .replace(/\s+/g, '')
+    .replace(/[????,.]/g, '')
+    .replace(/[??]/g, (char) => (char === '?' ? '(' : ')'));
+}
+
+function splitAliases(value) {
+  if (Array.isArray(value)) return value.map((item) => String(item).trim()).filter(Boolean);
+  return String(value || '')
+    .split(/[,??;\n]/)
+    .map((item) => item.trim())
+    .filter(Boolean);
 }
 
 function productAliases(product) {
-  const terms = [product.name, product.spec, product.brand, product.cat1, product.cat2];
-  const text = `${product.name} ${product.spec}`.toLowerCase();
+  const terms = [product.name, product.spec, product.brand, product.cat1, product.cat2, product.code, ...(product.aliases || [])];
+  const text = (String(product.name || '') + ' ' + String(product.spec || '') + ' ' + (product.aliases || []).join(' ')).toLowerCase();
   const rules = [
-    [/石膏|螺丝|罗丝/, ["石膏罗丝", "石膏螺丝", "石膏丝"]],
-    [/螺母|罗母/, ["罗母", "螺母"]],
-    [/副骨|付骨|辅骨/, ["付骨", "副骨", "辅骨"]],
-    [/主骨/, ["主骨", "主龙骨"]],
-    [/木龙骨/, ["木龙骨", "木方"]],
-    [/石膏板/, ["石膏板"]],
-    [/钢钉/, ["钢钉", "38钢钉"]],
-    [/直钉/, ["直钉"]],
-    [/白乳胶/, ["白乳胶"]],
-    [/水泥/, ["水泥"]],
-    [/搬运/, ["搬运费", "搬运"]],
-    [/运费/, ["运费", "送货费"]],
+    [/\u77f3\u818f|\u87ba\u4e1d|\u7f57\u4e1d/, ['\u77f3\u818f\u87ba\u4e1d', '\u77f3\u818f\u7f57\u4e1d', '\u77f3\u818f\u4e1d']],
+    [/\u87ba\u6bcd|\u7f57\u6bcd|\u7f57\u59c6/, ['\u87ba\u6bcd', '\u7f57\u6bcd', '\u7f57\u59c6']],
+    [/\u526f\u9aa8|\u4ed8\u9aa8|\u8f85\u9aa8|\u526f\u9f99\u9aa8|\u4ed8\u9f99\u9aa8/, ['\u4ed8\u9aa8', '\u526f\u9aa8', '\u8f85\u9aa8', '\u4ed8\u9f99\u9aa8', '\u526f\u9f99\u9aa8']],
+    [/\u4e3b\u9aa8|\u4e3b\u9f99\u9aa8/, ['\u4e3b\u9aa8', '\u4e3b\u9f99\u9aa8']],
+    [/\u8fb9\u9aa8|\u8fb9\u9f99\u9aa8/, ['\u8fb9\u9aa8', '\u8fb9\u9f99\u9aa8']],
+    [/\u6728\u9f99\u9aa8|\u6728\u65b9/, ['\u6728\u9f99\u9aa8', '\u6728\u65b9']],
+    [/\u77f3\u818f\u677f/, ['\u77f3\u818f\u677f']],
+    [/\u94a2\u9489/, ['\u94a2\u9489', '38\u94a2\u9489']],
+    [/\u76f4\u9489/, ['\u76f4\u9489']],
+    [/\u767d\u4e73\u80f6|\u767d\u80f6/, ['\u767d\u4e73\u80f6', '\u767d\u80f6']],
+    [/\u6c34\u6ce5/, ['\u6c34\u6ce5']],
+    [/\u642c\u8fd0/, ['\u642c\u8fd0\u8d39', '\u642c\u8fd0']],
+    [/\u8fd0\u8d39|\u9001\u8d27/, ['\u8fd0\u8d39', '\u9001\u8d27\u8d39']],
   ];
   rules.forEach(([pattern, aliases]) => {
     if (pattern.test(text)) terms.push(...aliases);
@@ -131,16 +141,73 @@ function productAliases(product) {
   return [...new Set(terms.filter(Boolean))];
 }
 
-function catalogForAi(products) {
-  return products.map((product) => ({
+function publicProduct(product) {
+  return {
     id: product.id,
-    name: product.name,
-    spec: product.spec,
-    unit: product.unit,
-    price: product.price,
-    category: product.cat2 || product.cat1 || "",
-    aliases: productAliases(product),
-  }));
+    code: product.code || product.id,
+    brand: product.brand || product.cat1 || '',
+    cat1: product.cat1 || '',
+    cat2: product.cat2 || '',
+    name: product.name || '',
+    spec: product.spec || '',
+    unit: product.unit || '',
+    price: Number(product.price || 0),
+    cost: Number(product.cost || 0),
+    status: product.status || '\u5728\u552e',
+    aliases: splitAliases(product.aliases),
+    color: product.color || '#dbe4ef',
+    stock: Number(product.stock || 0),
+  };
+}
+
+function normalizeProductPayload(payload, existing = {}) {
+  const cat1 = payload.cat1 || existing.cat1 || '\u8f85\u52a9\u5546\u54c1';
+  return {
+    ...existing,
+    id: existing.id || payload.id || payload.code || newId(),
+    code: payload.code || existing.code || payload.id || newId(),
+    brand: payload.brand || cat1,
+    cat1,
+    cat2: payload.cat2 !== undefined ? payload.cat2 : existing.cat2 || (cat1 === '\u8f85\u52a9\u5546\u54c1' ? '\u8f85\u52a9\u5546\u54c1' : ''),
+    name: payload.name || existing.name || '\u672a\u547d\u540d\u5546\u54c1',
+    spec: payload.spec !== undefined ? payload.spec : existing.spec || '',
+    unit: payload.unit || existing.unit || '\u4e2a',
+    price: Number(payload.price || 0),
+    cost: Number(payload.cost || 0),
+    status: payload.status || existing.status || '\u5728\u552e',
+    aliases: splitAliases(payload.aliases !== undefined ? payload.aliases : existing.aliases),
+    color: existing.color || payload.color || '#dbe4ef',
+    stock: Number(existing.stock || payload.stock || 0),
+  };
+}
+
+function candidateFor(product) {
+  return { productId: product.id, name: product.name, spec: product.spec, unit: product.unit, price: product.price };
+}
+
+function matchProductCandidates(products, rawName) {
+  const needle = normalizeText(rawName);
+  if (!needle) return [];
+  const scored = products
+    .filter((product) => product.status !== '\u505c\u7528')
+    .map((product) => {
+      const aliases = productAliases(product);
+      const searchable = normalizeText([product.name, product.spec, product.cat1, product.cat2, ...aliases].join(' '));
+      let score = 0;
+      aliases.forEach((alias) => {
+        const term = normalizeText(alias);
+        if (!term) return;
+        if (term === needle) score = Math.max(score, 120);
+        else if (needle.includes(term) || term.includes(needle)) score = Math.max(score, term.length >= 2 ? 80 : 35);
+      });
+      if (searchable.includes(needle)) score = Math.max(score, 70);
+      if (product.name && needle.includes(normalizeText(product.name))) score = Math.max(score, 90);
+      if (product.spec && needle.includes(normalizeText(product.spec))) score += 25;
+      return { product, score };
+    })
+    .filter((item) => item.score >= 60)
+    .sort((a, b) => b.score - a.score || (String(a.product.name || '') + String(a.product.spec || '')).localeCompare(String(b.product.name || '') + String(b.product.spec || ''), 'zh-CN'));
+  return scored.slice(0, 6);
 }
 
 function parseJsonFromText(text) {
@@ -215,27 +282,18 @@ function validateAiDraft(db, aiResult) {
   const unmatched = [];
 
   lines.forEach((line) => {
-    const rawName = String(line.rawName || line.name || "").trim();
+    const rawName = String(line.rawName || line.name || '').trim();
     const quantity = Number(line.quantity);
-    const candidates = Array.isArray(line.candidates) ? line.candidates : [];
-    const product = db.products.find((item) => item.id === line.productId);
-    const candidateIds = [...new Set([line.productId, ...candidates.map((item) => item.productId || item.id)].filter(Boolean))];
-    const candidateProducts = candidateIds
-      .map((id) => db.products.find((item) => item.id === id))
-      .filter(Boolean)
-      .map((item) => ({ productId: item.id, name: item.name, spec: item.spec, unit: item.unit, price: item.price }));
+    const matches = matchProductCandidates(db.products, rawName);
+    const product = matches[0] && matches[0].score >= 100 && (!matches[1] || matches[0].score - matches[1].score >= 25) ? matches[0].product : null;
+    const candidateProducts = matches.map((item) => candidateFor(item.product));
 
     if (!product) {
       if (candidateProducts.length) {
         uncertain.push({ rawName, quantity: Number.isFinite(quantity) && quantity > 0 ? quantity : null, candidates: candidateProducts });
         return;
       }
-      unmatched.push({ rawName, note: line.note || "商品库中未确认匹配商品" });
-      return;
-    }
-
-    if (candidateProducts.length > 1 || line.confidence === "low") {
-      uncertain.push({ rawName, quantity: Number.isFinite(quantity) && quantity > 0 ? quantity : null, candidates: candidateProducts });
+      unmatched.push({ rawName, note: line.note || '\u5546\u54c1\u5e93\u4e2d\u672a\u627e\u5230\u5339\u914d\u5546\u54c1' });
       return;
     }
 
@@ -259,36 +317,29 @@ function validateAiDraft(db, aiResult) {
 }
 
 async function buildAiOrderDraft(db, content) {
-  const catalog = catalogForAi(db.products);
   const messages = [
     {
-      role: "system",
-      content:
-        "你是建材销售系统的开单识别助手。你只能把用户输入的口语化材料清单匹配到给定商品库中的商品，不能创造商品、不能改价格、不能输出商品库外商品。数量不明确则 quantity=null。商品不确定时给 candidates。只返回 JSON。",
+      role: 'system',
+      content: '\u4f60\u662f\u5efa\u6750\u9500\u552e\u7cfb\u7edf\u7684\u5f00\u5355\u8bc6\u522b\u52a9\u624b\u3002\u4f60\u53ea\u8d1f\u8d23\u4ece\u9500\u552e\u53e3\u8bed\u6587\u672c\u4e2d\u62c6\u51fa\u5546\u54c1\u53eb\u6cd5\u548c\u6570\u91cf\uff0c\u4e0d\u8981\u5339\u914d\u5546\u54c1\u5e93\uff0c\u4e0d\u8981\u521b\u9020\u4ef7\u683c\u3002\u6570\u91cf\u4e0d\u660e\u786e\u65f6 quantity=null\u3002\u53ea\u8fd4\u56de JSON\u3002',
     },
     {
-      role: "user",
+      role: 'user',
       content: JSON.stringify({
-        task: "从 orderText 中识别商品和数量，并匹配 catalog 商品 id。",
+        task: '\u4ece orderText \u4e2d\u8bc6\u522b\u5546\u54c1\u53eb\u6cd5\u548c\u6570\u91cf\u3002',
         outputSchema: {
           items: [
             {
-              rawName: "销售原文中的商品叫法",
-              productId: "确定匹配时填写商品 id，否则 null",
-              quantity: "数字，无法确定则 null",
-              confidence: "high 或 low",
-              candidates: [{ productId: "候选商品 id" }],
-              note: "可选",
+              rawName: '\u9500\u552e\u539f\u6587\u4e2d\u7684\u5546\u54c1\u53eb\u6cd5',
+              quantity: '\u6570\u5b57\uff0c\u65e0\u6cd5\u786e\u5b9a\u5219 null',
+              note: '\u53ef\u9009',
             },
           ],
         },
         rules: [
-          "商品必须来自 catalog",
-          "最终开单名称、单位、价格由系统商品库决定",
-          "一小桶、一大桶、一袋等口语单位只用于理解数量，最终单位用商品库单位",
-          "错别字可以理解，例如罗母=螺母、罗丝=螺丝、付骨=副骨，但不确定要给候选",
+          '\u4e0d\u8981\u628a\u5ba2\u6237\u540d\u3001\u5730\u5740\u3001\u9001\u8d27\u65f6\u95f4\u8bc6\u522b\u4e3a\u5546\u54c1',
+          '\u4e00\u5c0f\u6876\u3001\u4e00\u5927\u6876\u3001\u4e00\u888b\u3001\u4e00\u76d2\u3001\u4e00\u6839\u3001\u4e00\u5f20\u7b49\u53ef\u4ee5\u7406\u89e3\u4e3a\u6570\u91cf 1',
+          '\u9519\u522b\u5b57\u53ef\u4ee5\u6309\u53e3\u8bed\u7406\u89e3\uff0c\u4f8b\u5982\u7f57\u6bcd=\u87ba\u6bcd\u3001\u7f57\u4e1d=\u87ba\u4e1d\u3001\u4ed8\u9aa8=\u526f\u9aa8',
         ],
-        catalog,
         orderText: content,
       }),
     },
@@ -409,6 +460,38 @@ async function handleApi(req, res) {
       });
       writeDb(db);
       return sendJson(res, 200, { user: sanitizeUser(user) });
+    }
+  }
+
+  if (url.pathname === "/api/products") {
+    const user = requireUser(req, res);
+    if (!user) return;
+    const db = readDb();
+    if (method === "GET") return sendJson(res, 200, { products: db.products.map(publicProduct) });
+    if (method === "POST") {
+      const payload = await readBody(req);
+      if (!payload.name) return sendError(res, 400, "商品名称必填");
+      const product = normalizeProductPayload(payload);
+      if (db.products.some((item) => item.id === product.id)) product.id = newId();
+      db.products.unshift(product);
+      writeDb(db);
+      return sendJson(res, 201, { product: publicProduct(product) });
+    }
+  }
+
+  if (url.pathname.startsWith("/api/products/")) {
+    const user = requireUser(req, res);
+    if (!user) return;
+    const id = decodeURIComponent(url.pathname.split("/").pop());
+    const db = readDb();
+    const product = db.products.find((item) => item.id === id);
+    if (!product) return sendError(res, 404, "商品不存在");
+    if (method === "PUT") {
+      const payload = await readBody(req);
+      const updated = normalizeProductPayload(payload, product);
+      Object.assign(product, updated);
+      writeDb(db);
+      return sendJson(res, 200, { product: publicProduct(product) });
     }
   }
 
