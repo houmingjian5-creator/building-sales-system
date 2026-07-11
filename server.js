@@ -185,27 +185,77 @@ function candidateFor(product) {
   return { productId: product.id, name: product.name, spec: product.spec, unit: product.unit, price: product.price };
 }
 
+function requestedBrandTerms(products, needle) {
+  const terms = [];
+  products.forEach((product) => {
+    [product.brand, product.cat2].forEach((value) => {
+      const term = normalizeText(value);
+      if (term && term.length >= 2 && needle.includes(term)) terms.push(term);
+    });
+  });
+  return [...new Set(terms)];
+}
+
+function productHasBrandTerm(product, brandTerms) {
+  if (!brandTerms.length) return true;
+  const haystack = normalizeText([product.brand, product.cat2, product.name, ...(product.aliases || [])].join(' '));
+  return brandTerms.some((term) => haystack.includes(term));
+}
+
+function textTokens(value) {
+  const genericTerms = ['\u666e\u901a', '\u5e38\u89c4', '\u9ed8\u8ba4'];
+  return (String(value || '').toLowerCase().match(/[\u4e00-\u9fa5]+|[a-z0-9.]+/g) || [])
+    .map((token) => normalizeText(token))
+    .filter((token) => token && token.length >= 2 && !genericTerms.includes(token));
+}
+
 function matchProductCandidates(products, rawName) {
   const needle = normalizeText(rawName);
   if (!needle) return [];
+  const brandTerms = requestedBrandTerms(products, needle);
+  const queryTokens = textTokens(rawName);
   const scored = products
     .filter((product) => product.status !== '\u505c\u7528')
     .map((product) => {
       const aliases = productAliases(product);
-      const searchable = normalizeText([product.name, product.spec, product.cat1, product.cat2, ...aliases].join(' '));
+      const name = normalizeText(product.name);
+      const spec = normalizeText(product.spec);
+      const brand = normalizeText(product.brand);
+      const cat2 = normalizeText(product.cat2);
+      const searchable = normalizeText([product.name, product.spec, product.brand, product.cat1, product.cat2, ...aliases].join(' '));
       let score = 0;
+
+      if (brandTerms.length && !productHasBrandTerm(product, brandTerms)) score -= 120;
+      if (brand && needle.includes(brand)) score += 80;
+      if (cat2 && needle.includes(cat2)) score += 140;
+      if (name && name === needle) score += 220;
+      else if (name && name.includes(needle)) score += 150;
+      else if (name && needle.includes(name)) score += 150;
+      if (spec && needle.includes(spec)) score += 45;
+      if (
+        needle.includes('\u77f3\u818f\u677f') &&
+        name.includes('\u666e\u901a') &&
+        !['\u9632\u6c34', '\u8010\u6f6e', '\u5347\u7ea7', '\u5206\u89e3', '\u4fee\u8865', '\u4fdd\u62a4'].some((term) => needle.includes(term))
+      ) {
+        score += 45;
+      }
+
       aliases.forEach((alias) => {
         const term = normalizeText(alias);
         if (!term) return;
-        if (term === needle) score = Math.max(score, 120);
-        else if (needle.includes(term) || term.includes(needle)) score = Math.max(score, term.length >= 2 ? 80 : 35);
+        const numericTerm = /^[0-9.]+$/.test(term);
+        const genericTerm = ['\u666e\u901a', '\u5e38\u89c4', '\u9ed8\u8ba4'].includes(term);
+        if (term === needle) score += 120;
+        else if (needle.includes(term)) score += numericTerm || genericTerm ? 8 : (term.length >= 2 ? 70 : 10);
+        else if (term.includes(needle)) score += numericTerm ? 5 : (term.length >= 2 ? 25 : 8);
       });
-      if (searchable.includes(needle)) score = Math.max(score, 70);
-      if (product.name && needle.includes(normalizeText(product.name))) score = Math.max(score, 90);
-      if (product.spec && needle.includes(normalizeText(product.spec))) score += 25;
+      queryTokens.forEach((token) => {
+        if (searchable.includes(token)) score += /^[0-9.]+$/.test(token) ? 18 : 30;
+      });
+      if (searchable.includes(needle)) score += 50;
       return { product, score };
     })
-    .filter((item) => item.score >= 60)
+    .filter((item) => item.score >= 55)
     .sort((a, b) => b.score - a.score || (String(a.product.name || '') + String(a.product.spec || '')).localeCompare(String(b.product.name || '') + String(b.product.spec || ''), 'zh-CN'));
   return scored.slice(0, 6);
 }
