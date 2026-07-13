@@ -16,6 +16,7 @@ const state = {
   aiDraft: null,
   aiLoading: false,
   aiText: "",
+  aiLearnPairs: [],
   loginPasswordVisible: false,
 };
 
@@ -502,23 +503,32 @@ async function analyzeAiOrder() {
 
 function addDraftLine(productId, quantity) {
   const product = byId(products, productId);
-  if (!product) return;
+  if (!product) return false;
   const value = Number(quantity);
-  if (!Number.isFinite(value) || value <= 0) return;
+  if (!Number.isFinite(value) || value <= 0) return false;
   const line = state.cart.find((item) => item.productId === productId);
   if (line) line.quantity += value;
   else state.cart.push({ productId, quantity: value, price: product.price });
+  return true;
+}
+
+function rememberAiChoice(rawName, productId) {
+  if (!rawName || !productId) return;
+  state.aiLearnPairs.push({ rawName, productId });
 }
 
 function applyAiDraft() {
   if (!state.aiDraft) return;
-  state.aiDraft.matched.forEach((item) => addDraftLine(item.productId, item.quantity));
+  state.aiLearnPairs = [];
+  state.aiDraft.matched.forEach((item) => {
+    if (addDraftLine(item.productId, item.quantity)) rememberAiChoice(item.rawName, item.productId);
+  });
   document.querySelectorAll("[data-ai-quantity-product]").forEach((input) => {
-    addDraftLine(input.dataset.aiQuantityProduct, input.value);
+    if (addDraftLine(input.dataset.aiQuantityProduct, input.value)) rememberAiChoice(input.dataset.aiRawName, input.dataset.aiQuantityProduct);
   });
   document.querySelectorAll("[data-ai-candidate-product]").forEach((select) => {
     const quantityInput = document.querySelector(`[data-ai-candidate-quantity="${select.dataset.aiCandidateProduct}"]`);
-    addDraftLine(select.value, quantityInput ? quantityInput.value : "");
+    if (addDraftLine(select.value, quantityInput ? quantityInput.value : "")) rememberAiChoice(select.dataset.aiRawName, select.value);
   });
   const count = state.cart.reduce((sum, item) => sum + item.quantity, 0);
   closeModal();
@@ -540,12 +550,14 @@ async function saveOrder() {
         salesUserId: state.salesUserId,
         amount: cartTotal(),
         items: state.cart.map((item) => ({ ...item })),
+        aiLearnPairs: state.aiLearnPairs,
       }),
     });
     const data = await response.json();
     if (!response.ok) throw new Error(data.error || "保存订单失败");
     orders = [data.order, ...orders];
     state.cart = [];
+    state.aiLearnPairs = [];
     state.route = "orders";
     state.modal = { type: "document", id: data.order.id };
     showToast(state.orderType === "return" ? "退货单已生成" : "销售单已生成");
@@ -715,7 +727,7 @@ function renderAiMatched(list) {
   return `
     <section class="ai-section">
       <h4>已匹配商品</h4>
-      ${list.map((item) => `<div class="ai-line"><div><strong>${item.name}</strong><div class="hint">${item.spec || ""} · ${item.unit} · 原文：${item.rawName || "-"}</div></div><div class="num">${item.quantity} ${item.unit}</div><div class="num">${money(item.price)}</div></div>`).join("")}
+      ${list.map((item) => `<div class="ai-line"><div><strong>${html(item.name)}</strong><div class="hint">${html(item.spec || "")} · ${html(item.unit)} · 原文：${html(item.rawName || "-")}</div></div><div class="num">${html(item.quantity)} ${html(item.unit)}</div><div class="num">${money(item.price)}</div></div>`).join("")}
     </section>
   `;
 }
@@ -725,7 +737,7 @@ function renderAiNeedsQuantity(list) {
   return `
     <section class="ai-section">
       <h4>需要补数量</h4>
-      ${list.map((item) => `<div class="ai-line"><div><strong>${item.name}</strong><div class="hint">${item.spec || ""} · ${item.unit} · 原文：${item.rawName || "-"}</div></div><input class="input ai-small-input" type="number" min="0" step="0.01" placeholder="数量" data-ai-quantity-product="${item.productId}" /><div class="num">${money(item.price)}</div></div>`).join("")}
+      ${list.map((item) => `<div class="ai-line"><div><strong>${html(item.name)}</strong><div class="hint">${html(item.spec || "")} · ${html(item.unit)} · 原文：${html(item.rawName || "-")}</div></div><input class="input ai-small-input" type="number" min="0" step="0.01" placeholder="数量" data-ai-quantity-product="${html(item.productId)}" data-ai-raw-name="${html(item.rawName || "")}" /><div class="num">${money(item.price)}</div></div>`).join("")}
     </section>
   `;
 }
@@ -735,7 +747,7 @@ function renderAiUncertain(list) {
   return `
     <section class="ai-section">
       <h4>需要选择商品</h4>
-      ${list.map((item, index) => `<div class="ai-line ai-line-stack"><div><strong>原文：${item.rawName || "-"}</strong><div class="hint">请选择商品库中的准确商品</div></div><select class="select" data-ai-candidate-product="${index}">${(item.candidates || []).map((product) => `<option value="${product.productId}">${product.name} / ${product.spec || ""} / ${money(product.price)}</option>`).join("")}</select><input class="input ai-small-input" type="number" min="0" step="0.01" value="${item.quantity || ""}" placeholder="数量" data-ai-candidate-quantity="${index}" /></div>`).join("")}
+      ${list.map((item, index) => `<div class="ai-line ai-line-stack"><div><strong>原文：${html(item.rawName || "-")}</strong><div class="hint">请选择商品库中的准确商品</div></div><select class="select" data-ai-candidate-product="${index}" data-ai-raw-name="${html(item.rawName || "")}">${(item.candidates || []).map((product) => `<option value="${html(product.productId)}">${html(product.name)} / ${html(product.spec || "无规格")} / ${html(product.unit || "-")} / ${html(product.cat1 || "-")}${product.cat2 ? " · " + html(product.cat2) : ""} / ${money(product.price)}</option>`).join("")}</select><input class="input ai-small-input" type="number" min="0" step="0.01" value="${html(item.quantity || "")}" placeholder="数量" data-ai-candidate-quantity="${index}" /></div>`).join("")}
     </section>
   `;
 }
@@ -745,11 +757,10 @@ function renderAiUnmatched(list) {
   return `
     <section class="ai-section">
       <h4>未匹配，暂不加入订单</h4>
-      ${list.map((item) => `<div class="ai-line muted-line"><div><strong>${item.rawName || "-"}</strong><div class="hint">${item.note || "商品库中未找到明确商品"}</div></div></div>`).join("")}
+      ${list.map((item) => `<div class="ai-line muted-line"><div><strong>${html(item.rawName || "-")}</strong><div class="hint">${html(item.note || "商品库中未找到明确商品")}</div></div></div>`).join("")}
     </section>
   `;
 }
-
 function customerModal(id) {
   const c = byId(customers, id) || {};
   return modalShell(id ? "编辑客户" : "新增客户", `

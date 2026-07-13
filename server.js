@@ -105,8 +105,19 @@ function normalizeText(value) {
   return String(value || '')
     .toLowerCase()
     .replace(/\s+/g, '')
-    .replace(/[????,.]/g, '')
-    .replace(/[??]/g, (char) => (char === '?' ? '(' : ')'));
+    .replace(/[，。、“”‘’：:；;！!？?、,.]/g, '')
+    .replace(/[（）]/g, (char) => (char === '（' ? '(' : ')'))
+    .replace(/×/g, '*');
+}
+
+function normalizeMatchText(value) {
+  return normalizeText(value)
+    .replace(/摩丽美涂/g, '摩利美涂')
+    .replace(/付龙骨|付骨|辅龙骨|辅骨/g, '副龙骨')
+    .replace(/直顶/g, '直钉')
+    .replace(/罗丝/g, '螺丝')
+    .replace(/罗母|罗姆/g, '螺母')
+    .replace(/木龙骨|木条/g, '木方');
 }
 
 function splitAliases(value) {
@@ -126,10 +137,11 @@ function productAliases(product) {
     [/\u526f\u9aa8|\u4ed8\u9aa8|\u8f85\u9aa8|\u526f\u9f99\u9aa8|\u4ed8\u9f99\u9aa8/, ['\u4ed8\u9aa8', '\u526f\u9aa8', '\u8f85\u9aa8', '\u4ed8\u9f99\u9aa8', '\u526f\u9f99\u9aa8']],
     [/\u4e3b\u9aa8|\u4e3b\u9f99\u9aa8/, ['\u4e3b\u9aa8', '\u4e3b\u9f99\u9aa8']],
     [/\u8fb9\u9aa8|\u8fb9\u9f99\u9aa8/, ['\u8fb9\u9aa8', '\u8fb9\u9f99\u9aa8']],
-    [/\u6728\u9f99\u9aa8|\u6728\u65b9/, ['\u6728\u9f99\u9aa8', '\u6728\u65b9']],
+    [/\u6728\u9f99\u9aa8|\u6728\u65b9|\u6728\u6761/, ['\u6728\u9f99\u9aa8', '\u6728\u65b9', '\u6728\u6761', '\u6728\u9f99\u9aa8\u6761']],
     [/\u77f3\u818f\u677f/, ['\u77f3\u818f\u677f']],
     [/\u94a2\u9489/, ['\u94a2\u9489', '38\u94a2\u9489']],
-    [/\u76f4\u9489/, ['\u76f4\u9489']],
+    [/\u76f4\u9489/, ['\u76f4\u9489', '\u76f4\u9876']],
+    [/\u9634\u89d2|\u9633\u89d2|\u9634\u9633\u89d2/, ['\u9634\u89d2', '\u9633\u89d2', '\u9634\u9633\u89d2']],
     [/\u767d\u4e73\u80f6|\u767d\u80f6/, ['\u767d\u4e73\u80f6', '\u767d\u80f6']],
     [/\u6c34\u6ce5/, ['\u6c34\u6ce5']],
     [/\u642c\u8fd0/, ['\u642c\u8fd0\u8d39', '\u642c\u8fd0']],
@@ -182,52 +194,141 @@ function normalizeProductPayload(payload, existing = {}) {
 }
 
 function candidateFor(product) {
-  return { productId: product.id, name: product.name, spec: product.spec, unit: product.unit, price: product.price };
+  return { productId: product.id, name: product.name, spec: product.spec, unit: product.unit, price: product.price, cat1: product.cat1 || '', cat2: product.cat2 || '' };
+}
+
+function isGenericBrandTerm(term) {
+  const genericTerms = ['龙骨', '主龙骨', '副龙骨', '边龙骨', '石膏板', '石膏', '木方', '木类小配件', '木工辅材', '油工辅材', '水电辅材', '辅助商品'];
+  return genericTerms.some((generic) => term === generic || term.includes(generic));
 }
 
 function requestedBrandTerms(products, needle) {
   const terms = [];
   products.forEach((product) => {
     [product.brand, product.cat2].forEach((value) => {
-      const term = normalizeText(value);
-      if (term && term.length >= 2 && needle.includes(term)) terms.push(term);
+      const term = normalizeMatchText(value);
+      if (term && term.length >= 2 && needle.includes(term) && !isGenericBrandTerm(term)) terms.push(term);
     });
   });
   return [...new Set(terms)];
 }
 
+function contextBrandTerms(products, content) {
+  const text = normalizeMatchText(content);
+  if (!/(全用|都用|全部用|统一用|用).*?(牌|品牌|的)/.test(text)) return [];
+  const brands = [];
+  products.forEach((product) => {
+    [product.brand, product.cat2].forEach((value) => {
+      const term = normalizeMatchText(value);
+      if (term && term.length >= 2 && text.includes(term) && !isGenericBrandTerm(term)) brands.push(term);
+    });
+  });
+  return [...new Set(brands)];
+}
+
 function productHasBrandTerm(product, brandTerms) {
   if (!brandTerms.length) return true;
-  const haystack = normalizeText([product.brand, product.cat2, product.name, ...(product.aliases || [])].join(' '));
+  const haystack = normalizeMatchText([product.brand, product.cat2, product.name, ...(product.aliases || [])].join(' '));
   return brandTerms.some((term) => haystack.includes(term));
 }
 
 function textTokens(value) {
   const genericTerms = ['\u666e\u901a', '\u5e38\u89c4', '\u9ed8\u8ba4'];
   return (String(value || '').toLowerCase().match(/[\u4e00-\u9fa5]+|[a-z0-9.]+/g) || [])
-    .map((token) => normalizeText(token))
+    .map((token) => normalizeMatchText(token))
     .filter((token) => token && token.length >= 2 && !genericTerms.includes(token));
 }
 
-function matchProductCandidates(products, rawName) {
-  const needle = normalizeText(rawName);
+function productKind(product) {
+  const text = normalizeMatchText([product.name, product.spec, product.brand, product.cat1, product.cat2, ...(product.aliases || [])].join(' '));
+  if (text.includes('木方')) return 'woodBatten';
+  if (text.includes('主龙骨')) return 'mainKeel';
+  if (text.includes('副龙骨')) return 'subKeel';
+  if (text.includes('边龙骨')) return 'edgeKeel';
+  if (text.includes('龙骨')) return 'lightKeel';
+  if (text.includes('石膏板')) return 'gypsumBoard';
+  if (text.includes('石膏')) return 'gypsum';
+  if (text.includes('腻子')) return 'putty';
+  if (text.includes('界面剂')) return 'primer';
+  if (text.includes('保护膜胶')) return 'filmTape';
+  if (text.includes('保护膜')) return 'floorFilm';
+  if (text.includes('丝杆')) return 'rod';
+  if (text.includes('螺丝') || text.includes('螺钉') || text.includes('自攻钉')) return 'screw';
+  if (text.includes('直钉')) return 'straightNail';
+  if (text.includes('钢钉')) return 'steelNail';
+  if (text.includes('阴角')) return 'insideCorner';
+  if (text.includes('阳角')) return 'outsideCorner';
+  return '';
+}
+
+function requestedKind(rawName) {
+  const text = normalizeMatchText(rawName);
+  if (text.includes('木方') || /\d+[*]\d+/.test(text) && text.includes('龙骨')) return 'woodBatten';
+  if (text.includes('主龙骨')) return 'mainKeel';
+  if (text.includes('副龙骨')) return 'subKeel';
+  if (text.includes('边龙骨')) return 'edgeKeel';
+  if (text.includes('石膏板')) return 'gypsumBoard';
+  if (text.includes('石膏')) return 'gypsum';
+  if (text.includes('腻子')) return 'putty';
+  if (text.includes('界面剂')) return 'primer';
+  if (text.includes('保护膜胶') || text.includes('胶布')) return 'filmTape';
+  if (text.includes('保护膜')) return 'floorFilm';
+  if (text.includes('丝杆')) return 'rod';
+  if (text.includes('螺丝') || text.includes('螺钉') || text.includes('自攻钉')) return 'screw';
+  if (text.includes('直钉')) return 'straightNail';
+  if (text.includes('钢钉')) return 'steelNail';
+  if (text.includes('阴角')) return 'insideCorner';
+  if (text.includes('阳角')) return 'outsideCorner';
+  return '';
+}
+
+function isBrandSensitiveKind(kind) {
+  return ['mainKeel', 'subKeel', 'edgeKeel', 'lightKeel', 'gypsumBoard'].includes(kind);
+}
+
+function learningScore(db, rawName, productId) {
+  const key = normalizeMatchText(rawName);
+  const learning = db && db.aiLearning && db.aiLearning.productChoices;
+  if (!key || !learning || !learning[key] || !learning[key][productId]) return 0;
+  return Math.min(90, Number(learning[key][productId] || 0) * 18);
+}
+
+function hasStandaloneNumber(product, token) {
+  const text = [product.name, product.spec].join(' ');
+  const escaped = String(token).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  return new RegExp(`(^|[^0-9.])${escaped}([^0-9.]|$)`).test(text);
+}
+
+function matchProductCandidates(products, rawName, options = {}) {
+  const needle = normalizeMatchText(rawName);
   if (!needle) return [];
-  const brandTerms = requestedBrandTerms(products, needle);
+  const explicitBrandTerms = requestedBrandTerms(products, needle);
+  const contextBrands = options.contextBrandTerms || [];
+  const kind = requestedKind(rawName);
+  const brandTerms = explicitBrandTerms.length ? explicitBrandTerms : (isBrandSensitiveKind(kind) ? contextBrands : []);
   const queryTokens = textTokens(rawName);
   const scored = products
     .filter((product) => product.status !== '\u505c\u7528')
     .map((product) => {
       const aliases = productAliases(product);
-      const name = normalizeText(product.name);
-      const spec = normalizeText(product.spec);
-      const brand = normalizeText(product.brand);
-      const cat2 = normalizeText(product.cat2);
-      const searchable = normalizeText([product.name, product.spec, product.brand, product.cat1, product.cat2, ...aliases].join(' '));
+      const name = normalizeMatchText(product.name);
+      const spec = normalizeMatchText(product.spec);
+      const brand = normalizeMatchText(product.brand);
+      const cat2 = normalizeMatchText(product.cat2);
+      const searchable = normalizeMatchText([product.name, product.spec, product.brand, product.cat1, product.cat2, ...aliases].join(' '));
+      const pKind = productKind(product);
       let score = 0;
 
-      if (brandTerms.length && !productHasBrandTerm(product, brandTerms)) score -= 120;
-      if (brand && needle.includes(brand)) score += 80;
-      if (cat2 && needle.includes(cat2)) score += 140;
+      if (kind && pKind === kind) score += 150;
+      if (kind === 'woodBatten' && ['mainKeel', 'subKeel', 'edgeKeel', 'lightKeel'].includes(pKind)) score -= 220;
+      if (['mainKeel', 'subKeel', 'edgeKeel'].includes(kind) && pKind === 'woodBatten') score -= 180;
+      if (kind === 'gypsum' && pKind === 'primer') score -= 90;
+      if (kind === 'primer' && pKind === 'gypsum') score -= 70;
+
+      if (brandTerms.length && !productHasBrandTerm(product, brandTerms)) score -= explicitBrandTerms.length ? 180 : 40;
+      if (brandTerms.length && productHasBrandTerm(product, brandTerms)) score += explicitBrandTerms.length ? 160 : 90;
+      if (brand && needle.includes(brand)) score += 100;
+      if (cat2 && needle.includes(cat2)) score += 150;
       if (name && name === needle) score += 220;
       else if (name && name.includes(needle)) score += 150;
       else if (name && needle.includes(name)) score += 150;
@@ -241,7 +342,7 @@ function matchProductCandidates(products, rawName) {
       }
 
       aliases.forEach((alias) => {
-        const term = normalizeText(alias);
+        const term = normalizeMatchText(alias);
         if (!term) return;
         const numericTerm = /^[0-9.]+$/.test(term);
         const genericTerm = ['\u666e\u901a', '\u5e38\u89c4', '\u9ed8\u8ba4'].includes(term);
@@ -250,14 +351,22 @@ function matchProductCandidates(products, rawName) {
         else if (term.includes(needle)) score += numericTerm ? 5 : (term.length >= 2 ? 25 : 8);
       });
       queryTokens.forEach((token) => {
-        if (searchable.includes(token)) score += /^[0-9.]+$/.test(token) ? 18 : 30;
+        if (!searchable.includes(token)) return;
+        if (/^[0-9.]+$/.test(token)) score += hasStandaloneNumber(product, token) ? 70 : 12;
+        else score += 30;
       });
       if (searchable.includes(needle)) score += 50;
+      if (needle.includes('摩利美涂') && needle.includes('石膏') && name.includes('摩利美涂') && name.includes('找平石膏')) score += 120;
+      if (needle.includes('摩利美涂') && needle.includes('石膏') && name.includes('轻质石膏')) score += 40;
+      if (needle.includes('红色') && name.includes('保护膜') && !name.includes('绿色')) score += 30;
+      if (kind === 'screw' && needle.includes('春雨') && searchable.includes('春雨')) score += 90;
+      if (kind === 'screw' && needle.includes('黑') && searchable.includes('黑')) score += 70;
+      score += learningScore(options.db, rawName, product.id);
       return { product, score };
     })
     .filter((item) => item.score >= 55)
     .sort((a, b) => b.score - a.score || (String(a.product.name || '') + String(a.product.spec || '')).localeCompare(String(b.product.name || '') + String(b.product.spec || ''), 'zh-CN'));
-  return scored.slice(0, 6);
+  return scored.slice(0, 8);
 }
 
 function parseJsonFromText(text) {
@@ -324,18 +433,34 @@ function callDeepSeek(messages) {
   });
 }
 
-function validateAiDraft(db, aiResult) {
+function expandAiLines(lines) {
+  const expanded = [];
+  lines.forEach((line) => {
+    const rawName = String(line.rawName || line.name || '').trim();
+    const normalized = normalizeMatchText(rawName);
+    if (normalized.includes('阴阳角')) {
+      expanded.push({ ...line, rawName: rawName.replace(/阴阳角/g, '阴角'), quantity: 50 });
+      expanded.push({ ...line, rawName: rawName.replace(/阴阳角/g, '阳角'), quantity: 50 });
+      return;
+    }
+    expanded.push(line);
+  });
+  return expanded;
+}
+
+function validateAiDraft(db, aiResult, content = '') {
   const lines = Array.isArray(aiResult.items) ? aiResult.items : [];
   const matched = [];
   const needsQuantity = [];
   const uncertain = [];
   const unmatched = [];
+  const contextBrands = contextBrandTerms(db.products, content);
 
-  lines.forEach((line) => {
+  expandAiLines(lines).forEach((line) => {
     const rawName = String(line.rawName || line.name || '').trim();
     const quantity = Number(line.quantity);
-    const matches = matchProductCandidates(db.products, rawName);
-    const product = matches[0] && matches[0].score >= 100 && (!matches[1] || matches[0].score - matches[1].score >= 25) ? matches[0].product : null;
+    const matches = matchProductCandidates(db.products, rawName, { db, contextBrandTerms: contextBrands });
+    const product = matches[0] && matches[0].score >= 170 && (!matches[1] || matches[0].score - matches[1].score >= 55) ? matches[0].product : null;
     const candidateProducts = matches.map((item) => candidateFor(item.product));
 
     if (!product) {
@@ -389,13 +514,30 @@ async function buildAiOrderDraft(db, content) {
           '\u4e0d\u8981\u628a\u5ba2\u6237\u540d\u3001\u5730\u5740\u3001\u9001\u8d27\u65f6\u95f4\u8bc6\u522b\u4e3a\u5546\u54c1',
           '\u4e00\u5c0f\u6876\u3001\u4e00\u5927\u6876\u3001\u4e00\u888b\u3001\u4e00\u76d2\u3001\u4e00\u6839\u3001\u4e00\u5f20\u7b49\u53ef\u4ee5\u7406\u89e3\u4e3a\u6570\u91cf 1',
           '\u9519\u522b\u5b57\u53ef\u4ee5\u6309\u53e3\u8bed\u7406\u89e3\uff0c\u4f8b\u5982\u7f57\u6bcd=\u87ba\u6bcd\u3001\u7f57\u4e1d=\u87ba\u4e1d\u3001\u4ed8\u9aa8=\u526f\u9aa8',
+          '\u5168\u7528\u67d0\u54c1\u724c\u3001\u90fd\u7528\u67d0\u54c1\u724c\u662f\u4e0a\u4e0b\u6587\u54c1\u724c\uff0c\u4e0d\u8981\u5f53\u4f5c\u5546\u54c1\u884c',
+          '\u9634\u9633\u89d2\u5404\u4e00\u628a\u9700\u8981\u4fdd\u7559\u4e3a\u9634\u9633\u89d2\uff0c\u4e0d\u8981\u4e22\u5931',
+          '\u5982\u679c\u5546\u54c1\u540d\u540e\u9762\u7d27\u8ddf\u6570\u5b57\u4e14\u6709\u5355\u4f4d\uff0c\u4f8b\u5982\u6469\u5229\u7f8e\u6d82\u77f3\u818f30\u888b\uff0c\u6570\u5b57\u662f\u6570\u91cf',
         ],
         orderText: content,
       }),
     },
   ];
   const text = await callDeepSeek(messages);
-  return validateAiDraft(db, parseJsonFromText(text));
+  return validateAiDraft(db, parseJsonFromText(text), content);
+}
+
+function recordAiLearning(db, pairs) {
+  const validPairs = Array.isArray(pairs) ? pairs : [];
+  if (!validPairs.length) return;
+  if (!db.aiLearning) db.aiLearning = {};
+  if (!db.aiLearning.productChoices) db.aiLearning.productChoices = {};
+  validPairs.forEach((pair) => {
+    const key = normalizeMatchText(pair.rawName || '');
+    const productId = String(pair.productId || '');
+    if (!key || !productId || !db.products.some((product) => product.id === productId)) return;
+    if (!db.aiLearning.productChoices[key]) db.aiLearning.productChoices[key] = {};
+    db.aiLearning.productChoices[key][productId] = Number(db.aiLearning.productChoices[key][productId] || 0) + 1;
+  });
 }
 
 function serveStatic(req, res) {
@@ -580,6 +722,7 @@ async function handleApi(req, res) {
         items: payload.items || [],
       };
       db.orders.unshift(order);
+      recordAiLearning(db, payload.aiLearnPairs);
       writeDb(db);
       return sendJson(res, 201, { order });
     }
