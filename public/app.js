@@ -192,10 +192,9 @@ function renderLogin() {
             <div class="brand-mark">建</div>
             <div><h1 class="page-title">建材销售开单系统</h1><p class="page-subtitle">手机号登录 · 客户产品订单一体化</p></div>
           </div>
-          <div class="field"><label>手机号</label><input id="loginPhone" class="input" value="13800000002" placeholder="请输入已授权手机号" /></div>
-          <div class="field"><label>密码</label><div class="password-field"><input id="loginPassword" class="input" type="${state.loginPasswordVisible ? "text" : "password"}" value="888888" placeholder="请输入登录密码" /><button type="button" class="password-toggle ${state.loginPasswordVisible ? "active" : ""}" onclick="toggleLoginPassword()" title="${state.loginPasswordVisible ? "隐藏密码" : "显示密码"}" aria-label="${state.loginPasswordVisible ? "隐藏密码" : "显示密码"}"></button></div></div>
+          <div class="field"><label>手机号</label><input id="loginPhone" class="input" value="" placeholder="请输入已授权手机号" /></div>
+          <div class="field"><label>密码</label><div class="password-field"><input id="loginPassword" class="input" type="${state.loginPasswordVisible ? "text" : "password"}" value="" placeholder="请输入登录密码" /><button type="button" class="password-toggle ${state.loginPasswordVisible ? "active" : ""}" onclick="toggleLoginPassword()" title="${state.loginPasswordVisible ? "隐藏密码" : "显示密码"}" aria-label="${state.loginPasswordVisible ? "隐藏密码" : "显示密码"}"></button></div></div>
           <button class="btn primary" style="width:100%" onclick="login()">登录系统</button>
-          <p class="hint">演示密码均为 888888。管理员手机号：13800000001 / 13800000004；销售：13800000002；财务：13800000005。</p>
         </div>
       </section>
       <section class="login-visual"><div class="visual-board"></div></section>
@@ -824,7 +823,7 @@ function documentModal(id) {
   const order = byId(orders, id);
   const c = byId(customers, order.customerId);
   const s = byId(salesUsers, order.salesUserId);
-  const title = order.no.startsWith("TH") || order.status === "已退货" ? "退货单" : "销售单";
+  const title = order.no.startsWith("TH") || order.status === "已退货" ? "退货单" : "销售订单";
   const rows = getDisplayRows(order);
   return `
     <div class="modal-backdrop" onclick="if(event.target.className==='modal-backdrop')closeModal()">
@@ -833,7 +832,7 @@ function documentModal(id) {
         <div class="modal-body">
           <div class="doc-preview">
             <h2>${title}</h2>
-            <div class="doc-subtitle">小侯家建材销售系统</div>
+            <div class="doc-subtitle">材达家建材销售系统</div>
             <div class="doc-info">
               <div><span>客户：</span>${c.name}</div>
               <div><span>单号：</span>${order.no}</div>
@@ -989,7 +988,7 @@ function getDisplayRows(order) {
 function getOrderDoc(orderId) {
   const order = byId(orders, orderId);
   const customer = byId(customers, order.customerId);
-  const title = order.no.startsWith("TH") || order.status === "已退货" ? "退货单" : "销售单";
+  const title = order.no.startsWith("TH") || order.status === "已退货" ? "退货单" : "销售订单";
   return { order, customer, title, rows: getOrderRows(order) };
 }
 
@@ -1049,7 +1048,7 @@ function downloadOrderHtml(orderId) {
 <body>
   <main class="sheet">
     <h1>${title}</h1>
-    <div class="subtitle">小侯家建材销售系统</div>
+    <div class="subtitle">材达家建材销售系统</div>
     <section class="info">
       <div><span>客户：</span>${customer.name}</div>
       <div><span>单号：</span>${order.no}</div>
@@ -1096,7 +1095,7 @@ function downloadOrderImage(orderId) {
   ctx.font = "800 42px Microsoft YaHei, Arial";
   ctx.fillText(title, width / 2, 118);
   ctx.font = "600 22px Microsoft YaHei, Arial";
-  ctx.fillText("小侯家建材销售系统", width / 2, 160);
+  ctx.fillText("材达家建材销售系统", width / 2, 160);
 
   ctx.textAlign = "left";
   ctx.font = "700 25px Microsoft YaHei, Arial";
@@ -1185,7 +1184,7 @@ function drawTableGrid(ctx, x, y, cols, height) {
     ctx.lineTo(currentX, y + height);
     ctx.stroke();
   });
-  for (let rowY = y + 48; rowY < y + height; rowY += 48) {
+  for (let rowY = y + 66; rowY < y + height; rowY += 66) {
     ctx.beginPath();
     ctx.moveTo(x, rowY);
     ctx.lineTo(x + width, rowY);
@@ -1586,6 +1585,263 @@ function renderOrders() {
       <select class="select compact-select" onchange="updateOrderSalesFilter(this.value)">
         ${salesFilterOptions(state.orderSalesFilter)}
       </select>
+      <div class="spacer"></div>
+      <button class="btn primary" onclick="state.orderType='sale';setRoute('create')">开单</button>
+    </div>
+    <div class="order-list">${list.length ? list.map(orderCard).join("") : `<div class="empty">没有符合条件的订单</div>`}</div>
+  `;
+}
+
+const LOGIN_MEMORY_KEY = "caidajia_last_login";
+
+function getRememberedLogin() {
+  try {
+    return JSON.parse(localStorage.getItem(LOGIN_MEMORY_KEY) || "{}");
+  } catch {
+    return {};
+  }
+}
+
+function rememberLogin(phone, password) {
+  localStorage.setItem(LOGIN_MEMORY_KEY, JSON.stringify({ phone, password }));
+}
+
+function isSalesRole() {
+  return state.user?.role === "销售人员";
+}
+
+function canChooseSalesperson() {
+  return isAdmin();
+}
+
+function visibleOrders() {
+  if (!isSalesRole()) return orders;
+  return orders.filter((order) => order.salesUserId === state.user.id);
+}
+
+function visibleCustomers() {
+  if (!isSalesRole()) return customers;
+  return customers.filter((customer) => customer.ownerId === state.user.id);
+}
+
+function ensureSalesScope() {
+  if (isSalesRole()) {
+    state.salesUserId = state.user.id;
+    state.customerOwnerFilter = "全部";
+    state.orderSalesFilter = "全部";
+  }
+  const allowedCustomers = visibleCustomers();
+  if (!allowedCustomers.some((customer) => customer.id === state.selectedCustomerId)) {
+    state.selectedCustomerId = allowedCustomers[0]?.id || "";
+  }
+}
+
+function setRoute(route) {
+  state.route = route;
+  state.query = "";
+  state.modal = null;
+  if (route === "returns") state.orderType = "return";
+  if (route === "create") state.orderType = "sale";
+  ensureSalesScope();
+  render();
+}
+
+function renderLogin() {
+  const remembered = getRememberedLogin();
+  const phone = html(remembered.phone || "");
+  const password = html(remembered.password || "");
+  app.innerHTML = `
+    <div class="login-shell">
+      <section class="login-panel">
+        <div class="login-card">
+          <div class="brand-row">
+            <div class="brand-mark">建</div>
+            <div><h1 class="page-title">建材销售开单系统</h1><p class="page-subtitle">手机号登录 · 客户产品订单一体化</p></div>
+          </div>
+          <div class="field"><label>手机号</label><input id="loginPhone" class="input" value="${phone}" placeholder="请输入已授权手机号" /></div>
+          <div class="field"><label>密码</label><div class="password-field"><input id="loginPassword" class="input" type="${state.loginPasswordVisible ? "text" : "password"}" value="${password}" placeholder="请输入登录密码" /><button type="button" class="password-toggle ${state.loginPasswordVisible ? "active" : ""}" onclick="toggleLoginPassword()" title="${state.loginPasswordVisible ? "隐藏密码" : "显示密码"}" aria-label="${state.loginPasswordVisible ? "隐藏密码" : "显示密码"}"></button></div></div>
+          <button class="btn primary" style="width:100%" onclick="login()">登录系统</button>
+        </div>
+      </section>
+      <section class="login-visual">
+        <div class="visual-board material-hero" aria-hidden="true">
+          <div class="hero-sun"></div>
+          <div class="hero-card hero-card-a"></div>
+          <div class="hero-card hero-card-b"></div>
+          <div class="hero-truck">
+            <div class="truck-body"></div>
+            <div class="truck-cab"></div>
+            <div class="truck-wheel wheel-left"></div>
+            <div class="truck-wheel wheel-right"></div>
+          </div>
+          <div class="hero-stack stack-wood"></div>
+          <div class="hero-stack stack-tile"></div>
+          <div class="hero-worker"></div>
+          <div class="hero-title">材达家</div>
+          <div class="hero-subtitle">建材开单 · 客户跟进 · 订单管理</div>
+        </div>
+      </section>
+    </div>
+  `;
+}
+
+async function login() {
+  const phone = document.getElementById("loginPhone").value.trim();
+  const password = document.getElementById("loginPassword").value.trim();
+  try {
+    const response = await fetch("/api/login", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ phone, password }),
+    });
+    const data = await response.json();
+    if (!response.ok) throw new Error(data.error || "登录失败");
+    rememberLogin(phone, password);
+    state.user = data.user;
+    await loadBootstrap();
+    showToast("登录成功");
+  } catch (error) {
+    alert(error.message);
+  }
+}
+
+function localLoginFallback(phone, password) {
+  const user = salesUsers.find((item) => item.phone === phone);
+  if (!user || user.password !== password || user.status !== "启用") {
+    alert("手机号或密码错误。");
+    return;
+  }
+  rememberLogin(phone, password);
+  state.user = user;
+  ensureSalesScope();
+  showToast("登录成功");
+}
+
+async function loadBootstrap() {
+  const response = await fetch("/api/bootstrap");
+  if (!response.ok) return;
+  const data = await response.json();
+  state.user = data.user;
+  salesUsers = data.users;
+  customers = data.customers;
+  products = data.products;
+  orders = data.orders;
+  state.salesUserId = isSalesRole() ? state.user.id : state.user?.id || activeSalesUsers()[0]?.id || "";
+  ensureSalesScope();
+}
+
+function renderDashboard() {
+  const scopedOrders = visibleOrders();
+  const scopedCustomers = visibleCustomers();
+  const todayText = new Date().toLocaleDateString("zh-CN");
+  const todayOrders = scopedOrders.filter((item) => {
+    const date = new Date(item.date);
+    return !Number.isNaN(date.getTime()) && date.toLocaleDateString("zh-CN") === todayText;
+  });
+  const total = todayOrders.reduce((sum, item) => sum + Number(item.amount || 0), 0);
+  const pending = scopedOrders.filter((item) => item.status === "待确认").length;
+  return `
+    <div class="grid kpi-grid">
+      ${kpi("今日销售额", money(total), "dashboard")}
+      ${kpi("客户数量", scopedCustomers.length, "customers")}
+      ${kpi("在售商品", products.filter((p) => isProductActive(p)).length, "products")}
+      ${kpi("待确认订单", pending, "orders")}
+    </div>
+    <div class="grid two-col" style="margin-top:16px">
+      <div class="card card-pad">
+        <h3>最近订单</h3>
+        <div class="order-list">${scopedOrders.slice(0, 4).map(orderCard).join("") || `<div class="empty">暂无订单</div>`}</div>
+      </div>
+      <div class="card card-pad">
+        <h3>高频建材分类</h3>
+        ${["水电", "木", "油", "瓦"].map((cat) => `<div class="summary-row"><span>${cat}</span><strong>${products.filter((p) => p.cat1 === cat).length} 件商品</strong></div>`).join("")}
+        <button class="btn primary" style="width:100%;margin-top:14px" onclick="setRoute('create')">开始开单</button>
+      </div>
+    </div>
+  `;
+}
+
+function customerStats(customerId) {
+  const list = visibleOrders().filter((order) => order.customerId === customerId && !String(order.no || "").startsWith("TH"));
+  const total = list.reduce((sum, order) => sum + Number(order.amount || 0), 0);
+  const last = list
+    .map((order) => order.date)
+    .filter(Boolean)
+    .sort((a, b) => new Date(b) - new Date(a))[0] || "-";
+  return { total, last, count: list.length };
+}
+
+function renderCustomers() {
+  const q = state.query.trim();
+  const list = visibleCustomers().filter((c) => {
+    const queryOk = !q || [c.name, c.contact, c.phone].some((v) => String(v || "").includes(q));
+    const ownerOk = isSalesRole() || state.customerOwnerFilter === "全部" || c.ownerId === state.customerOwnerFilter;
+    return queryOk && ownerOk;
+  });
+  return `
+    <div class="toolbar filter-toolbar">
+      <input id="customerSearchInput" class="input" placeholder="搜索客户名称/联系人/电话" value="${html(state.query)}" oninput="updatePageQuery(this)" />
+      ${canChooseSalesperson() ? `<select class="select compact-select" onchange="updateCustomerOwnerFilter(this.value)">${salesFilterOptions(state.customerOwnerFilter)}</select>` : ""}
+      <button class="btn primary" onclick="openModal('customer')">＋ 新增客户</button>
+    </div>
+    <div class="customer-list">${list.length ? list.map(customerCard).join("") : `<div class="empty">没有符合条件的客户</div>`}</div>
+  `;
+}
+
+function renderCreateOrder() {
+  ensureSalesScope();
+  const customerList = visibleCustomers();
+  const customer = byId(customerList, state.selectedCustomerId) || customerList[0];
+  const productList = filteredProducts();
+  const visible = productList.slice(0, 120);
+  const salespersonField = canChooseSalesperson()
+    ? `<div class="field"><label>代下单销售人员</label><select class="select" onchange="state.salesUserId=this.value">${activeSalesUsers().map((u) => `<option value="${html(u.id)}" ${u.id === state.salesUserId ? "selected" : ""}>${html(u.name)}</option>`).join("")}</select></div>`
+    : "";
+  return `
+    <div class="card card-pad" style="margin-bottom:16px">
+      <div class="form-grid">
+        <div class="field"><label>选择客户 *</label><select class="select" onchange="state.selectedCustomerId=this.value;render()">${customerList.map((c) => `<option value="${html(c.id)}" ${c.id === customer?.id ? "selected" : ""}>${html(c.name)} - ${html(c.phone)}</option>`).join("")}</select></div>
+        ${salespersonField}
+        <div class="field"><label>送货地址 *</label><input class="input" value="${html(customer?.address || "")}" /></div>
+        <div class="field"><label>收货人手机号 *</label><input class="input" value="${html(customer?.phone || "")}" /></div>
+      </div>
+    </div>
+    <div class="product-layout">
+      <div>
+        <div class="toolbar filter-toolbar">
+          <input id="orderProductSearchInput" class="input" placeholder="搜索商品名称、编码、拼音..." value="${html(state.productQuery)}" oninput="updateProductQuery(this)" />
+          <button class="btn primary" onclick="openAiOrderModal()">AI 帮我开单</button>
+        </div>
+        ${categoryTabs()}
+        ${subcategoryTabs()}
+        <div class="hint product-count-hint">共 ${productList.length} 个商品${productList.length > visible.length ? `，当前显示前 ${visible.length} 个，请用搜索缩小范围` : ""}</div>
+        <div class="product-grid">${visible.map(productCard).join("")}</div>
+      </div>
+      <aside class="card card-pad cart">
+        <h3>${state.orderType === "return" ? "退货清单" : "购物车"}</h3>
+        ${state.cart.length ? state.cart.map(cartLine).join("") : `<div class="empty">还没有选择商品</div>`}
+        <div class="summary-row"><span>共 ${state.cart.reduce((s, i) => s + i.quantity, 0)} 件</span><span>合计</span></div>
+        <div class="summary-row"><span></span><span class="summary-total">${money(cartTotal())}</span></div>
+        <button class="btn primary" style="width:100%" onclick="saveOrder()">${state.orderType === "return" ? "生成退货单" : "去结算"}</button>
+      </aside>
+    </div>
+  `;
+}
+
+function renderOrders() {
+  const q = state.orderQuery.trim();
+  const list = visibleOrders().filter((order) => {
+    const customer = byId(customers, order.customerId);
+    const statusOk = state.orderStatus === "全部" || order.status === state.orderStatus;
+    const salesOk = isSalesRole() || state.orderSalesFilter === "全部" || order.salesUserId === state.orderSalesFilter;
+    const queryOk = !q || [order.no, customer?.name, customer?.phone].some((value) => String(value || "").includes(q));
+    return statusOk && salesOk && queryOk;
+  });
+  return `
+    <div class="toolbar filter-toolbar">
+      <input id="orderSearchInput" class="input" placeholder="搜索订单号/客户名称/手机号" value="${html(state.orderQuery)}" oninput="updateOrderQuery(this)" />
+      <select class="select compact-select" onchange="state.orderStatus=this.value;render()">${["全部", "待确认", "已确认", "已发货", "已完成", "已取消", "已退货"].map((s) => `<option ${state.orderStatus === s ? "selected" : ""}>${s}</option>`).join("")}</select>
+      ${canChooseSalesperson() ? `<select class="select compact-select" onchange="updateOrderSalesFilter(this.value)">${salesFilterOptions(state.orderSalesFilter)}</select>` : ""}
       <div class="spacer"></div>
       <button class="btn primary" onclick="state.orderType='sale';setRoute('create')">开单</button>
     </div>

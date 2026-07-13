@@ -209,6 +209,162 @@ button {
   color: var(--primary);
 }
 
+.material-hero {
+  background:
+    radial-gradient(circle at 18% 18%, rgba(255, 208, 92, 0.35), transparent 18%),
+    linear-gradient(180deg, #ffffff 0 22%, #edf5ff 22% 100%);
+}
+
+.material-hero::before,
+.material-hero::after {
+  display: none;
+}
+
+.hero-title {
+  position: absolute;
+  left: 44px;
+  top: 36px;
+  color: #1d2a44;
+  font-size: 34px;
+  font-weight: 900;
+}
+
+.hero-subtitle {
+  position: absolute;
+  left: 46px;
+  top: 82px;
+  color: #64748b;
+  font-size: 16px;
+  font-weight: 650;
+}
+
+.hero-sun {
+  position: absolute;
+  right: 68px;
+  top: 52px;
+  width: 72px;
+  height: 72px;
+  border-radius: 50%;
+  background: #ffd56a;
+  box-shadow: 0 12px 28px rgba(255, 186, 74, 0.28);
+}
+
+.hero-card {
+  position: absolute;
+  border-radius: 12px;
+  background: #fff;
+  border: 1px solid rgba(148, 163, 184, 0.2);
+  box-shadow: 0 20px 45px rgba(38, 68, 140, 0.14);
+}
+
+.hero-card-a {
+  right: 92px;
+  top: 152px;
+  width: 218px;
+  height: 82px;
+}
+
+.hero-card-b {
+  right: 138px;
+  top: 256px;
+  width: 272px;
+  height: 96px;
+}
+
+.hero-truck {
+  position: absolute;
+  left: 80px;
+  bottom: 96px;
+  width: 352px;
+  height: 150px;
+}
+
+.truck-body {
+  position: absolute;
+  left: 0;
+  bottom: 30px;
+  width: 222px;
+  height: 92px;
+  border-radius: 12px 12px 6px 6px;
+  background: repeating-linear-gradient(90deg, #c9e0f8 0 18px, #b8d4f1 18px 21px);
+  border: 3px solid #8eb7e4;
+}
+
+.truck-cab {
+  position: absolute;
+  left: 220px;
+  bottom: 30px;
+  width: 112px;
+  height: 82px;
+  border-radius: 18px 22px 8px 8px;
+  background: #4f7ee8;
+  box-shadow: inset 34px 0 0 rgba(255, 255, 255, 0.18);
+}
+
+.truck-wheel {
+  position: absolute;
+  bottom: 0;
+  width: 46px;
+  height: 46px;
+  border-radius: 50%;
+  background: #24324a;
+  border: 9px solid #eef4ff;
+}
+
+.wheel-left {
+  left: 48px;
+}
+
+.wheel-right {
+  left: 252px;
+}
+
+.hero-stack {
+  position: absolute;
+  border-radius: 8px;
+  box-shadow: 0 14px 28px rgba(38, 68, 140, 0.12);
+}
+
+.stack-wood {
+  right: 88px;
+  bottom: 95px;
+  width: 210px;
+  height: 86px;
+  background: repeating-linear-gradient(0deg, #d8a45b 0 16px, #c98d45 16px 20px);
+  transform: rotate(-4deg);
+}
+
+.stack-tile {
+  right: 250px;
+  bottom: 82px;
+  width: 124px;
+  height: 112px;
+  background: repeating-linear-gradient(90deg, #d9e5ee 0 24px, #c8d7e3 24px 28px);
+  transform: rotate(5deg);
+}
+
+.hero-worker {
+  position: absolute;
+  left: 430px;
+  bottom: 88px;
+  width: 66px;
+  height: 126px;
+  border-radius: 26px 26px 12px 12px;
+  background: linear-gradient(#315bdc 0 56%, #23395f 56% 100%);
+}
+
+.hero-worker::before {
+  content: "";
+  position: absolute;
+  left: 11px;
+  top: -42px;
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  background: #ffd0a6;
+  box-shadow: 0 -12px 0 #f7b84b;
+}
+
 .hint {
   color: var(--muted);
   font-size: 12px;
