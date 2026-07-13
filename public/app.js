@@ -2,6 +2,9 @@ const state = {
   route: "dashboard",
   user: null,
   query: "",
+  customerOwnerFilter: "全部",
+  orderQuery: "",
+  orderSalesFilter: "全部",
   productQuery: "",
   category: "全部",
   productSubcategory: "",
@@ -1389,6 +1392,205 @@ async function saveProduct(id) {
   } catch (error) {
     alert(error.message);
   }
+}
+
+function jsArg(value) {
+  return html(JSON.stringify(value ?? ""));
+}
+
+function safeOnclick(code) {
+  return html(code || "");
+}
+
+function actionButton(title, type, onclick) {
+  return `<button class="icon-btn ${type === "delete" ? "danger-soft" : ""}" title="${html(title)}" aria-label="${html(title)}" onclick="${safeOnclick(onclick)}">${svgIcon(type)}</button>`;
+}
+
+function activeSalesUsers() {
+  return salesUsers.filter((user) => user.status !== "停用");
+}
+
+function salesFilterOptions(selected) {
+  return `
+    <option value="全部" ${selected === "全部" ? "selected" : ""}>全部</option>
+    ${activeSalesUsers().map((user) => `<option value="${html(user.id)}" ${selected === user.id ? "selected" : ""}>${html(user.name)}</option>`).join("")}
+  `;
+}
+
+function updateCustomerOwnerFilter(value) {
+  state.customerOwnerFilter = value;
+  render();
+}
+
+function updateOrderSalesFilter(value) {
+  state.orderSalesFilter = value;
+  render();
+}
+
+function updateOrderQuery(input) {
+  scheduleInputRender("orderQuery", input.value, input.id, input.selectionStart, input.selectionEnd);
+}
+
+function categoryTabs() {
+  return `<div class="category-tabs primary-category-tabs">${PRODUCT_CATEGORIES.map((cat) => `<button class="${state.category === cat ? "active" : ""}" onclick="setProductCategory(${jsArg(cat)})">${html(cat)}</button>`).join("")}</div>`;
+}
+
+function subcategoryTabs() {
+  const list = productSubcategories();
+  if (!list.length) return "";
+  return `
+    <section class="subcategory-panel">
+      <div class="subcategory-panel-head">
+        <span>二级分类</span>
+        <strong>${html(state.productSubcategory || "全部")}</strong>
+      </div>
+      <div class="subcategory-tabs">
+        <button class="${!state.productSubcategory ? "active" : ""}" onclick="setProductSubcategory('')">全部二级分类</button>
+        ${list.map((cat) => `<button class="${state.productSubcategory === cat ? "active" : ""}" onclick="setProductSubcategory(${jsArg(cat)})">${html(cat)}</button>`).join("")}
+      </div>
+    </section>
+  `;
+}
+
+function filteredProducts() {
+  const q = state.productQuery.trim().toLowerCase();
+  return products.filter((p) => {
+    const categoryOk = state.category === "全部" || p.cat1 === state.category;
+    const subcategoryOk = !state.productSubcategory || p.cat2 === state.productSubcategory;
+    return categoryOk && subcategoryOk && (!q || productSearchText(p).includes(q));
+  });
+}
+
+function renderCustomers() {
+  const q = state.query.trim();
+  const list = customers.filter((c) => {
+    const queryOk = !q || [c.name, c.contact, c.phone].some((v) => String(v || "").includes(q));
+    const ownerOk = state.customerOwnerFilter === "全部" || c.ownerId === state.customerOwnerFilter;
+    return queryOk && ownerOk;
+  });
+  return `
+    <div class="toolbar filter-toolbar">
+      <input id="customerSearchInput" class="input" placeholder="搜索客户名称/联系人/电话" value="${html(state.query)}" oninput="updatePageQuery(this)" />
+      <select class="select compact-select" onchange="updateCustomerOwnerFilter(this.value)">
+        ${salesFilterOptions(state.customerOwnerFilter)}
+      </select>
+      <button class="btn primary" onclick="openModal('customer')">＋ 新增客户</button>
+    </div>
+    <div class="customer-list">${list.length ? list.map(customerCard).join("") : `<div class="empty">没有符合条件的客户</div>`}</div>
+  `;
+}
+
+function renderProducts() {
+  const list = filteredProducts();
+  const visible = list.slice(0, 220);
+  return `
+    <div class="toolbar filter-toolbar">
+      <input id="productSearchInput" class="input" placeholder="搜索商品名称 / 规格 / 编码 / 别名" value="${html(state.productQuery)}" oninput="updateProductQuery(this)" />
+      <div class="spacer"></div>
+      <button class="btn primary" onclick="openModal('product')">新增商品</button>
+    </div>
+    ${categoryTabs()}
+    ${subcategoryTabs()}
+    <div class="hint product-count-hint">共 ${list.length} 个商品${list.length > visible.length ? `，当前显示前 ${visible.length} 个，请用搜索缩小范围` : ""}</div>
+    <div class="card table-wrap product-table">
+      <table>
+        <thead><tr><th>商品名称</th><th>规格</th><th>一级分类</th><th>二级分类</th><th>单位</th><th>销售价</th><th>状态</th><th>操作</th></tr></thead>
+        <tbody>${visible.map((p) => `
+          <tr>
+            <td><div class="product-name-cell"><strong>${html(p.name)}</strong><span>${html(p.code || p.id)}</span></div></td>
+            <td>${html(p.spec || "-")}</td>
+            <td>${html(p.cat1 || "-")}</td>
+            <td>${html(p.cat2 || "-")}</td>
+            <td>${html(p.unit || "-")}</td>
+            <td class="num">${money(p.price)}</td>
+            <td><span class="badge ${isProductActive(p) ? "success" : "danger"}">${html(p.status || "在售")}</span></td>
+            <td>${actionButton("编辑", "edit", `openModal('product',${JSON.stringify(p.id)})`)}</td>
+          </tr>
+        `).join("")}</tbody>
+      </table>
+    </div>
+  `;
+}
+
+function productCard(p) {
+  return `
+    <article class="product-card ${isProductActive(p) ? "" : "disabled"}">
+      <div class="material-thumb" style="--thumb:${html(p.color || "#dbe4ef")}"></div>
+      <div>
+        <h4 class="product-title">${html(p.name)}</h4>
+        <div class="product-spec">${html(p.spec || "无规格")}<br />${html(productMeta(p))} · ${html(p.unit || "-")}</div>
+        <div class="price">${money(p.price)}</div>
+      </div>
+      ${isProductActive(p) ? `<button class="icon-btn product-add-btn" title="加入购物车" aria-label="加入购物车" onclick="addToCart(${jsArg(p.id)})">${svgIcon("plus")}</button>` : `<span class="badge danger">停用</span>`}
+    </article>
+  `;
+}
+
+function addToCart(productId) {
+  const product = byId(products, productId);
+  if (!product || !isProductActive(product)) return;
+  const line = state.cart.find((item) => item.productId === productId);
+  if (line) line.quantity += 1;
+  else state.cart.push({ productId, quantity: 1, price: product.price });
+  showToast(`已添加 ${product.name}`);
+}
+
+function renderCreateOrder() {
+  const customer = byId(customers, state.selectedCustomerId) || customers[0];
+  const productList = filteredProducts();
+  const visible = productList.slice(0, 120);
+  return `
+    <div class="card card-pad" style="margin-bottom:16px">
+      <div class="form-grid">
+        <div class="field"><label>选择客户 *</label><select class="select" onchange="state.selectedCustomerId=this.value;render()">${customers.map((c) => `<option value="${html(c.id)}" ${c.id === customer?.id ? "selected" : ""}>${html(c.name)} - ${html(c.phone)}</option>`).join("")}</select></div>
+        <div class="field"><label>代下单销售人员</label><select class="select" onchange="state.salesUserId=this.value">${activeSalesUsers().map((u) => `<option value="${html(u.id)}" ${u.id === state.salesUserId ? "selected" : ""}>${html(u.name)}</option>`).join("")}</select></div>
+        <div class="field"><label>送货地址 *</label><input class="input" value="${html(customer?.address || "")}" /></div>
+        <div class="field"><label>收货人手机号 *</label><input class="input" value="${html(customer?.phone || "")}" /></div>
+      </div>
+    </div>
+    <div class="product-layout">
+      <div>
+        <div class="toolbar filter-toolbar">
+          <input id="orderProductSearchInput" class="input" placeholder="搜索商品名称、编码、拼音..." value="${html(state.productQuery)}" oninput="updateProductQuery(this)" />
+          <button class="btn primary" onclick="openAiOrderModal()">AI 帮我开单</button>
+        </div>
+        ${categoryTabs()}
+        ${subcategoryTabs()}
+        <div class="hint product-count-hint">共 ${productList.length} 个商品${productList.length > visible.length ? `，当前显示前 ${visible.length} 个，请用搜索缩小范围` : ""}</div>
+        <div class="product-grid">${visible.map(productCard).join("")}</div>
+      </div>
+      <aside class="card card-pad cart">
+        <h3>${state.orderType === "return" ? "退货清单" : "购物车"}</h3>
+        ${state.cart.length ? state.cart.map(cartLine).join("") : `<div class="empty">还没有选择商品</div>`}
+        <div class="summary-row"><span>共 ${state.cart.reduce((s, i) => s + i.quantity, 0)} 件</span><span>合计</span></div>
+        <div class="summary-row"><span></span><span class="summary-total">${money(cartTotal())}</span></div>
+        <button class="btn primary" style="width:100%" onclick="saveOrder()">${state.orderType === "return" ? "生成退货单" : "去结算"}</button>
+      </aside>
+    </div>
+  `;
+}
+
+function renderOrders() {
+  const q = state.orderQuery.trim();
+  const list = orders.filter((order) => {
+    const customer = byId(customers, order.customerId);
+    const statusOk = state.orderStatus === "全部" || order.status === state.orderStatus;
+    const salesOk = state.orderSalesFilter === "全部" || order.salesUserId === state.orderSalesFilter;
+    const queryOk = !q || [order.no, customer?.name, customer?.phone].some((value) => String(value || "").includes(q));
+    return statusOk && salesOk && queryOk;
+  });
+  return `
+    <div class="toolbar filter-toolbar">
+      <input id="orderSearchInput" class="input" placeholder="搜索订单号/客户名称/手机号" value="${html(state.orderQuery)}" oninput="updateOrderQuery(this)" />
+      <select class="select compact-select" onchange="state.orderStatus=this.value;render()">${["全部", "待确认", "已确认", "已发货", "已完成", "已取消", "已退货"].map((s) => `<option ${state.orderStatus === s ? "selected" : ""}>${s}</option>`).join("")}</select>
+      <select class="select compact-select" onchange="updateOrderSalesFilter(this.value)">
+        ${salesFilterOptions(state.orderSalesFilter)}
+      </select>
+      <div class="spacer"></div>
+      <button class="btn primary" onclick="state.orderType='sale';setRoute('create')">开单</button>
+    </div>
+    <div class="order-list">${list.length ? list.map(orderCard).join("") : `<div class="empty">没有符合条件的订单</div>`}</div>
+  `;
 }
 
 boot();

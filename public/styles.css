@@ -346,8 +346,16 @@ button {
   margin-bottom: 16px;
 }
 
+.filter-toolbar {
+  align-items: stretch;
+}
+
 .toolbar .input {
   max-width: 560px;
+}
+
+.compact-select {
+  max-width: 160px;
 }
 
 .spacer {
@@ -653,6 +661,10 @@ tbody tr:hover {
   margin-bottom: 14px;
 }
 
+.primary-category-tabs {
+  margin-bottom: 10px;
+}
+
 .category-tabs button,
 .subcategory-tabs button {
   border: 1px solid var(--line);
@@ -674,15 +686,44 @@ tbody tr:hover {
   display: flex;
   flex-wrap: wrap;
   gap: 6px;
-  max-height: 96px;
+  max-height: 116px;
   overflow: auto;
-  margin: -4px 0 14px;
-  padding: 2px 0 6px;
+  padding: 2px;
 }
 
 .subcategory-tabs button {
   padding: 6px 11px;
   font-size: 12px;
+}
+
+.subcategory-panel {
+  margin: 0 0 12px;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.72);
+}
+
+.subcategory-panel-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 8px;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.subcategory-panel-head strong {
+  color: var(--text);
+}
+
+.product-count-hint {
+  margin: 8px 0 12px;
+}
+
+.product-add-btn {
+  align-self: start;
 }
 
 .cart {
