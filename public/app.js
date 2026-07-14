@@ -1074,98 +1074,138 @@ function downloadOrderHtml(orderId) {
 function downloadOrderImage(orderId) {
   const { order, customer, title } = getOrderDoc(orderId);
   const sales = byId(salesUsers, order.salesUserId);
-  const rows = getDisplayRows(order);
+  const rows = getOrderRows(order);
+  const rowCount = Math.max(rows.length, 8);
+  const tableY = 470;
+  const headerH = 58;
+  const rowHeight = 54;
+  const tableEndY = tableY + headerH + 12 + rowCount * rowHeight;
+  const summaryY = tableEndY + 120;
   const canvas = document.createElement("canvas");
   const scale = 2;
-  const width = 1600;
-  const rowHeight = 66;
-  const height = 1180;
+  const width = 1800;
+  const height = Math.max(1450, summaryY + 190);
   canvas.width = width * scale;
   canvas.height = height * scale;
   const ctx = canvas.getContext("2d");
   ctx.scale(scale, scale);
-  ctx.fillStyle = "#ffffff";
+  ctx.fillStyle = "#fdfdff";
   ctx.fillRect(0, 0, width, height);
-  ctx.strokeStyle = "#d5dbe5";
+
+  const pageX = 55;
+  const pageY = 55;
+  const pageW = width - 110;
+  const pageH = height - 110;
+  ctx.strokeStyle = "#dae1eb";
   ctx.lineWidth = 1;
-  ctx.strokeRect(2, 2, width - 4, height - 4);
+  ctx.strokeRect(pageX, pageY, pageW, pageH);
 
-  ctx.fillStyle = "#172033";
-  ctx.textAlign = "center";
-  ctx.font = "800 42px Microsoft YaHei, Arial";
-  ctx.fillText(title, width / 2, 118);
-  ctx.font = "600 22px Microsoft YaHei, Arial";
-  ctx.fillText("材达家建材销售系统", width / 2, 160);
-
+  ctx.fillStyle = "#5c708a";
   ctx.textAlign = "left";
   ctx.font = "700 25px Microsoft YaHei, Arial";
-  ctx.fillStyle = "#172033";
-  ctx.fillText("客户：", 58, 236);
-  ctx.fillText("日期：", 58, 300);
-  ctx.textAlign = "right";
-  ctx.fillText("单号：", 1285, 236);
-  ctx.fillText("销售：", 1285, 300);
-  ctx.textAlign = "left";
-  ctx.font = "400 25px Microsoft YaHei, Arial";
-  ctx.fillText(customer.name, 122, 236);
-  ctx.fillText(order.date, 122, 300);
-  ctx.textAlign = "left";
-  ctx.fillText(order.no, 1290, 236);
-  ctx.fillText(sales?.name || "-", 1290, 300);
+  ctx.fillText("材达家建材销售系统", 75, 98);
 
-  ctx.fillStyle = "#eef2f7";
-  roundRect(ctx, 58, 318, width - 116, 62, 5);
-  ctx.fill();
   ctx.fillStyle = "#172033";
-  ctx.textAlign = "left";
-  ctx.font = "700 25px Microsoft YaHei, Arial";
-  ctx.fillText("地址：", 72, 357);
-  ctx.font = "400 25px Microsoft YaHei, Arial";
-  ctx.fillText(customer.address, 142, 357);
+  ctx.font = "800 52px Microsoft YaHei, Arial";
+  ctx.fillText(title, 75, 158);
 
-  const tableX = 58;
-  const tableY = 424;
-  const cols = [86, 836, 114, 114, 170, 170];
-  const headers = ["编号", "商品名称", "单位", "数量", "单价", "金额"];
-  ctx.lineWidth = 1;
-  ctx.strokeStyle = "#cfcfcf";
-  ctx.fillStyle = "#f1f5f9";
-  ctx.fillRect(tableX, tableY, width - 120, rowHeight);
-  drawTableGrid(ctx, tableX, tableY, cols, rowHeight * (rows.length + 1));
-  ctx.fillStyle = "#334155";
-  ctx.font = "800 25px Microsoft YaHei, Arial";
-  let x = tableX;
+  ctx.strokeStyle = "#3a5dd6";
+  ctx.lineWidth = 5;
+  ctx.beginPath();
+  ctx.moveTo(75, 210);
+  ctx.lineTo(width - 75, 210);
+  ctx.stroke();
+
+  ctx.textAlign = "left";
+  ctx.fillStyle = "#172033";
+  ctx.font = "700 28px Microsoft YaHei, Arial";
+  ctx.fillText(`客户  ${customer.name}`, 75, 270);
+  ctx.font = "400 28px Microsoft YaHei, Arial";
+  ctx.fillText(`地址  ${customer.address || "-"}`, 75, 330);
+  ctx.fillText(`电话  ${maskPhone(customer.phone)}`, 75, 390);
+
+  ctx.font = "700 27px Microsoft YaHei, Arial";
+  ctx.fillText(`单号  ${order.no}`, 1190, 270);
+  ctx.font = "400 27px Microsoft YaHei, Arial";
+  ctx.fillText(`日期  ${order.date}`, 1190, 330);
+  ctx.fillText(`销售  ${sales?.name || "-"}`, 1190, 390);
+
+  const tableX = 75;
+  const tableW = width - 150;
+  const cols = [76, tableW - 76 - 170 - 90 - 90 - 145 - 135, 170, 90, 90, 145, 135];
+  const headers = ["序号", "品名", "规格", "单位", "数量", "单价", "金额"];
+  ctx.fillStyle = "#f5f7fb";
+  ctx.fillRect(tableX, tableY, tableW, headerH);
+  ctx.fillStyle = "#172033";
+  ctx.font = "800 24px Microsoft YaHei, Arial";
+  let headerX = tableX;
   headers.forEach((header, i) => {
-    drawCellText(ctx, header, x, tableY, cols[i], rowHeight, i === 1 ? "center" : "center");
-    x += cols[i];
+    drawCellText(ctx, header, headerX, tableY, cols[i], headerH, i === 1 ? "left" : "center");
+    headerX += cols[i];
   });
 
-  ctx.font = "400 25px Microsoft YaHei, Arial";
-  rows.forEach((row, rowIndex) => {
-    const y = tableY + rowHeight * (rowIndex + 1);
-    const values = row.empty ? [row.index, "", "", "", "", ""] : [row.index, row.name, row.unit, row.quantity, money(row.price), money(row.amount)];
-    let cellX = tableX;
-    ctx.fillStyle = "#172033";
-    values.forEach((value, i) => {
-      const align = i === 1 ? "left" : i >= 4 ? "right" : "center";
-      drawCellText(ctx, String(value), cellX, y, cols[i], rowHeight, align);
-      cellX += cols[i];
-    });
-  });
+  ctx.strokeStyle = "#e2e8f0";
+  ctx.lineWidth = 1;
+  ctx.beginPath();
+  ctx.moveTo(tableX, tableY + headerH);
+  ctx.lineTo(tableX + tableW, tableY + headerH);
+  ctx.stroke();
+
+  ctx.font = "400 23px Microsoft YaHei, Arial";
+  for (let rowIndex = 0; rowIndex < rowCount; rowIndex += 1) {
+    const row = rows[rowIndex];
+    const y = tableY + headerH + 12 + rowHeight * rowIndex;
+    if (row) {
+      const product = byId(products, row.productId);
+      const spec = product?.spec || "-";
+      const values = [
+        rowIndex + 1,
+        row.name,
+        spec,
+        row.unit,
+        row.quantity,
+        money(row.price),
+        money(row.amount)
+      ];
+      let cellX = tableX;
+      ctx.fillStyle = "#172033";
+      values.forEach((value, i) => {
+        const align = i === 1 ? "left" : i === 6 ? "right" : "center";
+        ctx.font = i === 1 ? "700 25px Microsoft YaHei, Arial" : "400 23px Microsoft YaHei, Arial";
+        drawCellText(ctx, String(value), cellX, y, cols[i], 46, align);
+        cellX += cols[i];
+      });
+    }
+    ctx.strokeStyle = "#e2e8f0";
+    ctx.beginPath();
+    ctx.moveTo(tableX, y + 46);
+    ctx.lineTo(tableX + tableW, y + 46);
+    ctx.stroke();
+  }
+
+  ctx.strokeStyle = "#e2e8f0";
+  ctx.lineWidth = 2;
+  ctx.beginPath();
+  ctx.moveTo(75, summaryY - 70);
+  ctx.lineTo(width - 75, summaryY - 70);
+  ctx.stroke();
 
   ctx.textAlign = "left";
   ctx.fillStyle = "#172033";
-  ctx.font = "700 25px Microsoft YaHei, Arial";
-  ctx.fillText("合计大写：", 58, 1072);
-  ctx.font = "400 25px Microsoft YaHei, Arial";
-  ctx.fillText(amountToChinese(order.amount), 188, 1072);
-  ctx.font = "700 25px Microsoft YaHei, Arial";
-  ctx.fillText("销售电话：", 58, 1126);
-  ctx.font = "400 25px Microsoft YaHei, Arial";
-  ctx.fillText(maskPhone(sales?.phone || customer.phone), 188, 1126);
+  ctx.font = "700 29px Microsoft YaHei, Arial";
+  ctx.fillText(`合计大写 ${amountToChinese(order.amount)}`, 75, summaryY);
   ctx.textAlign = "right";
-  ctx.font = "800 25px Microsoft YaHei, Arial";
-  ctx.fillText(`此单合计金额: ${money(order.amount)}`, width - 58, 1072);
+  ctx.fillStyle = "#3a5dd6";
+  ctx.font = "800 42px Microsoft YaHei, Arial";
+  ctx.fillText(`合计金额 ${money(order.amount)}`, width - 75, summaryY);
+
+  ctx.textAlign = "left";
+  ctx.fillStyle = "#5c708a";
+  ctx.font = "400 27px Microsoft YaHei, Arial";
+  ctx.fillText("客户签收：____________________", 75, summaryY + 70);
+  ctx.fillStyle = "#172033";
+  ctx.font = "700 27px Microsoft YaHei, Arial";
+  ctx.fillText(`销售电话：${maskPhone(sales?.phone || customer.phone)}`, 75, summaryY + 125);
 
   canvas.toBlob((blob) => {
     downloadBlob(`${title}_${order.no}.png`, "image/png", blob);
