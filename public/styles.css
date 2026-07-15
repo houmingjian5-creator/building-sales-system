@@ -1679,3 +1679,117 @@ tbody tr:hover {
     justify-self: start;
   }
 }
+
+.order-card.order-card-polished {
+  position: relative;
+  display: grid;
+  grid-template-columns: 6px minmax(0, 1fr);
+  gap: 0;
+  align-items: stretch;
+  padding: 0;
+  overflow: hidden;
+  border-color: #dbe5f5;
+  box-shadow: 0 12px 30px rgba(16, 36, 70, 0.06);
+}
+
+.order-card-accent {
+  background: linear-gradient(180deg, var(--primary), #7da0ff);
+}
+
+.order-card-body {
+  min-width: 0;
+  padding: 14px 16px;
+}
+
+.order-card-head,
+.order-card-bottom {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 12px;
+  align-items: center;
+}
+
+.order-card-head {
+  margin-bottom: 9px;
+}
+
+.order-card-title-row {
+  min-width: 0;
+}
+
+.order-card-title-row h3 {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.order-type-chip {
+  display: inline-flex;
+  align-items: center;
+  height: 24px;
+  padding: 0 9px;
+  border-radius: 999px;
+  background: #edf3ff;
+  color: var(--primary);
+  font-size: 12px;
+  font-weight: 900;
+}
+
+.order-card-meta-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 7px 16px;
+  margin-top: 0;
+  margin-bottom: 10px;
+  color: var(--text);
+}
+
+.order-card-meta-grid span {
+  color: var(--text);
+  line-height: 1.45;
+}
+
+.order-card-meta-grid b {
+  margin-right: 5px;
+  color: var(--muted);
+  font-weight: 800;
+}
+
+.order-card-polished .order-card-address {
+  margin: 0;
+  padding: 9px 11px;
+  border: 1px solid #e5edf8;
+  border-radius: 8px;
+  background: #f8fbff;
+  color: var(--text);
+}
+
+.order-card-polished .order-status-controls.compact {
+  grid-column: 2;
+  grid-row: 1;
+}
+
+.order-card-polished .order-actions {
+  grid-column: 2;
+  grid-row: 2;
+  justify-content: flex-end;
+}
+
+.order-card-polished .order-amount {
+  align-self: start;
+  font-size: 21px;
+}
+
+@media (max-width: 1100px) {
+  .order-card-head,
+  .order-card-bottom {
+    grid-template-columns: 1fr;
+  }
+
+  .order-card-polished .order-status-controls.compact,
+  .order-card-polished .order-actions {
+    grid-column: auto;
+    grid-row: auto;
+    justify-content: flex-start;
+  }
+}

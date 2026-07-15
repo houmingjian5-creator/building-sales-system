@@ -2619,42 +2619,85 @@ async function deleteProduct(id) {
   }
 }
 
+function openOrderRoute(type = "sale") {
+  state.orderType = type === "return" ? "return" : "sale";
+  state.route = state.orderType === "return" ? "returns" : "create";
+  state.modal = null;
+  state.query = "";
+  if (typeof resetPage === "function") resetPage("createProducts");
+  ensureSalesScope();
+  render();
+}
+
+function setRoute(route) {
+  state.route = route;
+  state.query = "";
+  state.modal = null;
+  if (route === "returns") state.orderType = "return";
+  if (route === "create") state.orderType = "sale";
+  ensureSalesScope();
+  render();
+}
+
+function navButton(route, label) {
+  const click =
+    route === "create"
+      ? `openOrderRoute(${jsArg("sale")})`
+      : route === "returns"
+        ? `openOrderRoute(${jsArg("return")})`
+        : `setRoute(${jsArg(route)})`;
+  return `<button type="button" class="${state.route === route ? "active" : ""}" onclick='${click}'><span class="nav-icon">${icon(route)}</span><span>${html(label)}</span></button>`;
+}
+
+function orderBadgeClass(status) {
+  if (status === "已确认") return "success";
+  if (status === "已发货" || status === "已完成") return "info";
+  if (status === "已取消") return "danger";
+  return "warning";
+}
+
 function orderCard(order) {
   const customer = byId(customers, order.customerId) || {};
   const salesperson = byId(salesUsers, order.salesUserId) || {};
   const payStatus = normalizeClientPayStatus(order.payStatus);
   const status = order.status || "待确认";
   const address = order.address || customer.address || "-";
+  const isReturn = order.type === "return" || String(order.no || "").startsWith("TH");
+  const orderTypeLabel = isReturn ? "退货单" : "销售单";
   return `
-    <div class="order-card order-card-compact">
-      <div class="order-card-main">
-        <div class="order-card-title-row">
-          <h3>${html(order.no)}</h3>
-          <span class="badge warning">${html(status)}</span>
-          <span class="badge ${payStatus === "已付款" ? "success" : "info"}">${html(payStatus)}</span>
+    <article class="order-card order-card-polished">
+      <div class="order-card-accent"></div>
+      <div class="order-card-body">
+        <div class="order-card-head">
+          <div class="order-card-title-row">
+            <span class="order-type-chip">${html(orderTypeLabel)}</span>
+            <h3>${html(order.no)}</h3>
+            <span class="badge ${orderBadgeClass(status)}">${html(status)}</span>
+            <span class="badge ${payStatus === "已付款" ? "success" : "info"}">${html(payStatus)}</span>
+          </div>
+          <strong class="order-amount">${money(order.amount)}</strong>
         </div>
-        <div class="order-card-meta">
-          <span>${html(customer.name || "-")}</span>
-          <span>${html(order.date || "-")}</span>
-          <span>销售：${html(salesperson.name || "-")}</span>
-          <span>${(order.items || []).length} 项商品</span>
-          <span>客户电话：${html(customer.phone || "-")}</span>
+        <div class="order-card-meta order-card-meta-grid">
+          <span><b>客户</b>${html(customer.name || "-")}</span>
+          <span><b>日期</b>${html(order.date || "-")}</span>
+          <span><b>销售</b>${html(salesperson.name || "-")}</span>
+          <span><b>商品</b>${(order.items || []).length} 项</span>
+          <span><b>电话</b>${html(customer.phone || "-")}</span>
         </div>
-        <div class="order-card-address">地址：${html(address)}</div>
+        <div class="order-card-bottom">
+          <div class="order-card-address">地址：${html(address)}</div>
+          <div class="order-status-controls compact">
+            <select class="select inline-select" title="订单状态" onchange="updateOrderStatus(${jsArg(order.id)}, this.value)">${optionList(ORDER_STATUS_CHOICES, status)}</select>
+            <select class="select inline-select" title="付款状态" onchange="updateOrderPayment(${jsArg(order.id)}, this.value)">${optionList(["未付款", "已付款"], payStatus)}</select>
+          </div>
+          <div class="order-actions">
+            ${actionButton("查看", "view", `openModal('document',${jsArg(order.id)})`)}
+            ${actionButton("编辑", "edit", `openModal('editOrder',${jsArg(order.id)})`)}
+            ${actionButton("导出图片", "refresh", `downloadOrderImage(${jsArg(order.id)})`)}
+          </div>
+        </div>
       </div>
-      <div class="order-card-side">
-        <strong class="order-amount">${money(order.amount)}</strong>
-        <div class="order-status-controls compact">
-          <select class="select inline-select" title="订单状态" onchange="updateOrderStatus(${jsArg(order.id)}, this.value)">${optionList(ORDER_STATUS_CHOICES, status)}</select>
-          <select class="select inline-select" title="付款状态" onchange="updateOrderPayment(${jsArg(order.id)}, this.value)">${optionList(["未付款", "已付款"], payStatus)}</select>
-        </div>
-        <div class="order-actions">
-          ${actionButton("查看", "view", `openModal('document',${jsArg(order.id)})`)}
-          ${actionButton("编辑", "edit", `openModal('editOrder',${jsArg(order.id)})`)}
-          ${actionButton("导出图片", "refresh", `downloadOrderImage(${jsArg(order.id)})`)}
-        </div>
-      </div>
-    </div>
+    </article>
   `;
 }
 
