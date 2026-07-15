@@ -1420,6 +1420,102 @@ tbody tr:hover {
   padding: 0 14px 14px;
 }
 
+.row-actions {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.stacked-field {
+  display: grid;
+  gap: 8px;
+}
+
+.subcategory-new-input {
+  margin-top: 0;
+}
+
+.pagination {
+  display: flex;
+  justify-content: flex-end;
+  align-items: center;
+  gap: 10px;
+  margin: 14px 0 0;
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.btn.small {
+  height: 34px;
+  padding: 0 12px;
+  font-size: 13px;
+}
+
+.filter-field {
+  display: grid;
+  gap: 6px;
+  min-width: 150px;
+}
+
+.filter-field label {
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.order-filter-toolbar {
+  align-items: end;
+}
+
+.order-right {
+  display: grid;
+  gap: 8px;
+  justify-items: end;
+}
+
+.order-badges,
+.order-status-controls,
+.order-actions {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+.inline-select {
+  height: 34px;
+  min-width: 112px;
+  padding: 0 30px 0 10px;
+  font-size: 13px;
+}
+
+.edit-order-table table {
+  min-width: 980px;
+}
+
+.edit-order-table td {
+  vertical-align: top;
+}
+
+.mini-select,
+.mini-input {
+  min-width: 140px;
+  height: 38px;
+}
+
+.mini-select {
+  margin-bottom: 8px;
+}
+
+.unit-input {
+  min-width: 70px;
+}
+
+.num-input {
+  min-width: 96px;
+}
+
 @media (max-width: 720px) {
   .product-table table {
     min-width: 760px;
@@ -1428,5 +1524,16 @@ tbody tr:hover {
   .product-card {
     grid-template-columns: 1fr auto;
     min-height: 0;
+  }
+
+  .pagination,
+  .order-badges,
+  .order-status-controls,
+  .order-actions {
+    justify-content: flex-start;
+  }
+
+  .filter-field {
+    width: 100%;
   }
 }

@@ -193,6 +193,44 @@ function normalizeProductPayload(payload, existing = {}) {
   };
 }
 
+const ORDER_STATUS_OPTIONS = new Set(['待确认', '已确认', '已发货', '已完成', '已取消', '已退货']);
+
+function normalizePayStatus(value) {
+  if (value === '已付款' || value === '已回款') return '已付款';
+  return '未付款';
+}
+
+function publicOrder(order) {
+  return {
+    ...order,
+    payStatus: normalizePayStatus(order.payStatus),
+    address: order.address || '',
+    remark: order.remark || '',
+    items: Array.isArray(order.items) ? order.items : [],
+  };
+}
+
+function orderItemsFromPayload(items, products = []) {
+  if (!Array.isArray(items)) return [];
+  return items.map((item) => {
+    const product = products.find((p) => p.id === item.productId) || {};
+    const quantity = Number(item.quantity || 0);
+    const price = Number(item.price !== undefined ? item.price : product.price || 0);
+    return {
+      productId: item.productId || product.id || '',
+      name: item.name || product.name || '',
+      spec: item.spec !== undefined ? item.spec : product.spec || '',
+      unit: item.unit || product.unit || '',
+      quantity,
+      price,
+    };
+  }).filter((item) => item.name || item.productId);
+}
+
+function orderAmount(items) {
+  return (Array.isArray(items) ? items : []).reduce((sum, item) => sum + Number(item.quantity || 0) * Number(item.price || 0), 0);
+}
+
 function candidateFor(product) {
   return { productId: product.id, name: product.name, spec: product.spec, unit: product.unit, price: product.price, cat1: product.cat1 || '', cat2: product.cat2 || '' };
 }
@@ -643,6 +681,7 @@ async function handleApi(req, res) {
     const user = db.users.find((item) => item.id === id);
     if (!user) return sendError(res, 404, "人员不存在");
     if (method === "PUT") {
+      if (!requireAdmin(req, res)) return;
       const payload = await readBody(req);
       if (payload.phone && db.users.some((item) => item.phone === payload.phone && item.id !== id)) {
         return sendError(res, 409, "手机号已存在");
@@ -661,6 +700,7 @@ async function handleApi(req, res) {
     const db = readDb();
     if (method === "GET") return sendJson(res, 200, { products: db.products.map(publicProduct) });
     if (method === "POST") {
+      if (!requireAdmin(req, res)) return;
       const payload = await readBody(req);
       if (!payload.name) return sendError(res, 400, "商品名称必填");
       const product = normalizeProductPayload(payload);
@@ -679,9 +719,16 @@ async function handleApi(req, res) {
     const product = db.products.find((item) => item.id === id);
     if (!product) return sendError(res, 404, "商品不存在");
     if (method === "PUT") {
+      if (!requireAdmin(req, res)) return;
       const payload = await readBody(req);
       const updated = normalizeProductPayload(payload, product);
       Object.assign(product, updated);
+      writeDb(db);
+      return sendJson(res, 200, { product: publicProduct(product) });
+    }
+    if (method === "DELETE") {
+      if (!requireAdmin(req, res)) return;
+      product.status = "停用";
       writeDb(db);
       return sendJson(res, 200, { product: publicProduct(product) });
     }
@@ -706,6 +753,35 @@ async function handleApi(req, res) {
     if (!user) return;
     const db = readDb();
     if (method === "GET") {
+      return sendJson(res, 200, { orders: db.orders.map(publicOrder) });
+    }
+    if (method === "POST") {
+      const payload = await readBody(req);
+      const order = {
+        id: newId(),
+        no: `${payload.type === "return" ? "TH" : "ORD"}${Date.now()}`,
+        customerId: payload.customerId,
+        salesUserId: payload.salesUserId || user.id,
+        date: payload.date || new Date().toLocaleDateString("zh-CN"),
+        address: payload.address || "",
+        remark: payload.remark || "",
+        status: payload.type === "return" ? "已退货" : "待确认",
+        payStatus: normalizePayStatus(payload.payStatus),
+        items: orderItemsFromPayload(payload.items, db.products),
+      };
+      order.amount = Number(payload.amount !== undefined ? payload.amount : orderAmount(order.items));
+      db.orders.unshift(order);
+      recordAiLearning(db, payload.aiLearnPairs);
+      writeDb(db);
+      return sendJson(res, 201, { order: publicOrder(order) });
+    }
+  }
+
+  if (url.pathname === "/api/orders-legacy-disabled") {
+    const user = requireUser(req, res);
+    if (!user) return;
+    const db = readDb();
+    if (method === "GET") {
       return sendJson(res, 200, { orders: db.orders });
     }
     if (method === "POST") {
@@ -725,6 +801,36 @@ async function handleApi(req, res) {
       recordAiLearning(db, payload.aiLearnPairs);
       writeDb(db);
       return sendJson(res, 201, { order });
+    }
+  }
+
+  if (url.pathname.startsWith("/api/orders/")) {
+    const user = requireUser(req, res);
+    if (!user) return;
+    const id = decodeURIComponent(url.pathname.split("/").pop());
+    const db = readDb();
+    const order = db.orders.find((item) => item.id === id);
+    if (!order) return sendError(res, 404, "订单不存在");
+    if (user.role === "销售人员" && order.salesUserId !== user.id) {
+      return sendError(res, 403, "无权修改该订单");
+    }
+    if (method === "PUT" || method === "PATCH") {
+      const payload = await readBody(req);
+      if (payload.customerId !== undefined) order.customerId = payload.customerId;
+      if (payload.salesUserId !== undefined && user.role !== "销售人员") order.salesUserId = payload.salesUserId;
+      if (payload.date !== undefined) order.date = payload.date;
+      if (payload.address !== undefined) order.address = payload.address;
+      if (payload.remark !== undefined) order.remark = payload.remark;
+      if (payload.status !== undefined && ORDER_STATUS_OPTIONS.has(payload.status)) order.status = payload.status;
+      if (payload.payStatus !== undefined) order.payStatus = normalizePayStatus(payload.payStatus);
+      if (payload.items !== undefined) order.items = orderItemsFromPayload(payload.items, db.products);
+      if (payload.amount !== undefined) {
+        order.amount = Number(payload.amount || 0);
+      } else if (payload.items !== undefined) {
+        order.amount = orderAmount(order.items);
+      }
+      writeDb(db);
+      return sendJson(res, 200, { order: publicOrder(order) });
     }
   }
 

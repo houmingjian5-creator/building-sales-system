@@ -1889,4 +1889,576 @@ function renderOrders() {
   `;
 }
 
+const ORDER_STATUS_FILTERS = ["全部", "待确认", "已确认", "已发货", "已完成", "已取消"];
+const ORDER_STATUS_CHOICES = ["待确认", "已确认", "已发货", "已完成", "已取消"];
+const PAY_STATUS_FILTERS = ["全部", "未付款", "已付款"];
+const EDIT_PAGE_SIZES = { products: 50, createProducts: 24, orders: 20 };
+
+function ensurePageState() {
+  if (!state.pages) state.pages = {};
+}
+
+function scheduleInputValue(input, key, inputId) {
+  const start = input.selectionStart || 0;
+  const end = input.selectionEnd || start;
+  scheduleInputRender(key, input.value, inputId, start, end);
+}
+
+function currentPage(key) {
+  ensurePageState();
+  return Math.max(1, Number(state.pages[key] || 1));
+}
+
+function setPage(key, page) {
+  ensurePageState();
+  state.pages[key] = Math.max(1, Number(page || 1));
+  render();
+}
+
+function resetPage(key) {
+  ensurePageState();
+  state.pages[key] = 1;
+}
+
+function paginateList(list, key, pageSize) {
+  const total = list.length;
+  const totalPages = Math.max(1, Math.ceil(total / pageSize));
+  const page = Math.min(currentPage(key), totalPages);
+  state.pages[key] = page;
+  const start = (page - 1) * pageSize;
+  return { items: list.slice(start, start + pageSize), total, totalPages, page, start };
+}
+
+function paginationControls(key, page, totalPages, total) {
+  if (totalPages <= 1) return "";
+  return `
+    <div class="pagination">
+      <span>共 ${total} 条，第 ${page} / ${totalPages} 页</span>
+      <button class="btn small" ${page <= 1 ? "disabled" : ""} onclick="setPage('${key}', ${page - 1})">上一页</button>
+      <button class="btn small" ${page >= totalPages ? "disabled" : ""} onclick="setPage('${key}', ${page + 1})">下一页</button>
+    </div>
+  `;
+}
+
+function normalizeClientPayStatus(value) {
+  return value === "已付款" || value === "已回款" ? "已付款" : "未付款";
+}
+
+function optionList(values, selected) {
+  return values.map((value) => `<option value="${html(value)}" ${value === selected ? "selected" : ""}>${html(value)}</option>`).join("");
+}
+
+function subcategoriesForCat(cat1) {
+  const values = products
+    .filter((product) => product.cat1 === cat1 && product.cat2)
+    .map((product) => product.cat2);
+  return Array.from(new Set(values)).sort((a, b) => String(a).localeCompare(String(b), "zh-Hans-CN"));
+}
+
+function productCat2Control(cat1, current) {
+  const list = subcategoriesForCat(cat1);
+  const hasCurrent = current && list.includes(current);
+  const selected = hasCurrent || !current ? current : "__new__";
+  const showNew = selected === "__new__";
+  return `
+    <select id="productCat2Select" class="select" onchange="toggleNewProductCat2()">
+      <option value="">不设置二级分类</option>
+      ${list.map((item) => `<option value="${html(item)}" ${item === selected ? "selected" : ""}>${html(item)}</option>`).join("")}
+      <option value="__new__" ${showNew ? "selected" : ""}>新增二级分类</option>
+    </select>
+    <input id="productCat2New" class="input subcategory-new-input" style="${showNew ? "" : "display:none"}" placeholder="请输入新的二级分类名称" value="${showNew ? html(current || "") : ""}" />
+  `;
+}
+
+function refreshProductCat2Options() {
+  const cat1 = document.getElementById("productCat1")?.value || "辅助商品";
+  const wrap = document.getElementById("productCat2Wrap");
+  if (wrap) wrap.innerHTML = productCat2Control(cat1, "");
+}
+
+function toggleNewProductCat2() {
+  const input = document.getElementById("productCat2New");
+  const select = document.getElementById("productCat2Select");
+  if (input && select) input.style.display = select.value === "__new__" ? "" : "none";
+}
+
+function updateProductQuery(input) {
+  scheduleInputValue(input, "productQuery", "productSearchInput");
+  resetPage("products");
+  resetPage("createProducts");
+}
+
+function setProductCategory(category) {
+  state.category = category;
+  state.productSubcategory = "";
+  resetPage("products");
+  resetPage("createProducts");
+  render();
+}
+
+function setProductSubcategory(category) {
+  state.productSubcategory = category;
+  resetPage("products");
+  resetPage("createProducts");
+  render();
+}
+
+function updateOrderQuery(input) {
+  scheduleInputValue(input, "orderQuery", "orderSearchInput");
+  resetPage("orders");
+}
+
+function updateOrderSalesFilter(value) {
+  state.orderSalesFilter = value;
+  resetPage("orders");
+  render();
+}
+
+function updateOrderPayFilter(value) {
+  state.orderPayStatus = value;
+  resetPage("orders");
+  render();
+}
+
+function updateOrderStatusFilter(value) {
+  state.orderStatus = value;
+  resetPage("orders");
+  render();
+}
+
+function updateCustomerOwnerFilter(value) {
+  state.customerOwnerFilter = value;
+  render();
+}
+
+function renderProducts() {
+  const list = filteredProducts();
+  const pageData = paginateList(list, "products", EDIT_PAGE_SIZES.products);
+  const canManage = isAdmin();
+  return `
+    <div class="toolbar">
+      <input id="productSearchInput" class="input" placeholder="搜索商品名称 / 规格 / 编码 / 别名" value="${html(state.productQuery)}" oninput="updateProductQuery(this)" />
+      <div class="spacer"></div>
+      ${canManage ? `<button class="btn primary" onclick="openModal('product')">新增商品</button>` : ""}
+    </div>
+    ${categoryTabs()}
+    ${subcategoryTabs()}
+    <div class="hint" style="margin:8px 0 12px">共 ${list.length} 个商品，当前显示 ${pageData.items.length} 个</div>
+    <div class="card table-wrap product-table">
+      <table>
+        <thead><tr><th>商品名称</th><th>规格</th><th>一级分类</th><th>二级分类</th><th>单位</th><th>销售价</th><th>状态</th>${canManage ? "<th>操作</th>" : ""}</tr></thead>
+        <tbody>${pageData.items.map((p) => `
+          <tr>
+            <td><div class="product-name-cell"><strong>${html(p.name)}</strong><span>${html(p.code || p.id)}</span></div></td>
+            <td>${html(p.spec || "-")}</td>
+            <td>${html(p.cat1 || "-")}</td>
+            <td>${html(p.cat2 || "-")}</td>
+            <td>${html(p.unit)}</td>
+            <td class="num">${money(p.price)}</td>
+            <td><span class="badge ${isProductActive(p) ? "success" : "danger"}">${html(p.status || "在售")}</span></td>
+            ${canManage ? `<td class="row-actions">${actionButton("编辑", "edit", `openModal('product',${JSON.stringify(p.id)})`)}${actionButton("删除", "delete", `deleteProduct(${JSON.stringify(p.id)})`)}</td>` : ""}
+          </tr>
+        `).join("")}</tbody>
+      </table>
+    </div>
+    ${paginationControls("products", pageData.page, pageData.totalPages, pageData.total)}
+  `;
+}
+
+function productModal(id) {
+  const p = byId(products, id) || { cat1: "辅助商品", status: "在售", aliases: [] };
+  const aliases = Array.isArray(p.aliases) ? p.aliases.join("，") : (p.aliases || "");
+  return `
+    <div class="modal-backdrop" onclick="if(event.target.className==='modal-backdrop')closeModal()">
+      <div class="modal side">
+        <div class="modal-head"><h3>${id ? "编辑商品" : "新增商品"}</h3><button class="icon-btn" onclick="closeModal()">×</button></div>
+        <div class="modal-body">
+          <div class="form-grid">
+            <div class="field"><label>商品名称 *</label><input id="productName" class="input" value="${html(p.name || "")}" /></div>
+            <div class="field"><label>规格</label><input id="productSpec" class="input" value="${html(p.spec || "")}" placeholder="可不填，有规格时建议写清楚" /></div>
+            <div class="field"><label>一级分类 *</label><select id="productCat1" class="select" onchange="refreshProductCat2Options()">${PRODUCT_CATEGORIES.filter((cat) => cat !== "全部").map((cat) => `<option ${p.cat1 === cat ? "selected" : ""}>${html(cat)}</option>`).join("")}</select></div>
+            <div class="field"><label>二级分类</label><div id="productCat2Wrap" class="stacked-field">${productCat2Control(p.cat1 || "辅助商品", p.cat2 || "")}</div></div>
+            <div class="field"><label>单位 *</label><input id="productUnit" class="input" value="${html(p.unit || "")}" /></div>
+            <div class="field"><label>销售价 *</label><input id="productPrice" class="input" type="number" step="0.01" value="${Number(p.price || 0)}" /></div>
+            <div class="field"><label>成本价</label><input id="productCost" class="input" type="number" step="0.01" value="${Number(p.cost || 0)}" /></div>
+            <div class="field"><label>状态</label><select id="productStatus" class="select">${["在售", "停用"].map((item) => `<option ${p.status === item ? "selected" : ""}>${item}</option>`).join("")}</select></div>
+          </div>
+          <details class="advanced-box">
+            <summary>高级设置</summary>
+            <div class="form-grid" style="margin-top:12px">
+              <div class="field"><label>商品编码</label><input id="productCode" class="input" value="${html(p.code || p.id || "")}" ${id ? "disabled" : ""} /></div>
+              <div class="field" style="grid-column:1/-1"><label>别名 / 关键词</label><textarea id="productAliases" class="textarea" placeholder="多个别名用逗号或换行隔开">${html(aliases)}</textarea><div class="hint">AI 开单会使用别名辅助匹配，开单显示仍以商品库名称、规格、单位、价格为准。</div></div>
+            </div>
+          </details>
+        </div>
+        <div class="modal-foot"><button class="btn" onclick="closeModal()">取消</button><button class="btn primary" onclick="saveProduct(${JSON.stringify(id || "")})">保存商品</button></div>
+      </div>
+    </div>
+  `;
+}
+
+async function saveProduct(id) {
+  const cat2Select = document.getElementById("productCat2Select");
+  const cat2New = document.getElementById("productCat2New");
+  let cat2 = cat2Select?.value || "";
+  if (cat2 === "__new__") cat2 = cat2New?.value.trim() || "";
+  const payload = {
+    code: document.getElementById("productCode")?.value.trim(),
+    name: document.getElementById("productName").value.trim(),
+    spec: document.getElementById("productSpec").value.trim(),
+    cat1: document.getElementById("productCat1").value,
+    cat2,
+    unit: document.getElementById("productUnit").value.trim(),
+    price: Number(document.getElementById("productPrice").value || 0),
+    cost: Number(document.getElementById("productCost").value || 0),
+    status: document.getElementById("productStatus").value,
+    aliases: document.getElementById("productAliases").value.split(/[,，、\n]/).map((item) => item.trim()).filter(Boolean),
+  };
+  if (!payload.name || !payload.unit) {
+    alert("商品名称和单位必填。");
+    return;
+  }
+  try {
+    const response = await fetch(id ? `/api/products/${encodeURIComponent(id)}` : "/api/products", {
+      method: id ? "PUT" : "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+    const data = await response.json();
+    if (!response.ok) throw new Error(data.error || "保存商品失败");
+    if (id) {
+      const index = products.findIndex((item) => item.id === id);
+      if (index >= 0) products[index] = data.product;
+    } else {
+      products.unshift(data.product);
+    }
+    closeModal();
+    showToast("商品信息已保存");
+  } catch (error) {
+    alert(error.message);
+  }
+}
+
+async function deleteProduct(id) {
+  const product = byId(products, id);
+  if (!product || !confirm(`确定删除“${product.name}”吗？历史订单不会受影响。`)) return;
+  try {
+    const response = await fetch(`/api/products/${encodeURIComponent(id)}`, { method: "DELETE" });
+    const data = await response.json();
+    if (!response.ok) throw new Error(data.error || "删除商品失败");
+    const index = products.findIndex((item) => item.id === id);
+    if (index >= 0) products[index] = data.product;
+    showToast("商品已删除");
+    render();
+  } catch (error) {
+    alert(error.message);
+  }
+}
+
+function renderCreateOrder() {
+  ensureSalesScope();
+  const customerList = visibleCustomers();
+  const customer = byId(customerList, state.selectedCustomerId) || customerList[0];
+  const productList = filteredProducts().filter(isProductActive);
+  const pageData = paginateList(productList, "createProducts", EDIT_PAGE_SIZES.createProducts);
+  const salespersonField = canChooseSalesperson()
+    ? `<div class="field"><label>代下单销售人员</label><select class="select" onchange="state.salesUserId=this.value">${activeSalesUsers().map((u) => `<option value="${html(u.id)}" ${u.id === state.salesUserId ? "selected" : ""}>${html(u.name)}</option>`).join("")}</select></div>`
+    : "";
+  return `
+    <div class="card card-pad" style="margin-bottom:16px">
+      <div class="form-grid">
+        <div class="field"><label>选择客户 *</label><select class="select" onchange="state.selectedCustomerId=this.value;render()">${customerList.map((c) => `<option value="${html(c.id)}" ${c.id === customer?.id ? "selected" : ""}>${html(c.name)} - ${html(c.phone)}</option>`).join("")}</select></div>
+        ${salespersonField}
+        <div class="field"><label>送货地址 *</label><input id="orderAddressInput" class="input" value="${html(customer?.address || "")}" /></div>
+        <div class="field"><label>收货人手机号 *</label><input id="orderPhoneInput" class="input" value="${html(customer?.phone || "")}" /></div>
+      </div>
+    </div>
+    <div class="product-layout">
+      <div>
+        <div class="toolbar filter-toolbar">
+          <input id="orderProductSearchInput" class="input" placeholder="搜索商品名称、编码、拼音..." value="${html(state.productQuery)}" oninput="updateProductQuery(this)" />
+          <button class="btn primary" onclick="openAiOrderModal()">AI 帮我开单</button>
+        </div>
+        ${categoryTabs()}
+        ${subcategoryTabs()}
+        <div class="hint product-count-hint">共 ${productList.length} 个商品，当前显示 ${pageData.items.length} 个</div>
+        <div class="product-grid">${pageData.items.map(productCard).join("")}</div>
+        ${paginationControls("createProducts", pageData.page, pageData.totalPages, pageData.total)}
+      </div>
+      <aside class="card card-pad cart">
+        <h3>${state.orderType === "return" ? "退货清单" : "购物车"}</h3>
+        ${state.cart.length ? state.cart.map(cartLine).join("") : `<div class="empty">还没有选择商品</div>`}
+        <div class="summary-row"><span>共 ${state.cart.reduce((sum, item) => sum + item.quantity, 0)} 件</span><span>合计</span></div>
+        <div class="summary-row"><span></span><span class="summary-total">${money(cartTotal())}</span></div>
+        <button class="btn primary" style="width:100%" onclick="saveOrder()">${state.orderType === "return" ? "生成退货单" : "去结算"}</button>
+      </aside>
+    </div>
+  `;
+}
+
+async function saveOrder() {
+  const customer = byId(customers, state.selectedCustomerId);
+  if (!customer || !state.cart.length) {
+    alert("请选择客户和商品。");
+    return;
+  }
+  const payload = {
+    type: state.orderType,
+    customerId: customer.id,
+    salesUserId: canChooseSalesperson() ? state.salesUserId : state.user.id,
+    amount: cartTotal(),
+    address: document.getElementById("orderAddressInput")?.value.trim() || customer.address || "",
+    payStatus: "未付款",
+    items: state.cart.map((item) => {
+      const product = byId(products, item.productId) || {};
+      return {
+        productId: item.productId,
+        name: product.name || "",
+        spec: product.spec || "",
+        unit: product.unit || "",
+        quantity: item.quantity,
+        price: item.price,
+      };
+    }),
+  };
+  const response = await fetch("/api/orders", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+  const data = await response.json();
+  if (!response.ok) {
+    alert(data.error || "保存订单失败");
+    return;
+  }
+  orders.unshift(data.order);
+  state.cart = [];
+  state.orderType = "sale";
+  resetPage("orders");
+  showToast("订单已生成");
+  setRoute("orders");
+}
+
+function renderOrders() {
+  const q = state.orderQuery.trim();
+  const payFilter = state.orderPayStatus || "全部";
+  const list = visibleOrders().filter((order) => {
+    const customer = byId(customers, order.customerId);
+    const statusOk = state.orderStatus === "全部" || order.status === state.orderStatus;
+    const payOk = payFilter === "全部" || normalizeClientPayStatus(order.payStatus) === payFilter;
+    const salesOk = isSalesRole() || state.orderSalesFilter === "全部" || order.salesUserId === state.orderSalesFilter;
+    const queryOk = !q || [order.no, customer?.name, customer?.phone].some((value) => String(value || "").includes(q));
+    return statusOk && payOk && salesOk && queryOk;
+  });
+  const pageData = paginateList(list, "orders", EDIT_PAGE_SIZES.orders);
+  return `
+    <div class="toolbar filter-toolbar order-filter-toolbar">
+      <input id="orderSearchInput" class="input" placeholder="搜索订单号/客户名称/手机号" value="${html(state.orderQuery)}" oninput="updateOrderQuery(this)" />
+      <div class="filter-field"><label>订单状态</label><select class="select compact-select" onchange="updateOrderStatusFilter(this.value)">${optionList(ORDER_STATUS_FILTERS, state.orderStatus || "全部")}</select></div>
+      <div class="filter-field"><label>付款状态</label><select class="select compact-select" onchange="updateOrderPayFilter(this.value)">${optionList(PAY_STATUS_FILTERS, payFilter)}</select></div>
+      ${canChooseSalesperson() ? `<div class="filter-field"><label>下单销售</label><select class="select compact-select" onchange="updateOrderSalesFilter(this.value)">${salesFilterOptions(state.orderSalesFilter)}</select></div>` : ""}
+      <div class="spacer"></div>
+      <button class="btn primary" onclick="state.orderType='sale';setRoute('create')">开单</button>
+    </div>
+    <div class="order-list">${pageData.items.length ? pageData.items.map(orderCard).join("") : `<div class="empty">没有符合条件的订单</div>`}</div>
+    ${paginationControls("orders", pageData.page, pageData.totalPages, pageData.total)}
+  `;
+}
+
+function orderCard(order) {
+  const customer = byId(customers, order.customerId) || {};
+  const salesperson = byId(users, order.salesUserId) || {};
+  const payStatus = normalizeClientPayStatus(order.payStatus);
+  return `
+    <div class="order-card">
+      <div>
+        <h3>${html(order.no)}</h3>
+        <div class="order-meta">
+          <span>${html(customer.name || "-")}</span>
+          <span>${html(order.date || "-")}</span>
+          <span>销售：${html(salesperson.name || "-")}</span>
+          <span>${(order.items || []).length} 项商品</span>
+          <span>客户电话：${html(customer.phone || "-")}</span>
+        </div>
+      </div>
+      <div class="order-right">
+        <strong>${money(order.amount)}</strong>
+        <div class="order-badges"><span class="badge warning">${html(order.status || "待确认")}</span><span class="badge ${payStatus === "已付款" ? "success" : "info"}">${payStatus}</span></div>
+        <div class="order-status-controls">
+          <select class="select inline-select" title="订单状态" onchange="updateOrderStatus(${jsArg(order.id)}, this.value)">${optionList(ORDER_STATUS_CHOICES, order.status || "待确认")}</select>
+          <select class="select inline-select" title="付款状态" onchange="updateOrderPayment(${jsArg(order.id)}, this.value)">${optionList(["未付款", "已付款"], payStatus)}</select>
+        </div>
+        <div class="order-actions">
+          ${actionButton("查看", "view", `openModal('order',${jsArg(order.id)})`)}
+          ${actionButton("编辑", "edit", `openModal('editOrder',${jsArg(order.id)})`)}
+          ${actionButton("导出图片", "refresh", `exportOrderImage(${jsArg(order.id)})`)}
+        </div>
+      </div>
+    </div>
+  `;
+}
+
+async function patchOrder(id, payload, successText) {
+  const response = await fetch(`/api/orders/${encodeURIComponent(id)}`, {
+    method: "PATCH",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+  const data = await response.json();
+  if (!response.ok) {
+    alert(data.error || "修改订单失败");
+    render();
+    return;
+  }
+  const index = orders.findIndex((item) => item.id === id);
+  if (index >= 0) orders[index] = data.order;
+  showToast(successText || "订单已更新");
+  render();
+}
+
+function updateOrderStatus(id, status) {
+  patchOrder(id, { status }, "订单状态已更新");
+}
+
+function updateOrderPayment(id, payStatus) {
+  patchOrder(id, { payStatus }, "付款状态已更新");
+}
+
+function productSelectOptions(selectedId) {
+  return [`<option value="">手动录入商品</option>`].concat(
+    products.filter(isProductActive).map((p) => `<option value="${html(p.id)}" ${p.id === selectedId ? "selected" : ""}>${html(p.name)} / ${html(p.spec || "-")} / ${money(p.price)}</option>`)
+  ).join("");
+}
+
+function orderLineSnapshot(item = {}) {
+  const product = byId(products, item.productId) || {};
+  return {
+    productId: item.productId || "",
+    name: item.name || product.name || "",
+    spec: item.spec !== undefined ? item.spec : product.spec || "",
+    unit: item.unit || product.unit || "",
+    quantity: Number(item.quantity || 1),
+    price: Number(item.price !== undefined ? item.price : product.price || 0),
+  };
+}
+
+function openModal(type, id) {
+  state.modal = { type, id };
+  if (type === "editOrder") {
+    const order = byId(orders, id);
+    state.editOrderDraft = { orderId: id, items: (order?.items || []).map(orderLineSnapshot) };
+  }
+  render();
+}
+
+function closeModal() {
+  state.modal = null;
+  state.editOrderDraft = null;
+  render();
+}
+
+function editOrderModal(id) {
+  const order = byId(orders, id);
+  if (!order) return "";
+  if (!state.editOrderDraft || state.editOrderDraft.orderId !== id) {
+    state.editOrderDraft = { orderId: id, items: (order.items || []).map(orderLineSnapshot) };
+  }
+  return `
+    <div class="modal-backdrop" onclick="if(event.target.className==='modal-backdrop')closeModal()">
+      <div class="modal large">
+        <div class="modal-head"><h3>编辑订单</h3><button class="icon-btn" onclick="closeModal()">×</button></div>
+        <div class="modal-body">
+          <div class="form-grid">
+            <div class="field"><label>客户</label><select id="editOrderCustomer" class="select">${customers.map((customer) => `<option value="${html(customer.id)}" ${customer.id === order.customerId ? "selected" : ""}>${html(customer.name)}</option>`).join("")}</select></div>
+            <div class="field"><label>订单日期</label><input id="editOrderDate" class="input" value="${html(order.date || "")}" /></div>
+            <div class="field" style="grid-column:1/-1"><label>订单地址</label><input id="editOrderAddress" class="input" value="${html(order.address || byId(customers, order.customerId)?.address || "")}" /></div>
+            <div class="field" style="grid-column:1/-1"><label>订单备注</label><textarea id="editOrderRemark" class="textarea" placeholder="可填写客户特殊要求、配送说明等">${html(order.remark || "")}</textarea></div>
+          </div>
+          <div class="table-wrap edit-order-table">
+            <table>
+              <thead><tr><th>商品</th><th>规格</th><th>单位</th><th>数量</th><th>单价</th><th>小计</th><th>操作</th></tr></thead>
+              <tbody>${state.editOrderDraft.items.map((item, index) => `
+                <tr>
+                  <td>
+                    <select class="select mini-select" onchange="selectEditOrderProduct(${index}, this.value)">${productSelectOptions(item.productId)}</select>
+                    <input id="editOrderItemName${index}" class="input mini-input" value="${html(item.name)}" placeholder="商品名称" />
+                  </td>
+                  <td><input id="editOrderItemSpec${index}" class="input mini-input" value="${html(item.spec || "")}" /></td>
+                  <td><input id="editOrderItemUnit${index}" class="input mini-input unit-input" value="${html(item.unit || "")}" /></td>
+                  <td><input id="editOrderItemQty${index}" class="input mini-input num-input" type="number" step="0.01" value="${Number(item.quantity || 0)}" /></td>
+                  <td><input id="editOrderItemPrice${index}" class="input mini-input num-input" type="number" step="0.01" value="${Number(item.price || 0)}" /></td>
+                  <td>${money(Number(item.quantity || 0) * Number(item.price || 0))}</td>
+                  <td>${actionButton("删除", "delete", `removeEditOrderLine(${index})`)}</td>
+                </tr>
+              `).join("")}</tbody>
+            </table>
+          </div>
+          <button class="btn" style="margin-top:12px" onclick="addEditOrderLine()">添加商品</button>
+        </div>
+        <div class="modal-foot"><button class="btn" onclick="closeModal()">取消</button><button class="btn primary" onclick="saveOrderEdits(${jsArg(id)})">保存修改</button></div>
+      </div>
+    </div>
+  `;
+}
+
+function selectEditOrderProduct(index, productId) {
+  const item = state.editOrderDraft?.items?.[index];
+  if (!item) return;
+  item.productId = productId;
+  const product = byId(products, productId);
+  if (product) {
+    item.name = product.name || "";
+    item.spec = product.spec || "";
+    item.unit = product.unit || "";
+    item.price = Number(product.price || 0);
+  }
+  render();
+}
+
+function addEditOrderLine() {
+  if (!state.editOrderDraft) return;
+  state.editOrderDraft.items.push(orderLineSnapshot({ quantity: 1 }));
+  render();
+}
+
+function removeEditOrderLine(index) {
+  if (!state.editOrderDraft) return;
+  state.editOrderDraft.items.splice(index, 1);
+  render();
+}
+
+async function saveOrderEdits(id) {
+  const items = (state.editOrderDraft?.items || []).map((item, index) => ({
+    productId: item.productId || "",
+    name: document.getElementById(`editOrderItemName${index}`)?.value.trim() || "",
+    spec: document.getElementById(`editOrderItemSpec${index}`)?.value.trim() || "",
+    unit: document.getElementById(`editOrderItemUnit${index}`)?.value.trim() || "",
+    quantity: Number(document.getElementById(`editOrderItemQty${index}`)?.value || 0),
+    price: Number(document.getElementById(`editOrderItemPrice${index}`)?.value || 0),
+  })).filter((item) => item.name && item.quantity > 0);
+  const amount = items.reduce((sum, item) => sum + item.quantity * item.price, 0);
+  const payload = {
+    customerId: document.getElementById("editOrderCustomer")?.value,
+    date: document.getElementById("editOrderDate")?.value.trim(),
+    address: document.getElementById("editOrderAddress")?.value.trim(),
+    remark: document.getElementById("editOrderRemark")?.value.trim(),
+    items,
+    amount,
+  };
+  const response = await fetch(`/api/orders/${encodeURIComponent(id)}`, {
+    method: "PATCH",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+  const data = await response.json();
+  if (!response.ok) {
+    alert(data.error || "保存订单失败");
+    return;
+  }
+  const index = orders.findIndex((item) => item.id === id);
+  if (index >= 0) orders[index] = data.order;
+  closeModal();
+  showToast("订单已保存");
+}
+
 boot();
