@@ -2649,13 +2649,7 @@ function handleOrderRouteClick(type) {
 
 function navButton(route, label) {
   const activeClass = state.route === route ? "active" : "";
-  if (route === "create") {
-    return `<button type="button" class="${activeClass}" data-order-route="sale" onclick="handleOrderRouteClick('sale')"><span class="nav-icon">${icon(route)}</span><span>${html(label)}</span></button>`;
-  }
-  if (route === "returns") {
-    return `<button type="button" class="${activeClass}" data-order-route="return" onclick="handleOrderRouteClick('return')"><span class="nav-icon">${icon(route)}</span><span>${html(label)}</span></button>`;
-  }
-  return `<button type="button" class="${activeClass}" data-route="${html(route)}" onclick="handleRouteClick(${jsArg(route)})"><span class="nav-icon">${icon(route)}</span><span>${html(label)}</span></button>`;
+  return `<button type="button" class="${activeClass}" onclick="handleRouteClick(${jsArg(route)})"><span class="nav-icon">${icon(route)}</span><span>${html(label)}</span></button>`;
 }
 
 function orderBadgeClass(status) {
@@ -2666,7 +2660,7 @@ function orderBadgeClass(status) {
 }
 
 function orderActionButton(title, type, action, orderId) {
-  return `<button type="button" class="icon-btn" title="${html(title)}" aria-label="${html(title)}" data-order-action="${html(action)}" data-order-id="${html(orderId)}" onclick="handleOrderAction(${jsArg(action)}, ${jsArg(orderId)})">${svgIcon(type)}</button>`;
+  return `<button type="button" class="btn order-action-btn" onclick="handleOrderAction(${jsArg(action)}, ${jsArg(orderId)})">${html(title)}</button>`;
 }
 
 function handleOrderAction(action, orderId) {
@@ -2697,7 +2691,6 @@ function orderCard(order) {
       <div class="order-card-body">
         <div class="order-card-head">
           <div class="order-card-title-row">
-            <span class="order-type-chip">${html(orderTypeLabel)}</span>
             <h3>${html(order.no)}</h3>
             <span class="badge ${orderBadgeClass(status)}">${html(status)}</span>
             <span class="badge ${payStatus === "已付款" ? "success" : "info"}">${html(payStatus)}</span>
