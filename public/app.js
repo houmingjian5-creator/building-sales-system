@@ -2639,14 +2639,23 @@ function setRoute(route) {
   render();
 }
 
+function handleRouteClick(route) {
+  setRoute(route);
+}
+
+function handleOrderRouteClick(type) {
+  openOrderRoute(type);
+}
+
 function navButton(route, label) {
-  const click =
-    route === "create"
-      ? `openOrderRoute(${jsArg("sale")})`
-      : route === "returns"
-        ? `openOrderRoute(${jsArg("return")})`
-        : `setRoute(${jsArg(route)})`;
-  return `<button type="button" class="${state.route === route ? "active" : ""}" onclick='${click}'><span class="nav-icon">${icon(route)}</span><span>${html(label)}</span></button>`;
+  const activeClass = state.route === route ? "active" : "";
+  if (route === "create") {
+    return `<button type="button" class="${activeClass}" data-order-route="sale" onclick="handleOrderRouteClick('sale')"><span class="nav-icon">${icon(route)}</span><span>${html(label)}</span></button>`;
+  }
+  if (route === "returns") {
+    return `<button type="button" class="${activeClass}" data-order-route="return" onclick="handleOrderRouteClick('return')"><span class="nav-icon">${icon(route)}</span><span>${html(label)}</span></button>`;
+  }
+  return `<button type="button" class="${activeClass}" data-route="${html(route)}" onclick="handleRouteClick(${jsArg(route)})"><span class="nav-icon">${icon(route)}</span><span>${html(label)}</span></button>`;
 }
 
 function orderBadgeClass(status) {
@@ -2654,6 +2663,24 @@ function orderBadgeClass(status) {
   if (status === "已发货" || status === "已完成") return "info";
   if (status === "已取消") return "danger";
   return "warning";
+}
+
+function orderActionButton(title, type, action, orderId) {
+  return `<button type="button" class="icon-btn" title="${html(title)}" aria-label="${html(title)}" data-order-action="${html(action)}" data-order-id="${html(orderId)}" onclick="handleOrderAction(${jsArg(action)}, ${jsArg(orderId)})">${svgIcon(type)}</button>`;
+}
+
+function handleOrderAction(action, orderId) {
+  if (action === "view") {
+    openModal("document", orderId);
+    return;
+  }
+  if (action === "edit") {
+    openModal("editOrder", orderId);
+    return;
+  }
+  if (action === "export") {
+    downloadOrderImage(orderId);
+  }
 }
 
 function orderCard(order) {
@@ -2691,9 +2718,9 @@ function orderCard(order) {
             <select class="select inline-select" title="付款状态" onchange="updateOrderPayment(${jsArg(order.id)}, this.value)">${optionList(["未付款", "已付款"], payStatus)}</select>
           </div>
           <div class="order-actions">
-            ${actionButton("查看", "view", `openModal('document',${jsArg(order.id)})`)}
-            ${actionButton("编辑", "edit", `openModal('editOrder',${jsArg(order.id)})`)}
-            ${actionButton("导出图片", "refresh", `downloadOrderImage(${jsArg(order.id)})`)}
+            ${orderActionButton("查看", "view", "view", order.id)}
+            ${orderActionButton("编辑", "edit", "edit", order.id)}
+            ${orderActionButton("导出图片", "refresh", "export", order.id)}
           </div>
         </div>
       </div>
@@ -2705,4 +2732,51 @@ function exportOrderImage(orderId) {
   downloadOrderImage(orderId);
 }
 
+function bindGlobalClickHandlers() {
+  if (window.__buildingSalesClickBound) return;
+  document.addEventListener("click", (event) => {
+    const orderAction = event.target.closest("[data-order-action]");
+    if (orderAction) {
+      event.preventDefault();
+      event.stopPropagation();
+      handleOrderAction(orderAction.dataset.orderAction, orderAction.dataset.orderId);
+      return;
+    }
+
+    const orderRoute = event.target.closest("[data-order-route]");
+    if (orderRoute) {
+      event.preventDefault();
+      event.stopPropagation();
+      handleOrderRouteClick(orderRoute.dataset.orderRoute);
+      return;
+    }
+
+    const routeButton = event.target.closest("[data-route]");
+    if (routeButton) {
+      event.preventDefault();
+      event.stopPropagation();
+      handleRouteClick(routeButton.dataset.route);
+    }
+  });
+  window.__buildingSalesClickBound = true;
+}
+
+Object.assign(window, {
+  setRoute,
+  openOrderRoute,
+  handleRouteClick,
+  handleOrderRouteClick,
+  handleOrderAction,
+  openModal,
+  closeModal,
+  updateOrderStatus,
+  updateOrderPayment,
+  downloadOrderImage,
+  exportOrderImage,
+  login,
+  logout,
+  toggleLoginPassword,
+});
+
+bindGlobalClickHandlers();
 boot();

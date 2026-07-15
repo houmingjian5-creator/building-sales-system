@@ -1793,3 +1793,91 @@ tbody tr:hover {
     justify-content: flex-start;
   }
 }
+
+.order-card.order-card-polished {
+  border: 1px solid #dfe8f7;
+  border-radius: 10px;
+  background: #fff;
+  box-shadow: 0 10px 26px rgba(31, 52, 84, 0.055);
+}
+
+.order-card-polished .order-card-body {
+  padding: 12px 14px;
+}
+
+.order-card-polished .order-card-head {
+  grid-template-columns: minmax(0, 1fr) max-content;
+  gap: 10px;
+  margin-bottom: 8px;
+}
+
+.order-card-polished .order-card-title-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.order-card-polished .order-card-title-row h3 {
+  margin: 0;
+  font-size: 18px;
+  line-height: 1.2;
+}
+
+.order-card-polished .order-card-meta-grid {
+  gap: 6px 14px;
+  margin-bottom: 8px;
+  font-size: 13px;
+}
+
+.order-card-polished .order-card-bottom {
+  grid-template-columns: minmax(0, 1fr) 280px 132px;
+  gap: 10px;
+  align-items: end;
+}
+
+.order-card-polished .order-card-address {
+  min-height: 34px;
+  display: flex;
+  align-items: center;
+  padding: 7px 10px;
+  font-size: 13px;
+}
+
+.order-card-polished .order-status-controls.compact {
+  grid-column: 2;
+  grid-row: 1;
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 6px;
+}
+
+.order-card-polished .order-actions {
+  grid-column: 3;
+  grid-row: 1;
+  align-self: end;
+}
+
+.order-card-polished .order-amount {
+  color: var(--primary);
+  font-size: 22px;
+  line-height: 1.1;
+}
+
+.order-card-polished .inline-select {
+  width: 100%;
+  height: 32px;
+}
+
+@media (max-width: 1100px) {
+  .order-card-polished .order-card-bottom {
+    grid-template-columns: 1fr;
+  }
+
+  .order-card-polished .order-status-controls.compact,
+  .order-card-polished .order-actions {
+    grid-column: auto;
+    grid-row: auto;
+    justify-content: flex-start;
+  }
+}
