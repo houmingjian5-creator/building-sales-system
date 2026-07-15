@@ -2267,7 +2267,7 @@ function renderOrders() {
 
 function orderCard(order) {
   const customer = byId(customers, order.customerId) || {};
-  const salesperson = byId(users, order.salesUserId) || {};
+  const salesperson = byId(salesUsers, order.salesUserId) || {};
   const payStatus = normalizeClientPayStatus(order.payStatus);
   return `
     <div class="order-card">
