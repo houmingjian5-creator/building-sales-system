@@ -2461,4 +2461,205 @@ async function saveOrderEdits(id) {
   showToast("订单已保存");
 }
 
+function cartItemForProduct(productId) {
+  return state.cart.find((item) => item.productId === productId);
+}
+
+function normalizeQuantity(value) {
+  const quantity = Number(value);
+  if (!Number.isFinite(quantity)) return 0;
+  return Math.max(0, quantity);
+}
+
+function setCartQuantity(productId, value) {
+  const line = cartItemForProduct(productId);
+  if (!line) return;
+  const quantity = normalizeQuantity(value);
+  if (quantity <= 0) {
+    state.cart = state.cart.filter((item) => item.productId !== productId);
+  } else {
+    line.quantity = quantity;
+  }
+  render();
+}
+
+function productCard(p) {
+  const selectedLine = cartItemForProduct(p.id);
+  const selected = Boolean(selectedLine);
+  const active = isProductActive(p);
+  const quantityControl = selected
+    ? `<div class="product-card-qty" title="已选数量">
+        <button type="button" onclick="event.stopPropagation();changeQty(${jsArg(p.id)}, -1)">-</button>
+        <input class="qty-input" type="number" min="0" step="0.01" value="${Number(selectedLine.quantity || 0)}" onclick="event.stopPropagation()" onchange="setCartQuantity(${jsArg(p.id)}, this.value)" onkeydown="if(event.key==='Enter')this.blur()" />
+        <button type="button" onclick="event.stopPropagation();changeQty(${jsArg(p.id)}, 1)">+</button>
+      </div>`
+    : active
+      ? `<button class="icon-btn product-add-btn" title="加入购物车" onclick="addToCart(${jsArg(p.id)})">${svgIcon("plus")}</button>`
+      : `<span class="badge danger">停用</span>`;
+  return `
+    <article class="product-card ${active ? "" : "disabled"} ${selected ? "selected" : ""}">
+      <div class="material-thumb"></div>
+      <div>
+        <h4 class="product-title">${html(p.name)}</h4>
+        <div class="product-spec">${html(p.spec || "无规格")}</div>
+        <div class="product-spec">${html(categoryPath(p))} · ${html(p.unit || "-")}</div>
+        <div class="price">${money(p.price)}</div>
+      </div>
+      ${quantityControl}
+    </article>
+  `;
+}
+
+function addToCart(productId) {
+  const product = byId(products, productId);
+  if (!product || !isProductActive(product)) return;
+  const line = cartItemForProduct(productId);
+  if (line) {
+    line.quantity = normalizeQuantity(line.quantity) + 1;
+  } else {
+    state.cart.push({ productId, quantity: 1, price: Number(product.price || 0) });
+  }
+  render();
+  showToast("已加入购物车");
+}
+
+function cartLine(item) {
+  const p = byId(products, item.productId);
+  if (!p) return "";
+  const quantity = normalizeQuantity(item.quantity);
+  return `
+    <div class="cart-line">
+      <div class="cart-line-main">
+        <strong>${html(p.name)}</strong>
+        <div class="product-spec">${html(p.spec || "无规格")}</div>
+        <div class="product-spec">${money(item.price)} / ${html(p.unit || "-")}</div>
+      </div>
+      <div class="cart-line-side">
+        <div class="cart-line-controls">
+          <button type="button" onclick="changeQty(${jsArg(p.id)}, -1)">-</button>
+          <input class="qty-input" type="number" min="0" step="0.01" value="${quantity}" onchange="setCartQuantity(${jsArg(p.id)}, this.value)" onkeydown="if(event.key==='Enter')this.blur()" />
+          <button type="button" onclick="changeQty(${jsArg(p.id)}, 1)">+</button>
+        </div>
+        <strong class="cart-line-total">${money(quantity * Number(item.price || 0))}</strong>
+      </div>
+    </div>
+  `;
+}
+
+function changeQty(productId, delta) {
+  const line = cartItemForProduct(productId);
+  if (!line) return;
+  setCartQuantity(productId, normalizeQuantity(line.quantity) + Number(delta || 0));
+}
+
+async function saveProduct(id) {
+  const field = (fieldId) => document.getElementById(fieldId);
+  const cat2Select = field("productCat2Select");
+  const cat2New = field("productCat2New");
+  let cat2 = cat2Select?.value || "";
+  if (cat2 === "__new__") cat2 = cat2New?.value?.trim() || "";
+  const payload = {
+    code: field("productCode")?.value?.trim() || "",
+    name: field("productName")?.value?.trim() || "",
+    spec: field("productSpec")?.value?.trim() || "",
+    cat1: field("productCat1")?.value || "辅助商品",
+    cat2,
+    unit: field("productUnit")?.value?.trim() || "",
+    price: Number(field("productPrice")?.value || 0),
+    cost: Number(field("productCost")?.value || 0),
+    status: field("productStatus")?.value || "在售",
+    aliases: (field("productAliases")?.value || "")
+      .split(/[,，、\n]/)
+      .map((item) => item.trim())
+      .filter(Boolean),
+  };
+  if (!payload.name || !payload.unit) {
+    alert("商品名称和单位必填。");
+    return;
+  }
+  try {
+    const response = await fetch(id ? `/api/products/${encodeURIComponent(id)}` : "/api/products", {
+      method: id ? "PUT" : "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+    const data = await response.json();
+    if (!response.ok) throw new Error(data.error || "保存商品失败");
+    if (id) {
+      const index = products.findIndex((item) => item.id === id);
+      if (index >= 0) products[index] = data.product;
+    } else {
+      products.unshift(data.product);
+    }
+    closeModal();
+    showToast("商品信息已保存");
+  } catch (error) {
+    alert(error.message);
+  }
+}
+
+async function deleteProduct(id) {
+  const product = byId(products, id);
+  if (!product || !confirm(`确定删除“${product.name}”吗？历史订单不会受影响。`)) return;
+  try {
+    const response = await fetch(`/api/products/${encodeURIComponent(id)}`, { method: "DELETE" });
+    let data = {};
+    try {
+      data = await response.json();
+    } catch (_) {
+      data = {};
+    }
+    if (!response.ok) throw new Error(data.error || "删除商品失败");
+    products = products.filter((item) => item.id !== id);
+    state.cart = state.cart.filter((item) => item.productId !== id);
+    showToast("商品已删除");
+    render();
+  } catch (error) {
+    alert(error.message);
+  }
+}
+
+function orderCard(order) {
+  const customer = byId(customers, order.customerId) || {};
+  const salesperson = byId(salesUsers, order.salesUserId) || {};
+  const payStatus = normalizeClientPayStatus(order.payStatus);
+  const status = order.status || "待确认";
+  const address = order.address || customer.address || "-";
+  return `
+    <div class="order-card order-card-compact">
+      <div class="order-card-main">
+        <div class="order-card-title-row">
+          <h3>${html(order.no)}</h3>
+          <span class="badge warning">${html(status)}</span>
+          <span class="badge ${payStatus === "已付款" ? "success" : "info"}">${html(payStatus)}</span>
+        </div>
+        <div class="order-card-meta">
+          <span>${html(customer.name || "-")}</span>
+          <span>${html(order.date || "-")}</span>
+          <span>销售：${html(salesperson.name || "-")}</span>
+          <span>${(order.items || []).length} 项商品</span>
+          <span>客户电话：${html(customer.phone || "-")}</span>
+        </div>
+        <div class="order-card-address">地址：${html(address)}</div>
+      </div>
+      <div class="order-card-side">
+        <strong class="order-amount">${money(order.amount)}</strong>
+        <div class="order-status-controls compact">
+          <select class="select inline-select" title="订单状态" onchange="updateOrderStatus(${jsArg(order.id)}, this.value)">${optionList(ORDER_STATUS_CHOICES, status)}</select>
+          <select class="select inline-select" title="付款状态" onchange="updateOrderPayment(${jsArg(order.id)}, this.value)">${optionList(["未付款", "已付款"], payStatus)}</select>
+        </div>
+        <div class="order-actions">
+          ${actionButton("查看", "view", `openModal('document',${jsArg(order.id)})`)}
+          ${actionButton("编辑", "edit", `openModal('editOrder',${jsArg(order.id)})`)}
+          ${actionButton("导出图片", "refresh", `downloadOrderImage(${jsArg(order.id)})`)}
+        </div>
+      </div>
+    </div>
+  `;
+}
+
+function exportOrderImage(orderId) {
+  downloadOrderImage(orderId);
+}
+
 boot();

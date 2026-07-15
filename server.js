@@ -716,7 +716,8 @@ async function handleApi(req, res) {
     if (!user) return;
     const id = decodeURIComponent(url.pathname.split("/").pop());
     const db = readDb();
-    const product = db.products.find((item) => item.id === id);
+    const productIndex = db.products.findIndex((item) => item.id === id);
+    const product = db.products[productIndex];
     if (!product) return sendError(res, 404, "商品不存在");
     if (method === "PUT") {
       if (!requireAdmin(req, res)) return;
@@ -728,9 +729,9 @@ async function handleApi(req, res) {
     }
     if (method === "DELETE") {
       if (!requireAdmin(req, res)) return;
-      product.status = "停用";
+      db.products.splice(productIndex, 1);
       writeDb(db);
-      return sendJson(res, 200, { product: publicProduct(product) });
+      return sendJson(res, 200, { id: product.id, deleted: true });
     }
   }
 

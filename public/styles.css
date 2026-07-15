@@ -1537,3 +1537,145 @@ tbody tr:hover {
     width: 100%;
   }
 }
+
+.product-card.selected {
+  border-color: #93a9ff;
+  box-shadow: 0 0 0 2px rgba(54, 88, 219, 0.14), var(--shadow-soft);
+}
+
+.product-card-qty,
+.cart-line-controls {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #f8fbff;
+}
+
+.product-card-qty button,
+.cart-line-controls button {
+  width: 28px;
+  height: 28px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: white;
+  font-weight: 800;
+  color: var(--text);
+}
+
+.qty-input {
+  width: 58px;
+  height: 28px;
+  border: 0;
+  background: transparent;
+  text-align: center;
+  font-weight: 800;
+  color: var(--text);
+  outline: none;
+}
+
+.cart-line {
+  align-items: center;
+}
+
+.cart-line-main {
+  min-width: 0;
+}
+
+.cart-line-side {
+  display: grid;
+  justify-items: end;
+  gap: 6px;
+}
+
+.cart-line-total {
+  color: var(--text);
+}
+
+.order-card.order-card-compact {
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 16px;
+  align-items: center;
+  padding: 14px 16px;
+  min-height: 0;
+}
+
+.order-card-main {
+  min-width: 0;
+}
+
+.order-card-title-row {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.order-card-title-row h3 {
+  margin: 0;
+  font-size: 17px;
+  font-weight: 900;
+}
+
+.order-card-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 14px;
+  margin-top: 8px;
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.order-card-address {
+  margin-top: 7px;
+  color: var(--text);
+  font-size: 13px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.order-card-side {
+  display: grid;
+  justify-items: end;
+  gap: 8px;
+  min-width: 270px;
+}
+
+.order-amount {
+  color: var(--primary);
+  font-size: 20px;
+  font-weight: 900;
+}
+
+.order-status-controls.compact {
+  display: flex;
+  gap: 8px;
+}
+
+.order-status-controls.compact .inline-select {
+  min-width: 112px;
+}
+
+@media (max-width: 900px) {
+  .order-card.order-card-compact {
+    grid-template-columns: 1fr;
+  }
+
+  .order-card-side {
+    justify-items: stretch;
+    min-width: 0;
+  }
+
+  .order-status-controls.compact,
+  .order-actions {
+    justify-content: flex-start;
+  }
+
+  .product-card-qty {
+    grid-column: 2 / 4;
+    justify-self: start;
+  }
+}
