@@ -963,6 +963,10 @@ tbody tr:hover {
   width: min(860px, 100%);
 }
 
+.modal.large {
+  width: min(980px, 100%);
+}
+
 .modal-head,
 .modal-foot {
   display: flex;
@@ -1498,6 +1502,77 @@ tbody tr:hover {
   vertical-align: top;
 }
 
+.edit-order-items {
+  margin-top: 18px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.edit-order-items-head,
+.edit-order-line {
+  display: grid;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 14px;
+}
+
+.edit-order-items-head {
+  grid-template-columns: 1fr auto;
+  background: #f7f9fc;
+  border-bottom: 1px solid var(--line);
+}
+
+.edit-order-line {
+  grid-template-columns: minmax(220px, 1fr) 110px 120px 100px 40px;
+  border-bottom: 1px solid var(--line);
+}
+
+.edit-order-line:last-child { border-bottom: 0; }
+.edit-order-product { min-width: 0; display: grid; gap: 4px; }
+.edit-order-product strong { overflow-wrap: anywhere; }
+.edit-order-product span,
+.edit-order-line label span,
+.edit-product-result span { color: var(--muted); font-size: 12px; }
+.edit-order-line label { display: grid; gap: 5px; }
+.edit-order-subtotal { font-weight: 800; text-align: right; white-space: nowrap; }
+
+.edit-product-picker {
+  margin-top: 12px;
+  padding: 14px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #f8fafc;
+}
+
+.edit-product-filters {
+  display: grid;
+  grid-template-columns: minmax(220px, 1fr) 150px 180px;
+  gap: 10px;
+  margin-bottom: 12px;
+}
+
+.edit-product-results {
+  max-height: 330px;
+  overflow-y: auto;
+  background: white;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+}
+
+.edit-product-result {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--line);
+}
+
+.edit-product-result:last-child { border-bottom: 0; }
+.edit-product-result > div { min-width: 0; display: grid; gap: 4px; }
+.edit-product-result strong { overflow-wrap: anywhere; }
+
 .mini-select,
 .mini-input {
   min-width: 140px;
@@ -1517,6 +1592,14 @@ tbody tr:hover {
 }
 
 @media (max-width: 720px) {
+  .edit-order-line {
+    grid-template-columns: 1fr 1fr;
+  }
+
+  .edit-order-product { grid-column: 1 / -1; }
+  .edit-order-subtotal { text-align: left; }
+  .edit-product-filters { grid-template-columns: 1fr; }
+
   .product-table table {
     min-width: 760px;
   }

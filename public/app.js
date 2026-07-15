@@ -21,6 +21,10 @@ const state = {
   aiText: "",
   aiLearnPairs: [],
   loginPasswordVisible: false,
+  editProductQuery: "",
+  editProductCategory: "全部",
+  editProductSubcategory: "全部",
+  editProductPickerOpen: false,
 };
 
 let inputRenderTimer = null;
@@ -66,6 +70,13 @@ const money = (value) => `¥${Number(value || 0).toLocaleString("zh-CN", { maxim
 const byId = (list, id) => list.find((item) => item.id === id);
 const icon = (name) => ({ dashboard: "概", customers: "客", products: "品", create: "开", orders: "单", returns: "退", users: "员" }[name] || "•");
 const isAdmin = () => state.user && ["超级管理员", "管理员"].includes(state.user.role);
+
+function orderItemDetails(item = {}) {
+  const product = byId(products, item.productId) || {};
+  const name = item.name || product.name || "";
+  const spec = item.spec !== undefined && item.spec !== "" ? item.spec : product.spec || "";
+  return { name, spec, label: spec ? `${name}（${spec}）` : name, unit: item.unit || product.unit || "" };
+}
 
 function setRoute(route) {
   state.route = route;
@@ -729,7 +740,7 @@ function renderAiMatched(list) {
   return `
     <section class="ai-section">
       <h4>已匹配商品</h4>
-      ${list.map((item) => `<div class="ai-line"><div><strong>${html(item.name)}</strong><div class="hint">${html(item.spec || "")} · ${html(item.unit)} · 原文：${html(item.rawName || "-")}</div></div><div class="num">${html(item.quantity)} ${html(item.unit)}</div><div class="num">${money(item.price)}</div></div>`).join("")}
+      ${list.map((item) => `<div class="ai-line"><div><strong>${html(orderItemDetails(item).label)}</strong><div class="hint">${html(item.unit)} · 原文：${html(item.rawName || "-")}</div></div><div class="num">${html(item.quantity)} ${html(item.unit)}</div><div class="num">${money(item.price)}</div></div>`).join("")}
     </section>
   `;
 }
@@ -739,7 +750,7 @@ function renderAiNeedsQuantity(list) {
   return `
     <section class="ai-section">
       <h4>需要补数量</h4>
-      ${list.map((item) => `<div class="ai-line"><div><strong>${html(item.name)}</strong><div class="hint">${html(item.spec || "")} · ${html(item.unit)} · 原文：${html(item.rawName || "-")}</div></div><input class="input ai-small-input" type="number" min="0" step="0.01" placeholder="数量" data-ai-quantity-product="${html(item.productId)}" data-ai-raw-name="${html(item.rawName || "")}" /><div class="num">${money(item.price)}</div></div>`).join("")}
+      ${list.map((item) => `<div class="ai-line"><div><strong>${html(orderItemDetails(item).label)}</strong><div class="hint">${html(item.unit)} · 原文：${html(item.rawName || "-")}</div></div><input class="input ai-small-input" type="number" min="0" step="0.01" placeholder="数量" data-ai-quantity-product="${html(item.productId)}" data-ai-raw-name="${html(item.rawName || "")}" /><div class="num">${money(item.price)}</div></div>`).join("")}
     </section>
   `;
 }
@@ -840,7 +851,7 @@ function documentModal(id) {
               <div class="right"><span>销售：</span>${s?.name || "-"}</div>
               <div class="doc-address"><span>地址：</span>${c.address}</div>
             </div>
-            <table><thead><tr><th>编号</th><th>商品名称</th><th>单位</th><th>数量</th><th>单价</th><th>金额</th></tr></thead><tbody>${rows.map((row) => row.empty ? `<tr><td>${row.index}</td><td></td><td></td><td></td><td></td><td></td></tr>` : `<tr><td>${row.index}</td><td>${row.name}</td><td>${row.unit}</td><td>${row.quantity}</td><td>${money(row.price)}</td><td>${money(row.amount)}</td></tr>`).join("")}</tbody></table>
+            <table><thead><tr><th>编号</th><th>商品名称</th><th>单位</th><th>数量</th><th>单价</th><th>金额</th></tr></thead><tbody>${rows.map((row) => row.empty ? `<tr><td>${row.index}</td><td></td><td></td><td></td><td></td><td></td></tr>` : `<tr><td>${row.index}</td><td>${html(row.name)}</td><td>${html(row.unit)}</td><td>${row.quantity}</td><td>${money(row.price)}</td><td>${money(row.amount)}</td></tr>`).join("")}</tbody></table>
             <div class="doc-bottom">
               <div><strong>合计大写：</strong>${amountToChinese(order.amount)}<br /><strong>销售电话：</strong>${maskPhone(s?.phone || c.phone)}</div>
               <div class="doc-total"><span>此单合计金额：</span><strong>${money(order.amount)}</strong></div>
@@ -965,11 +976,11 @@ function amountToChinese(value) {
 
 function getOrderRows(order) {
   return order.items.map((item, index) => {
-    const product = byId(products, item.productId);
+    const details = orderItemDetails(item);
     return {
       index: index + 1,
-      name: product?.name || "",
-      unit: product?.unit || "",
+      name: details.label,
+      unit: details.unit,
       quantity: item.quantity,
       price: item.price,
       amount: item.quantity * item.price,
@@ -1013,8 +1024,8 @@ function downloadOrderHtml(orderId) {
   ` : `
     <tr>
       <td>${row.index}</td>
-      <td>${row.name}</td>
-      <td>${row.unit}</td>
+      <td>${html(row.name)}</td>
+      <td>${html(row.unit)}</td>
       <td>${row.quantity}</td>
       <td>${money(row.price)}</td>
       <td>${money(row.amount)}</td>
@@ -1076,136 +1087,97 @@ function downloadOrderImage(orderId) {
   const sales = byId(salesUsers, order.salesUserId);
   const rows = getOrderRows(order);
   const rowCount = Math.max(rows.length, 8);
-  const tableY = 470;
-  const headerH = 58;
-  const rowHeight = 54;
-  const tableEndY = tableY + headerH + 12 + rowCount * rowHeight;
-  const summaryY = tableEndY + 120;
+  const tableY = 414;
+  const rowHeight = 64;
+  const tableEndY = tableY + rowHeight * (rowCount + 1);
+  const summaryY = tableEndY + 70;
   const canvas = document.createElement("canvas");
   const scale = 2;
-  const width = 1800;
-  const height = Math.max(1450, summaryY + 190);
+  const width = 1588;
+  const height = Math.max(1162, summaryY + 130);
   canvas.width = width * scale;
   canvas.height = height * scale;
   const ctx = canvas.getContext("2d");
   ctx.scale(scale, scale);
-  ctx.fillStyle = "#fdfdff";
+  ctx.fillStyle = "#ffffff";
   ctx.fillRect(0, 0, width, height);
-
-  const pageX = 55;
-  const pageY = 55;
-  const pageW = width - 110;
-  const pageH = height - 110;
-  ctx.strokeStyle = "#dae1eb";
+  ctx.strokeStyle = "#d6dde8";
   ctx.lineWidth = 1;
-  ctx.strokeRect(pageX, pageY, pageW, pageH);
+  ctx.strokeRect(0.5, 0.5, width - 1, height - 1);
 
-  ctx.fillStyle = "#5c708a";
+  ctx.fillStyle = "#172033";
+  ctx.textAlign = "center";
+  ctx.font = "800 42px Microsoft YaHei, Arial";
+  ctx.fillText(title, width / 2, 122);
+  ctx.font = "500 20px Microsoft YaHei, Arial";
+  ctx.fillText("材达家建材销售系统", width / 2, 163);
+
   ctx.textAlign = "left";
+  ctx.font = "400 25px Microsoft YaHei, Arial";
+  ctx.fillText("客户：", 57, 236);
   ctx.font = "700 25px Microsoft YaHei, Arial";
-  ctx.fillText("材达家建材销售系统", 75, 98);
+  ctx.fillText(customer.name || "-", 120, 236);
+  ctx.font = "400 25px Microsoft YaHei, Arial";
+  ctx.fillText("日期：", 57, 299);
+  ctx.fillText(order.date || "-", 120, 299);
+  ctx.textAlign = "right";
+  ctx.fillText(`单号：${order.no}`, width - 57, 236);
+  ctx.fillText(`销售：${sales?.name || "-"}`, width - 57, 299);
 
+  ctx.fillStyle = "#eef2f7";
+  roundRect(ctx, 57, 309, width - 114, 63, 7);
+  ctx.fill();
   ctx.fillStyle = "#172033";
-  ctx.font = "800 52px Microsoft YaHei, Arial";
-  ctx.fillText(title, 75, 158);
-
-  ctx.strokeStyle = "#3a5dd6";
-  ctx.lineWidth = 5;
-  ctx.beginPath();
-  ctx.moveTo(75, 210);
-  ctx.lineTo(width - 75, 210);
-  ctx.stroke();
-
   ctx.textAlign = "left";
-  ctx.fillStyle = "#172033";
-  ctx.font = "700 28px Microsoft YaHei, Arial";
-  ctx.fillText(`客户  ${customer.name}`, 75, 270);
-  ctx.font = "400 28px Microsoft YaHei, Arial";
-  ctx.fillText(`地址  ${customer.address || "-"}`, 75, 330);
-  ctx.fillText(`电话  ${maskPhone(customer.phone)}`, 75, 390);
+  ctx.font = "700 24px Microsoft YaHei, Arial";
+  ctx.fillText(`地址：${order.address || customer.address || "-"}`, 72, 350);
 
-  ctx.font = "700 27px Microsoft YaHei, Arial";
-  ctx.fillText(`单号  ${order.no}`, 1190, 270);
-  ctx.font = "400 27px Microsoft YaHei, Arial";
-  ctx.fillText(`日期  ${order.date}`, 1190, 330);
-  ctx.fillText(`销售  ${sales?.name || "-"}`, 1190, 390);
-
-  const tableX = 75;
-  const tableW = width - 150;
-  const cols = [76, tableW - 76 - 170 - 90 - 90 - 145 - 135, 170, 90, 90, 145, 135];
-  const headers = ["序号", "品名", "规格", "单位", "数量", "单价", "金额"];
-  ctx.fillStyle = "#f5f7fb";
-  ctx.fillRect(tableX, tableY, tableW, headerH);
+  const tableX = 57;
+  const cols = [84, 828, 112, 112, 168, 169];
+  const tableW = cols.reduce((sum, value) => sum + value, 0);
+  const headers = ["编号", "商品名称", "单位", "数量", "单价", "金额"];
+  ctx.strokeStyle = "#cfcfcf";
+  ctx.lineWidth = 1.5;
+  ctx.strokeRect(tableX, tableY, tableW, rowHeight * (rowCount + 1));
+  let gridX = tableX;
+  cols.slice(0, -1).forEach((col) => {
+    gridX += col;
+    ctx.beginPath(); ctx.moveTo(gridX, tableY); ctx.lineTo(gridX, tableEndY); ctx.stroke();
+  });
+  for (let i = 1; i <= rowCount; i += 1) {
+    const y = tableY + rowHeight * i;
+    ctx.beginPath(); ctx.moveTo(tableX, y); ctx.lineTo(tableX + tableW, y); ctx.stroke();
+  }
   ctx.fillStyle = "#172033";
-  ctx.font = "800 24px Microsoft YaHei, Arial";
+  ctx.font = "800 23px Microsoft YaHei, Arial";
   let headerX = tableX;
   headers.forEach((header, i) => {
-    drawCellText(ctx, header, headerX, tableY, cols[i], headerH, i === 1 ? "left" : "center");
+    drawCellText(ctx, header, headerX, tableY, cols[i], rowHeight, "center");
     headerX += cols[i];
   });
-
-  ctx.strokeStyle = "#e2e8f0";
-  ctx.lineWidth = 1;
-  ctx.beginPath();
-  ctx.moveTo(tableX, tableY + headerH);
-  ctx.lineTo(tableX + tableW, tableY + headerH);
-  ctx.stroke();
-
-  ctx.font = "400 23px Microsoft YaHei, Arial";
+  ctx.font = "400 22px Microsoft YaHei, Arial";
   for (let rowIndex = 0; rowIndex < rowCount; rowIndex += 1) {
     const row = rows[rowIndex];
-    const y = tableY + headerH + 12 + rowHeight * rowIndex;
-    if (row) {
-      const product = byId(products, row.productId);
-      const spec = product?.spec || "-";
-      const values = [
-        rowIndex + 1,
-        row.name,
-        spec,
-        row.unit,
-        row.quantity,
-        money(row.price),
-        money(row.amount)
-      ];
-      let cellX = tableX;
-      ctx.fillStyle = "#172033";
-      values.forEach((value, i) => {
-        const align = i === 1 ? "left" : i === 6 ? "right" : "center";
-        ctx.font = i === 1 ? "700 25px Microsoft YaHei, Arial" : "400 23px Microsoft YaHei, Arial";
-        drawCellText(ctx, String(value), cellX, y, cols[i], 46, align);
-        cellX += cols[i];
-      });
-    }
-    ctx.strokeStyle = "#e2e8f0";
-    ctx.beginPath();
-    ctx.moveTo(tableX, y + 46);
-    ctx.lineTo(tableX + tableW, y + 46);
-    ctx.stroke();
+    const y = tableY + rowHeight * (rowIndex + 1);
+    const values = row ? [rowIndex + 1, row.name, row.unit, row.quantity, money(row.price), money(row.amount)] : [rowIndex + 1, "", "", "", "", ""];
+    let cellX = tableX;
+    values.forEach((value, i) => {
+      drawCellText(ctx, String(value), cellX, y, cols[i], rowHeight, i === 1 ? "left" : i >= 4 ? "right" : "center");
+      cellX += cols[i];
+    });
   }
-
-  ctx.strokeStyle = "#e2e8f0";
-  ctx.lineWidth = 2;
-  ctx.beginPath();
-  ctx.moveTo(75, summaryY - 70);
-  ctx.lineTo(width - 75, summaryY - 70);
-  ctx.stroke();
-
   ctx.textAlign = "left";
   ctx.fillStyle = "#172033";
-  ctx.font = "700 29px Microsoft YaHei, Arial";
-  ctx.fillText(`合计大写 ${amountToChinese(order.amount)}`, 75, summaryY);
+  ctx.font = "400 23px Microsoft YaHei, Arial";
+  ctx.fillText("合计大写：", 57, summaryY);
+  ctx.font = "700 23px Microsoft YaHei, Arial";
+  ctx.fillText(amountToChinese(order.amount), 165, summaryY);
   ctx.textAlign = "right";
-  ctx.fillStyle = "#3a5dd6";
-  ctx.font = "800 42px Microsoft YaHei, Arial";
-  ctx.fillText(`合计金额 ${money(order.amount)}`, width - 75, summaryY);
-
+  ctx.font = "400 23px Microsoft YaHei, Arial";
+  ctx.fillText(`此单合计金额：${money(order.amount)}`, width - 57, summaryY);
   ctx.textAlign = "left";
-  ctx.fillStyle = "#5c708a";
-  ctx.font = "400 27px Microsoft YaHei, Arial";
-  ctx.fillText("客户签收：____________________", 75, summaryY + 70);
-  ctx.fillStyle = "#172033";
-  ctx.font = "700 27px Microsoft YaHei, Arial";
-  ctx.fillText(`销售电话：${maskPhone(sales?.phone || customer.phone)}`, 75, summaryY + 125);
+  ctx.font = "700 23px Microsoft YaHei, Arial";
+  ctx.fillText(`销售电话：${maskPhone(sales?.phone || customer.phone)}`, 57, summaryY + 50);
 
   canvas.toBlob((blob) => {
     downloadBlob(`${title}_${order.no}.png`, "image/png", blob);
@@ -2346,7 +2318,18 @@ function openModal(type, id) {
   state.modal = { type, id };
   if (type === "editOrder") {
     const order = byId(orders, id);
-    state.editOrderDraft = { orderId: id, items: (order?.items || []).map(orderLineSnapshot) };
+    state.editOrderDraft = {
+      orderId: id,
+      customerId: order?.customerId || "",
+      date: order?.date || "",
+      address: order?.address || byId(customers, order?.customerId)?.address || "",
+      remark: order?.remark || "",
+      items: (order?.items || []).map(orderLineSnapshot),
+    };
+    state.editProductPickerOpen = false;
+    state.editProductQuery = "";
+    state.editProductCategory = "全部";
+    state.editProductSubcategory = "全部";
   }
   render();
 }
@@ -2354,6 +2337,7 @@ function openModal(type, id) {
 function closeModal() {
   state.modal = null;
   state.editOrderDraft = null;
+  state.editProductPickerOpen = false;
   render();
 }
 
@@ -2361,39 +2345,33 @@ function editOrderModal(id) {
   const order = byId(orders, id);
   if (!order) return "";
   if (!state.editOrderDraft || state.editOrderDraft.orderId !== id) {
-    state.editOrderDraft = { orderId: id, items: (order.items || []).map(orderLineSnapshot) };
+    state.editOrderDraft = { orderId: id, customerId: order.customerId, date: order.date || "", address: order.address || "", remark: order.remark || "", items: (order.items || []).map(orderLineSnapshot) };
   }
+  const draft = state.editOrderDraft;
   return `
     <div class="modal-backdrop" onclick="if(event.target.className==='modal-backdrop')closeModal()">
       <div class="modal large">
         <div class="modal-head"><h3>编辑订单</h3><button class="icon-btn" onclick="closeModal()">×</button></div>
         <div class="modal-body">
           <div class="form-grid">
-            <div class="field"><label>客户</label><select id="editOrderCustomer" class="select">${customers.map((customer) => `<option value="${html(customer.id)}" ${customer.id === order.customerId ? "selected" : ""}>${html(customer.name)}</option>`).join("")}</select></div>
-            <div class="field"><label>订单日期</label><input id="editOrderDate" class="input" value="${html(order.date || "")}" /></div>
-            <div class="field" style="grid-column:1/-1"><label>订单地址</label><input id="editOrderAddress" class="input" value="${html(order.address || byId(customers, order.customerId)?.address || "")}" /></div>
-            <div class="field" style="grid-column:1/-1"><label>订单备注</label><textarea id="editOrderRemark" class="textarea" placeholder="可填写客户特殊要求、配送说明等">${html(order.remark || "")}</textarea></div>
+            <div class="field"><label>客户</label><select id="editOrderCustomer" class="select" onchange="updateEditOrderMeta('customerId',this.value)">${customers.map((customer) => `<option value="${html(customer.id)}" ${customer.id === draft.customerId ? "selected" : ""}>${html(customer.name)}</option>`).join("")}</select></div>
+            <div class="field"><label>订单日期</label><input id="editOrderDate" class="input" value="${html(draft.date)}" oninput="updateEditOrderMeta('date',this.value)" /></div>
+            <div class="field" style="grid-column:1/-1"><label>订单地址</label><input id="editOrderAddress" class="input" value="${html(draft.address)}" oninput="updateEditOrderMeta('address',this.value)" /></div>
+            <div class="field" style="grid-column:1/-1"><label>订单备注</label><textarea id="editOrderRemark" class="textarea" placeholder="可填写客户特殊要求、配送说明等" oninput="updateEditOrderMeta('remark',this.value)">${html(draft.remark)}</textarea></div>
           </div>
-          <div class="table-wrap edit-order-table">
-            <table>
-              <thead><tr><th>商品</th><th>规格</th><th>单位</th><th>数量</th><th>单价</th><th>小计</th><th>操作</th></tr></thead>
-              <tbody>${state.editOrderDraft.items.map((item, index) => `
-                <tr>
-                  <td>
-                    <select class="select mini-select" onchange="selectEditOrderProduct(${index}, this.value)">${productSelectOptions(item.productId)}</select>
-                    <input id="editOrderItemName${index}" class="input mini-input" value="${html(item.name)}" placeholder="商品名称" />
-                  </td>
-                  <td><input id="editOrderItemSpec${index}" class="input mini-input" value="${html(item.spec || "")}" /></td>
-                  <td><input id="editOrderItemUnit${index}" class="input mini-input unit-input" value="${html(item.unit || "")}" /></td>
-                  <td><input id="editOrderItemQty${index}" class="input mini-input num-input" type="number" step="0.01" value="${Number(item.quantity || 0)}" /></td>
-                  <td><input id="editOrderItemPrice${index}" class="input mini-input num-input" type="number" step="0.01" value="${Number(item.price || 0)}" /></td>
-                  <td>${money(Number(item.quantity || 0) * Number(item.price || 0))}</td>
-                  <td>${actionButton("删除", "delete", `removeEditOrderLine(${index})`)}</td>
-                </tr>
-              `).join("")}</tbody>
-            </table>
+          <div class="edit-order-items">
+            <div class="edit-order-items-head"><strong>订单商品</strong><span>${draft.items.length} 项</span></div>
+            ${draft.items.length ? draft.items.map((item, index) => `
+              <div class="edit-order-line">
+                <div class="edit-order-product"><strong>${html(orderItemDetails(item).label)}</strong><span>${html(item.unit || "-")}</span></div>
+                <label><span>数量</span><input id="editOrderItemQty${index}" class="input" type="number" min="0.01" step="0.01" value="${Number(item.quantity || 0)}" oninput="updateEditOrderLine(${index},'quantity',this.value)" /></label>
+                <label><span>单价</span><input id="editOrderItemPrice${index}" class="input" type="number" min="0" step="0.01" value="${Number(item.price || 0)}" oninput="updateEditOrderLine(${index},'price',this.value)" /></label>
+                <div id="editOrderSubtotal${index}" class="edit-order-subtotal">${money(Number(item.quantity || 0) * Number(item.price || 0))}</div>
+                ${actionButton("删除商品", "delete", `removeEditOrderLine(${index})`)}
+              </div>`).join("") : `<div class="empty">订单中还没有商品</div>`}
           </div>
-          <button class="btn" style="margin-top:12px" onclick="addEditOrderLine()">添加商品</button>
+          <button class="btn" style="margin-top:12px" onclick="toggleEditProductPicker()">${state.editProductPickerOpen ? "收起商品库" : "添加商品"}</button>
+          ${state.editProductPickerOpen ? renderEditProductPicker() : ""}
         </div>
         <div class="modal-foot"><button class="btn" onclick="closeModal()">取消</button><button class="btn primary" onclick="saveOrderEdits(${jsArg(id)})">保存修改</button></div>
       </div>
@@ -2401,23 +2379,57 @@ function editOrderModal(id) {
   `;
 }
 
-function selectEditOrderProduct(index, productId) {
+function updateEditOrderMeta(key, value) {
+  if (state.editOrderDraft) state.editOrderDraft[key] = value;
+}
+
+function updateEditOrderLine(index, key, value) {
   const item = state.editOrderDraft?.items?.[index];
   if (!item) return;
-  item.productId = productId;
-  const product = byId(products, productId);
-  if (product) {
-    item.name = product.name || "";
-    item.spec = product.spec || "";
-    item.unit = product.unit || "";
-    item.price = Number(product.price || 0);
-  }
+  item[key] = Number(value || 0);
+  const subtotal = document.getElementById(`editOrderSubtotal${index}`);
+  if (subtotal) subtotal.textContent = money(Number(item.quantity || 0) * Number(item.price || 0));
+}
+
+function toggleEditProductPicker() {
+  state.editProductPickerOpen = !state.editProductPickerOpen;
   render();
 }
 
-function addEditOrderLine() {
-  if (!state.editOrderDraft) return;
-  state.editOrderDraft.items.push(orderLineSnapshot({ quantity: 1 }));
+function renderEditProductPicker() {
+  const query = state.editProductQuery.trim().toLowerCase();
+  const category = state.editProductCategory || "全部";
+  const subcategories = ["全部", ...new Set(products.filter((p) => category === "全部" || p.cat1 === category).map((p) => p.cat2).filter(Boolean))];
+  const matches = products.filter(isProductActive).filter((p) => {
+    const queryOk = !query || [p.name, p.spec, p.brand, p.cat1, p.cat2, p.code].some((value) => String(value || "").toLowerCase().includes(query));
+    return queryOk && (category === "全部" || p.cat1 === category) && (state.editProductSubcategory === "全部" || p.cat2 === state.editProductSubcategory);
+  }).slice(0, 60);
+  return `<section class="edit-product-picker">
+    <div class="edit-product-filters">
+      <input class="input" value="${html(state.editProductQuery)}" placeholder="搜索商品名称、规格、品牌" oninput="updateEditProductFilter('query',this.value)" />
+      <select class="select" onchange="updateEditProductFilter('category',this.value)">${optionList(PRODUCT_CATEGORIES, category)}</select>
+      <select class="select" onchange="updateEditProductFilter('subcategory',this.value)">${optionList(subcategories, state.editProductSubcategory)}</select>
+    </div>
+    <div class="edit-product-results">${matches.length ? matches.map((p) => {
+      const added = state.editOrderDraft.items.some((item) => item.productId === p.id);
+      return `<div class="edit-product-result"><div><strong>${html(orderItemDetails(p).label)}</strong><span>${html(p.brand || p.cat2 || "-")} · ${html(p.unit || "-")} · ${money(p.price)}</span></div><button class="btn ${added ? "ghost" : "primary"}" ${added ? "disabled" : ""} onclick="addEditOrderProduct(${jsArg(p.id)})">${added ? "已添加" : "添加"}</button></div>`;
+    }).join("") : `<div class="empty">没有匹配的商品</div>`}</div>
+    ${matches.length >= 60 ? `<div class="hint">结果较多，请继续输入关键词缩小范围</div>` : ""}
+  </section>`;
+}
+
+function updateEditProductFilter(type, value) {
+  if (type === "query") state.editProductQuery = value;
+  if (type === "category") { state.editProductCategory = value; state.editProductSubcategory = "全部"; }
+  if (type === "subcategory") state.editProductSubcategory = value;
+  clearTimeout(inputRenderTimer);
+  inputRenderTimer = setTimeout(render, type === "query" ? 180 : 0);
+}
+
+function addEditOrderProduct(productId) {
+  const product = byId(products, productId);
+  if (!product || !state.editOrderDraft || state.editOrderDraft.items.some((item) => item.productId === productId)) return;
+  state.editOrderDraft.items.push(orderLineSnapshot({ productId, quantity: 1 }));
   render();
 }
 
@@ -2430,9 +2442,9 @@ function removeEditOrderLine(index) {
 async function saveOrderEdits(id) {
   const items = (state.editOrderDraft?.items || []).map((item, index) => ({
     productId: item.productId || "",
-    name: document.getElementById(`editOrderItemName${index}`)?.value.trim() || "",
-    spec: document.getElementById(`editOrderItemSpec${index}`)?.value.trim() || "",
-    unit: document.getElementById(`editOrderItemUnit${index}`)?.value.trim() || "",
+    name: item.name || "",
+    spec: item.spec || "",
+    unit: item.unit || "",
     quantity: Number(document.getElementById(`editOrderItemQty${index}`)?.value || 0),
     price: Number(document.getElementById(`editOrderItemPrice${index}`)?.value || 0),
   })).filter((item) => item.name && item.quantity > 0);
@@ -2530,8 +2542,7 @@ function cartLine(item) {
   return `
     <div class="cart-line">
       <div class="cart-line-main">
-        <strong>${html(p.name)}</strong>
-        <div class="product-spec">${html(p.spec || "无规格")}</div>
+        <strong>${html(orderItemDetails(p).label)}</strong>
         <div class="product-spec">${money(item.price)} / ${html(p.unit || "-")}</div>
       </div>
       <div class="cart-line-side">
@@ -2660,7 +2671,7 @@ function orderBadgeClass(status) {
 }
 
 function orderActionButton(title, type, action, orderId) {
-  return `<button type="button" class="btn order-action-btn" onclick="handleOrderAction(${jsArg(action)}, ${jsArg(orderId)})">${html(title)}</button>`;
+  return `<button type="button" class="btn order-action-btn ${action === "delete" ? "danger-soft" : ""}" onclick="handleOrderAction(${jsArg(action)}, ${jsArg(orderId)})">${html(title)}</button>`;
 }
 
 function handleOrderAction(action, orderId) {
@@ -2672,9 +2683,22 @@ function handleOrderAction(action, orderId) {
     openModal("editOrder", orderId);
     return;
   }
-  if (action === "export") {
-    downloadOrderImage(orderId);
+  if (action === "delete") {
+    deleteOrder(orderId);
   }
+}
+
+async function deleteOrder(orderId) {
+  if (!isAdmin()) return alert("只有管理员可以删除订单");
+  const order = byId(orders, orderId);
+  const customer = byId(customers, order?.customerId) || {};
+  if (!order || !confirm(`确定删除订单 ${order.no} 吗？\n客户：${customer.name || "-"}\n金额：${money(order.amount)}\n\n删除后订单将从业务页面和统计中隐藏。`)) return;
+  const response = await fetch(`/api/orders/${encodeURIComponent(orderId)}`, { method: "DELETE" });
+  const data = await response.json().catch(() => ({}));
+  if (!response.ok) return alert(data.error || "删除订单失败");
+  orders = orders.filter((item) => item.id !== orderId);
+  showToast("订单已删除");
+  render();
 }
 
 function orderCard(order) {
@@ -2713,7 +2737,7 @@ function orderCard(order) {
           <div class="order-actions">
             ${orderActionButton("查看", "view", "view", order.id)}
             ${orderActionButton("编辑", "edit", "edit", order.id)}
-            ${orderActionButton("导出图片", "refresh", "export", order.id)}
+            ${isAdmin() ? orderActionButton("删除", "delete", "delete", order.id) : ""}
           </div>
         </div>
       </div>
@@ -2760,6 +2784,12 @@ Object.assign(window, {
   handleRouteClick,
   handleOrderRouteClick,
   handleOrderAction,
+  deleteOrder,
+  updateEditOrderMeta,
+  updateEditOrderLine,
+  toggleEditProductPicker,
+  updateEditProductFilter,
+  addEditOrderProduct,
   openModal,
   closeModal,
   updateOrderStatus,

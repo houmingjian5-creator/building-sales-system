@@ -646,7 +646,7 @@ async function handleApi(req, res) {
       users: db.users.map(sanitizeUser),
       customers: db.customers,
       products: db.products,
-      orders: db.orders,
+      orders: db.orders.filter((order) => !order.deletedAt && (user.role !== "销售人员" || order.salesUserId === user.id)).map(publicOrder),
     });
   }
 
@@ -754,7 +754,7 @@ async function handleApi(req, res) {
     if (!user) return;
     const db = readDb();
     if (method === "GET") {
-      return sendJson(res, 200, { orders: db.orders.map(publicOrder) });
+      return sendJson(res, 200, { orders: db.orders.filter((order) => !order.deletedAt && (user.role !== "销售人员" || order.salesUserId === user.id)).map(publicOrder) });
     }
     if (method === "POST") {
       const payload = await readBody(req);
@@ -762,7 +762,7 @@ async function handleApi(req, res) {
         id: newId(),
         no: `${payload.type === "return" ? "TH" : "ORD"}${Date.now()}`,
         customerId: payload.customerId,
-        salesUserId: payload.salesUserId || user.id,
+        salesUserId: user.role === "销售人员" ? user.id : payload.salesUserId || user.id,
         date: payload.date || new Date().toLocaleDateString("zh-CN"),
         address: payload.address || "",
         remark: payload.remark || "",
@@ -812,6 +812,14 @@ async function handleApi(req, res) {
     const db = readDb();
     const order = db.orders.find((item) => item.id === id);
     if (!order) return sendError(res, 404, "订单不存在");
+    if (order.deletedAt) return sendError(res, 404, "订单已删除");
+    if (method === "DELETE") {
+      if (!["超级管理员", "管理员"].includes(user.role)) return sendError(res, 403, "只有管理员可以删除订单");
+      order.deletedAt = new Date().toISOString();
+      order.deletedBy = user.id;
+      writeDb(db);
+      return sendJson(res, 200, { id: order.id, deleted: true });
+    }
     if (user.role === "销售人员" && order.salesUserId !== user.id) {
       return sendError(res, 403, "无权修改该订单");
     }
