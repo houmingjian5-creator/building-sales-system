@@ -2514,7 +2514,7 @@ function productCard(p) {
       <div>
         <h4 class="product-title">${html(p.name)}</h4>
         <div class="product-spec">${html(p.spec || "无规格")}</div>
-        <div class="product-spec">${html(categoryPath(p))} · ${html(p.unit || "-")}</div>
+        <div class="product-spec">${html(productMeta(p))} · ${html(p.unit || "-")}</div>
         <div class="price">${money(p.price)}</div>
       </div>
       ${quantityControl}
