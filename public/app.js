@@ -2397,6 +2397,13 @@ function updateEditOrderLine(index, key, value) {
 function toggleEditProductPicker() {
   state.editProductPickerOpen = !state.editProductPickerOpen;
   render();
+  if (state.editProductPickerOpen) {
+    requestAnimationFrame(() => {
+      const picker = document.querySelector(".edit-product-picker");
+      picker?.scrollIntoView({ block: "start", behavior: "smooth" });
+      document.getElementById("editProductSearch")?.focus();
+    });
+  }
 }
 
 function renderEditProductPicker() {
@@ -2409,7 +2416,7 @@ function renderEditProductPicker() {
   }).slice(0, 60);
   return `<section class="edit-product-picker">
     <div class="edit-product-filters">
-      <input class="input" value="${html(state.editProductQuery)}" placeholder="搜索商品名称、规格、品牌" oninput="updateEditProductFilter('query',this.value)" />
+      <input id="editProductSearch" class="input" value="${html(state.editProductQuery)}" placeholder="搜索商品名称、规格、品牌" oninput="updateEditProductFilter('query',this.value)" />
       <select class="select" onchange="updateEditProductFilter('category',this.value)">${optionList(PRODUCT_CATEGORIES, category)}</select>
       <select class="select" onchange="updateEditProductFilter('subcategory',this.value)">${optionList(subcategories, state.editProductSubcategory)}</select>
     </div>
@@ -2426,7 +2433,21 @@ function updateEditProductFilter(type, value) {
   if (type === "category") { state.editProductCategory = value; state.editProductSubcategory = "全部"; }
   if (type === "subcategory") state.editProductSubcategory = value;
   clearTimeout(inputRenderTimer);
-  inputRenderTimer = setTimeout(render, type === "query" ? 180 : 0);
+  inputRenderTimer = setTimeout(() => refreshEditProductPicker(type === "query"), type === "query" ? 180 : 0);
+}
+
+function refreshEditProductPicker(restoreSearchFocus = false) {
+  const picker = document.querySelector(".edit-product-picker");
+  const modalBody = document.querySelector(".edit-order-modal .modal-body");
+  if (!picker || !modalBody) return;
+  const scrollTop = modalBody.scrollTop;
+  picker.outerHTML = renderEditProductPicker();
+  modalBody.scrollTop = scrollTop;
+  if (restoreSearchFocus) {
+    const input = document.getElementById("editProductSearch");
+    input?.focus();
+    input?.setSelectionRange(input.value.length, input.value.length);
+  }
 }
 
 function addEditOrderProduct(productId) {
@@ -2434,6 +2455,7 @@ function addEditOrderProduct(productId) {
   if (!product || !state.editOrderDraft || state.editOrderDraft.items.some((item) => item.productId === productId)) return;
   state.editOrderDraft.items.push(orderLineSnapshot({ productId, quantity: 1 }));
   render();
+  requestAnimationFrame(() => document.querySelector(".edit-product-picker")?.scrollIntoView({ block: "start" }));
 }
 
 function removeEditOrderLine(index) {
@@ -2792,6 +2814,7 @@ Object.assign(window, {
   updateEditOrderLine,
   toggleEditProductPicker,
   updateEditProductFilter,
+  refreshEditProductPicker,
   addEditOrderProduct,
   openModal,
   closeModal,
