@@ -288,7 +288,7 @@ function titleForRoute() {
 }
 
 function subtitleForRoute() {
-  return ({ dashboard: "查看今日销售、客户和订单状态", customers: "管理客户信息和成交记录", products: "管理建材商品信息与价格", create: "选择客户和商品生成销售单", orders: "管理订单状态、打印和导出", returns: "从销售流程中创建退货单", users: "添加登录人员，维护手机号、密码和角色定位" }[state.route]);
+  return ({ dashboard: "查看本月与今日销售、客户和订单数据", customers: "管理客户信息和成交记录", products: "管理建材商品信息与价格", create: "选择客户和商品生成销售单", orders: "管理订单状态、打印和导出", returns: "从销售流程中创建退货单", users: "添加登录人员，维护手机号、密码和角色定位" }[state.route]);
 }
 
 function renderPage() {
@@ -476,7 +476,21 @@ function changeQty(productId, delta) {
 }
 
 function cartTotal() {
-  return state.cart.reduce((sum, item) => sum + item.quantity * item.price, 0);
+  return state.cart.reduce((sum, item) => {
+    const product = byId(products, item.productId) || {};
+    return sum + Number(item.quantity || 0) * signedOrderPrice(product, item.price);
+  }, 0);
+}
+
+function isPositiveReturnCharge(item = {}) {
+  const name = String(item.name || byId(products, item.productId)?.name || "");
+  return name.includes("运费") || name.includes("搬运费");
+}
+
+function signedOrderPrice(item, price) {
+  const value = Math.abs(Number(price || 0));
+  if (state.orderType !== "return") return value;
+  return isPositiveReturnCharge(item) ? value : -value;
 }
 
 function openAiOrderModal() {
@@ -1745,20 +1759,37 @@ async function loadBootstrap() {
 function renderDashboard() {
   const scopedOrders = visibleOrders();
   const scopedCustomers = visibleCustomers();
-  const todayText = new Date().toLocaleDateString("zh-CN");
-  const todayOrders = scopedOrders.filter((item) => {
-    const date = new Date(item.date);
-    return !Number.isNaN(date.getTime()) && date.toLocaleDateString("zh-CN") === todayText;
-  });
-  const total = todayOrders.reduce((sum, item) => sum + Number(item.amount || 0), 0);
-  const pending = scopedOrders.filter((item) => item.status === "待确认").length;
+  const now = new Date();
+  const validOrders = scopedOrders.filter(isPerformanceOrder);
+  const validSalesOrders = validOrders.filter((order) => !isReturnOrder(order));
+  const monthPerformanceOrders = validOrders.filter((order) => isSameBusinessMonth(order.date, now));
+  const todayPerformanceOrders = validOrders.filter((order) => isSameBusinessDay(order.date, now));
+  const monthOrders = validSalesOrders.filter((order) => isSameBusinessMonth(order.date, now));
+  const todayOrders = validSalesOrders.filter((order) => isSameBusinessDay(order.date, now));
+  const monthCustomers = new Set(monthOrders.map((order) => order.customerId).filter(Boolean));
+  const todayCustomers = new Set(todayOrders.map((order) => order.customerId).filter(Boolean));
+  const monthNewCustomers = scopedCustomers.filter((customer) => {
+    const openedAt = customerOpenedDate(customer, validSalesOrders);
+    return openedAt && openedAt.getFullYear() === now.getFullYear() && openedAt.getMonth() === now.getMonth();
+  }).length;
+  const monthSales = monthPerformanceOrders.reduce((sum, order) => sum + performanceOrderAmount(order), 0);
+  const todaySales = todayPerformanceOrders.reduce((sum, order) => sum + performanceOrderAmount(order), 0);
   return `
-    <div class="grid kpi-grid">
-      ${kpi("今日销售额", money(total), "dashboard")}
-      ${kpi("客户数量", scopedCustomers.length, "customers")}
-      ${kpi("在售商品", products.filter((p) => isProductActive(p)).length, "products")}
-      ${kpi("待确认订单", pending, "orders")}
-    </div>
+    <section class="dashboard-metrics">
+      <div class="dashboard-section-head"><strong>本月经营</strong><span>${now.getFullYear()} 年 ${now.getMonth() + 1} 月</span></div>
+      <div class="dashboard-metric-grid month-metrics">
+        ${dashboardMetric("本月销售额", money(monthSales), "¥", "blue", "有效订单销售合计")}
+        ${dashboardMetric("本月下单客户数", monthCustomers.size, "客", "violet", "按客户去重")}
+        ${dashboardMetric("本月新开客户数", monthNewCustomers, "新", "orange", "按首次建档或有效下单时间")}
+        ${dashboardMetric("本月订单数量", monthOrders.length, "单", "cyan", "不含待确认和已取消")}
+      </div>
+      <div class="dashboard-section-head today-head"><strong>今日动态</strong><span>${now.getMonth() + 1} 月 ${now.getDate()} 日</span></div>
+      <div class="dashboard-metric-grid today-metrics">
+        ${dashboardMetric("今日销售额", money(todaySales), "¥", "green")}
+        ${dashboardMetric("今日下单客户数", todayCustomers.size, "客", "gold")}
+        ${dashboardMetric("今日订单数量", todayOrders.length, "单", "red")}
+      </div>
+    </section>
     <div class="grid two-col" style="margin-top:16px">
       <div class="card card-pad">
         <h3>最近订单</h3>
@@ -1771,6 +1802,54 @@ function renderDashboard() {
       </div>
     </div>
   `;
+}
+
+function businessDate(value) {
+  const match = String(value || "").match(/(\d{4})[\/-](\d{1,2})[\/-](\d{1,2})/);
+  if (match) return new Date(Number(match[1]), Number(match[2]) - 1, Number(match[3]));
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? null : date;
+}
+
+function isSameBusinessMonth(value, target) {
+  const date = businessDate(value);
+  return Boolean(date && date.getFullYear() === target.getFullYear() && date.getMonth() === target.getMonth());
+}
+
+function isSameBusinessDay(value, target) {
+  const date = businessDate(value);
+  return Boolean(date && date.getFullYear() === target.getFullYear() && date.getMonth() === target.getMonth() && date.getDate() === target.getDate());
+}
+
+function isReturnOrder(order) {
+  return order?.type === "return" || String(order?.no || "").startsWith("TH") || order?.status === "已退货";
+}
+
+function isPerformanceOrder(order) {
+  return order && !["待确认", "已取消"].includes(order.status);
+}
+
+function performanceOrderAmount(order) {
+  if (!isReturnOrder(order)) return Number(order.amount || 0);
+  if (!(order.items || []).length) return -Math.abs(Number(order.amount || 0));
+  return order.items.reduce((sum, item) => {
+    const amount = Math.abs(Number(item.quantity || 0) * Number(item.price || 0));
+    return sum + (isPositiveReturnCharge(item) ? amount : -amount);
+  }, 0);
+}
+
+function customerOpenedDate(customer, validOrders) {
+  const createdAt = businessDate(customer.createdAt);
+  if (createdAt) return createdAt;
+  return validOrders
+    .filter((order) => order.customerId === customer.id && !isReturnOrder(order))
+    .map((order) => businessDate(order.date))
+    .filter(Boolean)
+    .sort((a, b) => a - b)[0] || null;
+}
+
+function dashboardMetric(label, value, iconText, tone, note = "") {
+  return `<div class="dashboard-metric ${tone}"><div><div class="dashboard-metric-label">${html(label)}</div><div class="dashboard-metric-value">${html(value)}</div>${note ? `<div class="dashboard-metric-note">${html(note)}</div>` : ""}</div><div class="dashboard-metric-icon">${html(iconText)}</div></div>`;
 }
 
 function customerStats(customerId) {
@@ -2189,7 +2268,7 @@ async function saveOrder() {
         spec: product.spec || "",
         unit: product.unit || "",
         quantity: item.quantity,
-        price: item.price,
+        price: signedOrderPrice(product, item.price),
       };
     }),
   };
@@ -2366,7 +2445,7 @@ function editOrderModal(id) {
               <div class="edit-order-line">
                 <div class="edit-order-product"><strong>${html(orderItemDetails(item).label)}</strong><span>单位：${html(item.unit || "-")}</span></div>
                 <label><span>数量</span><input id="editOrderItemQty${index}" class="input" type="number" min="0.01" step="0.01" value="${Number(item.quantity || 0)}" oninput="updateEditOrderLine(${index},'quantity',this.value)" /></label>
-                <label><span>单价</span><input id="editOrderItemPrice${index}" class="input" type="number" min="0" step="0.01" value="${Number(item.price || 0)}" oninput="updateEditOrderLine(${index},'price',this.value)" /></label>
+                <label><span>单价</span><input id="editOrderItemPrice${index}" class="input" type="number" step="0.01" value="${Number(item.price || 0)}" oninput="updateEditOrderLine(${index},'price',this.value)" /></label>
                 <div id="editOrderSubtotal${index}" class="edit-order-subtotal">${money(Number(item.quantity || 0) * Number(item.price || 0))}</div>
                 ${actionButton("删除商品", "delete", `removeEditOrderLine(${index})`)}
               </div>`).join("") : `<div class="empty">订单中还没有商品</div>`}
@@ -2564,11 +2643,12 @@ function cartLine(item) {
   const p = byId(products, item.productId);
   if (!p) return "";
   const quantity = normalizeQuantity(item.quantity);
+  const displayPrice = signedOrderPrice(p, item.price);
   return `
     <div class="cart-line">
       <div class="cart-line-main">
         <strong>${html(orderItemDetails(p).label)}</strong>
-        <div class="product-spec">${money(item.price)} / ${html(p.unit || "-")}</div>
+        <div class="product-spec">${money(displayPrice)} / ${html(p.unit || "-")}</div>
       </div>
       <div class="cart-line-side">
         <div class="cart-line-controls">
@@ -2576,7 +2656,7 @@ function cartLine(item) {
           <input class="qty-input" type="number" min="0" step="0.01" value="${quantity}" onchange="setCartQuantity(${jsArg(p.id)}, this.value)" onkeydown="if(event.key==='Enter')this.blur()" />
           <button type="button" onclick="changeQty(${jsArg(p.id)}, 1)">+</button>
         </div>
-        <strong class="cart-line-total">${money(quantity * Number(item.price || 0))}</strong>
+        <strong class="cart-line-total">${money(quantity * displayPrice)}</strong>
       </div>
     </div>
   `;

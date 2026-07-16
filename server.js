@@ -201,12 +201,16 @@ function normalizePayStatus(value) {
 }
 
 function publicOrder(order) {
+  const isReturn = order.type === 'return' || String(order.no || '').startsWith('TH') || order.status === '已退货';
+  const items = isReturn ? normalizeReturnItems(order.items) : Array.isArray(order.items) ? order.items : [];
   return {
     ...order,
+    type: isReturn ? 'return' : order.type || 'sale',
     payStatus: normalizePayStatus(order.payStatus),
     address: order.address || '',
     remark: order.remark || '',
-    items: Array.isArray(order.items) ? order.items : [],
+    items,
+    amount: isReturn ? orderAmount(items) : Number(order.amount || 0),
   };
 }
 
@@ -229,6 +233,18 @@ function orderItemsFromPayload(items, products = []) {
 
 function orderAmount(items) {
   return (Array.isArray(items) ? items : []).reduce((sum, item) => sum + Number(item.quantity || 0) * Number(item.price || 0), 0);
+}
+
+function isPositiveReturnCharge(item) {
+  const name = String(item?.name || '');
+  return name.includes('运费') || name.includes('搬运费');
+}
+
+function normalizeReturnItems(items) {
+  return (Array.isArray(items) ? items : []).map((item) => ({
+    ...item,
+    price: isPositiveReturnCharge(item) ? Math.abs(Number(item.price || 0)) : -Math.abs(Number(item.price || 0)),
+  }));
 }
 
 function candidateFor(product) {
@@ -760,6 +776,7 @@ async function handleApi(req, res) {
       const payload = await readBody(req);
       const order = {
         id: newId(),
+        type: payload.type === "return" ? "return" : "sale",
         no: `${payload.type === "return" ? "TH" : "ORD"}${Date.now()}`,
         customerId: payload.customerId,
         salesUserId: user.role === "销售人员" ? user.id : payload.salesUserId || user.id,
@@ -770,7 +787,8 @@ async function handleApi(req, res) {
         payStatus: normalizePayStatus(payload.payStatus),
         items: orderItemsFromPayload(payload.items, db.products),
       };
-      order.amount = Number(payload.amount !== undefined ? payload.amount : orderAmount(order.items));
+      if (order.type === "return") order.items = normalizeReturnItems(order.items);
+      order.amount = orderAmount(order.items);
       db.orders.unshift(order);
       recordAiLearning(db, payload.aiLearnPairs);
       writeDb(db);
@@ -832,11 +850,14 @@ async function handleApi(req, res) {
       if (payload.remark !== undefined) order.remark = payload.remark;
       if (payload.status !== undefined && ORDER_STATUS_OPTIONS.has(payload.status)) order.status = payload.status;
       if (payload.payStatus !== undefined) order.payStatus = normalizePayStatus(payload.payStatus);
-      if (payload.items !== undefined) order.items = orderItemsFromPayload(payload.items, db.products);
-      if (payload.amount !== undefined) {
-        order.amount = Number(payload.amount || 0);
-      } else if (payload.items !== undefined) {
+      if (payload.items !== undefined) {
+        order.items = orderItemsFromPayload(payload.items, db.products);
+        if (order.type === "return" || String(order.no || "").startsWith("TH")) order.items = normalizeReturnItems(order.items);
+      }
+      if (payload.items !== undefined) {
         order.amount = orderAmount(order.items);
+      } else if (payload.amount !== undefined) {
+        order.amount = Number(payload.amount || 0);
       }
       writeDb(db);
       return sendJson(res, 200, { order: publicOrder(order) });
