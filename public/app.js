@@ -553,9 +553,9 @@ function applyAiDraft() {
   document.querySelectorAll("[data-ai-quantity-product]").forEach((input) => {
     if (addDraftLine(input.dataset.aiQuantityProduct, input.value)) rememberAiChoice(input.dataset.aiRawName, input.dataset.aiQuantityProduct);
   });
-  document.querySelectorAll("[data-ai-candidate-product]").forEach((select) => {
-    const quantityInput = document.querySelector(`[data-ai-candidate-quantity="${select.dataset.aiCandidateProduct}"]`);
-    if (addDraftLine(select.value, quantityInput ? quantityInput.value : "")) rememberAiChoice(select.dataset.aiRawName, select.value);
+  document.querySelectorAll("[data-ai-candidate-product]:checked").forEach((input) => {
+    const quantityInput = document.querySelector(`[data-ai-candidate-quantity="${input.dataset.aiCandidateGroup}"]`);
+    if (addDraftLine(input.value, quantityInput ? quantityInput.value : "")) rememberAiChoice(input.dataset.aiRawName, input.value);
   });
   const count = state.cart.reduce((sum, item) => sum + item.quantity, 0);
   closeModal();
@@ -774,7 +774,7 @@ function renderAiUncertain(list) {
   return `
     <section class="ai-section">
       <h4>需要选择商品</h4>
-      ${list.map((item, index) => `<div class="ai-line ai-line-stack"><div><strong>原文：${html(item.rawName || "-")}</strong><div class="hint">请选择商品库中的准确商品</div></div><select class="select" data-ai-candidate-product="${index}" data-ai-raw-name="${html(item.rawName || "")}">${(item.candidates || []).map((product) => `<option value="${html(product.productId)}">${html(product.name)} / ${html(product.spec || "无规格")} / ${html(product.unit || "-")} / ${html(product.cat1 || "-")}${product.cat2 ? " · " + html(product.cat2) : ""} / ${money(product.price)}</option>`).join("")}</select><input class="input ai-small-input" type="number" min="0" step="0.01" value="${html(item.quantity || "")}" placeholder="数量" data-ai-candidate-quantity="${index}" /></div>`).join("")}
+      ${list.map((item, index) => `<div class="ai-candidate-block"><div class="ai-candidate-head"><div><strong>原文：${html(item.rawName || "-")}</strong><div class="hint">以下内容均来自当前商品库，请主动选择；不选择就不会加入订单。</div></div><input class="input ai-small-input" type="number" min="0" step="0.01" value="${html(item.quantity || "")}" placeholder="数量" data-ai-candidate-quantity="${index}" /></div><div class="ai-candidate-list">${(item.candidates || []).map((product) => `<label class="ai-candidate-option"><input type="radio" name="ai-candidate-${index}" value="${html(product.productId)}" data-ai-candidate-product data-ai-candidate-group="${index}" data-ai-raw-name="${html(item.rawName || "")}" /><span><strong>${html(product.name)}</strong><small>${html(product.spec || "无规格")} · ${html(product.unit || "-")} · ${html(product.cat1 || "-")}${product.cat2 ? " / " + html(product.cat2) : ""}</small></span><b>${money(product.price)}</b></label>`).join("")}</div></div>`).join("")}
     </section>
   `;
 }

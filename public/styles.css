@@ -1192,6 +1192,65 @@ tbody tr:hover {
   width: 110px;
 }
 
+.ai-candidate-block {
+  padding: 12px 14px;
+  border-bottom: 1px solid var(--line);
+}
+
+.ai-candidate-block:last-child {
+  border-bottom: 0;
+}
+
+.ai-candidate-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 10px;
+}
+
+.ai-candidate-list {
+  display: grid;
+  gap: 8px;
+}
+
+.ai-candidate-option {
+  display: grid;
+  grid-template-columns: 18px minmax(0, 1fr) auto;
+  gap: 10px;
+  align-items: center;
+  min-height: 58px;
+  padding: 9px 11px;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  background: #fff;
+  cursor: pointer;
+}
+
+.ai-candidate-option:has(input:checked) {
+  border-color: var(--primary);
+  background: #eef3ff;
+}
+
+.ai-candidate-option input {
+  margin: 0;
+}
+
+.ai-candidate-option span,
+.ai-candidate-option small {
+  display: block;
+  min-width: 0;
+}
+
+.ai-candidate-option small {
+  margin-top: 4px;
+  color: var(--muted);
+}
+
+.ai-candidate-option b {
+  white-space: nowrap;
+}
+
 .muted-line {
   color: var(--muted);
 }
@@ -1521,6 +1580,10 @@ tbody tr:hover {
 
   .ai-small-input {
     width: 100%;
+  }
+
+  .ai-candidate-head {
+    display: grid;
   }
 
   .doc-preview {

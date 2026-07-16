@@ -217,18 +217,26 @@ function publicOrder(order) {
 function orderItemsFromPayload(items, products = []) {
   if (!Array.isArray(items)) return [];
   return items.map((item) => {
-    const product = products.find((p) => p.id === item.productId) || {};
+    const product = products.find((p) => p.id === item.productId);
+    if (!product) return null;
     const quantity = Number(item.quantity || 0);
     const price = Number(item.price !== undefined ? item.price : product.price || 0);
     return {
-      productId: item.productId || product.id || '',
-      name: item.name || product.name || '',
-      spec: item.spec !== undefined ? item.spec : product.spec || '',
-      unit: item.unit || product.unit || '',
+      productId: product.id,
+      name: product.name || '',
+      spec: product.spec || '',
+      unit: product.unit || '',
       quantity,
       price,
     };
-  }).filter((item) => item.name || item.productId);
+  }).filter((item) => item && item.productId);
+}
+
+function invalidOrderProductIds(items, products = []) {
+  const ids = new Set(products.map((product) => product.id));
+  return (Array.isArray(items) ? items : [])
+    .map((item) => String((item && item.productId) || ''))
+    .filter((id) => !id || !ids.has(id));
 }
 
 function orderAmount(items) {
@@ -418,7 +426,7 @@ function matchProductCandidates(products, rawName, options = {}) {
       score += learningScore(options.db, rawName, product.id);
       return { product, score };
     })
-    .filter((item) => item.score >= 55)
+    .filter((item) => item.score >= 110)
     .sort((a, b) => b.score - a.score || (String(a.product.name || '') + String(a.product.spec || '')).localeCompare(String(b.product.name || '') + String(b.product.spec || ''), 'zh-CN'));
   return scored.slice(0, 8);
 }
@@ -512,9 +520,12 @@ function validateAiDraft(db, aiResult, content = '') {
 
   expandAiLines(lines).forEach((line) => {
     const rawName = String(line.rawName || line.name || '').trim();
+    const context = [line.brand, line.cat1, line.cat2, line.system, line.context].filter(Boolean).join(' ');
+    const matchText = [context, rawName].filter(Boolean).join(' ');
     const quantity = Number(line.quantity);
-    const matches = matchProductCandidates(db.products, rawName, { db, contextBrandTerms: contextBrands });
-    const product = matches[0] && matches[0].score >= 170 && (!matches[1] || matches[0].score - matches[1].score >= 55) ? matches[0].product : null;
+    const lineContextBrands = requestedBrandTerms(db.products, normalizeMatchText(context));
+    const matches = matchProductCandidates(db.products, matchText, { db, contextBrandTerms: lineContextBrands.length ? lineContextBrands : contextBrands });
+    const product = matches[0] && matches[0].score >= 260 && (!matches[1] || matches[0].score - matches[1].score >= 100) ? matches[0].product : null;
     const candidateProducts = matches.map((item) => candidateFor(item.product));
 
     if (!product) {
@@ -549,7 +560,7 @@ async function buildAiOrderDraft(db, content) {
   const messages = [
     {
       role: 'system',
-      content: '\u4f60\u662f\u5efa\u6750\u9500\u552e\u7cfb\u7edf\u7684\u5f00\u5355\u8bc6\u522b\u52a9\u624b\u3002\u4f60\u53ea\u8d1f\u8d23\u4ece\u9500\u552e\u53e3\u8bed\u6587\u672c\u4e2d\u62c6\u51fa\u5546\u54c1\u53eb\u6cd5\u548c\u6570\u91cf\uff0c\u4e0d\u8981\u5339\u914d\u5546\u54c1\u5e93\uff0c\u4e0d\u8981\u521b\u9020\u4ef7\u683c\u3002\u6570\u91cf\u4e0d\u660e\u786e\u65f6 quantity=null\u3002\u53ea\u8fd4\u56de JSON\u3002',
+      content: '\u4f60\u662f\u5efa\u6750\u9500\u552e\u7cfb\u7edf\u7684\u5f00\u5355\u6587\u672c\u89e3\u6790\u52a9\u624b\u3002\u4f60\u53ea\u8d1f\u8d23\u4ece\u9500\u552e\u539f\u6587\u4e2d\u62c6\u51fa\u5546\u54c1\u53eb\u6cd5\u3001\u6570\u91cf\u548c\u6bb5\u843d\u4e0a\u4e0b\u6587\uff0c\u4e0d\u8981\u5339\u914d\u6216\u521b\u9020\u5546\u54c1\uff0c\u4e0d\u8981\u751f\u6210\u5546\u54c1\u540d\u3001\u89c4\u683c\u3001\u5355\u4f4d\u3001\u4ef7\u683c\u6216\u5546\u54c1ID\u3002\u6570\u91cf\u4e0d\u660e\u786e\u65f6 quantity=null\u3002\u6bb5\u843d\u6807\u9898\u4e2d\u7684\u54c1\u724c\u3001\u6750\u8d28\u548c\u7cfb\u7edf\u9700\u8981\u539f\u6837\u4f20\u9012\u7ed9\u8be5\u6bb5\u6bcf\u4e2a\u5546\u54c1\u3002\u53ea\u8fd4\u56de JSON\u3002',
     },
     {
       role: 'user',
@@ -560,6 +571,8 @@ async function buildAiOrderDraft(db, content) {
             {
               rawName: '\u9500\u552e\u539f\u6587\u4e2d\u7684\u5546\u54c1\u53eb\u6cd5',
               quantity: '\u6570\u5b57\uff0c\u65e0\u6cd5\u786e\u5b9a\u5219 null',
+              brand: '\u6bb5\u843d\u660e\u786e\u6307\u5b9a\u7684\u54c1\u724c\uff0c\u6ca1\u6709\u5219\u7a7a\u5b57\u7b26\u4e32',
+              system: '\u6bb5\u843d\u6807\u9898\u6216\u4e0a\u4e0b\u6587\uff0c\u4f8b\u5982\u767d\u8272PPR\u3001PVC\u6392\u6c34\u3001PVC\u7ebf\u7ba1',
               note: '\u53ef\u9009',
             },
           ],
@@ -774,6 +787,9 @@ async function handleApi(req, res) {
     }
     if (method === "POST") {
       const payload = await readBody(req);
+      if (invalidOrderProductIds(payload.items, db.products).length) {
+        return sendError(res, 400, "订单包含产品库中不存在的商品，请重新选择");
+      }
       const order = {
         id: newId(),
         type: payload.type === "return" ? "return" : "sale",
