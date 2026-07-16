@@ -236,7 +236,7 @@ function orderAmount(items) {
 }
 
 function isPositiveReturnCharge(item) {
-  const name = String(item?.name || '');
+  const name = String((item && item.name) || '');
   return name.includes('运费') || name.includes('搬运费');
 }
 
