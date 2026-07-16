@@ -2348,9 +2348,10 @@ function editOrderModal(id) {
     state.editOrderDraft = { orderId: id, customerId: order.customerId, date: order.date || "", address: order.address || "", remark: order.remark || "", items: (order.items || []).map(orderLineSnapshot) };
   }
   const draft = state.editOrderDraft;
+  const draftTotal = draft.items.reduce((sum, item) => sum + Number(item.quantity || 0) * Number(item.price || 0), 0);
   return `
     <div class="modal-backdrop" onclick="if(event.target.className==='modal-backdrop')closeModal()">
-      <div class="modal large">
+      <div class="modal large edit-order-modal">
         <div class="modal-head"><h3>编辑订单</h3><button class="icon-btn" onclick="closeModal()">×</button></div>
         <div class="modal-body">
           <div class="form-grid">
@@ -2363,14 +2364,14 @@ function editOrderModal(id) {
             <div class="edit-order-items-head"><strong>订单商品</strong><span>${draft.items.length} 项</span></div>
             ${draft.items.length ? draft.items.map((item, index) => `
               <div class="edit-order-line">
-                <div class="edit-order-product"><strong>${html(orderItemDetails(item).label)}</strong><span>${html(item.unit || "-")}</span></div>
+                <div class="edit-order-product"><strong>${html(orderItemDetails(item).label)}</strong><span>单位：${html(item.unit || "-")}</span></div>
                 <label><span>数量</span><input id="editOrderItemQty${index}" class="input" type="number" min="0.01" step="0.01" value="${Number(item.quantity || 0)}" oninput="updateEditOrderLine(${index},'quantity',this.value)" /></label>
                 <label><span>单价</span><input id="editOrderItemPrice${index}" class="input" type="number" min="0" step="0.01" value="${Number(item.price || 0)}" oninput="updateEditOrderLine(${index},'price',this.value)" /></label>
                 <div id="editOrderSubtotal${index}" class="edit-order-subtotal">${money(Number(item.quantity || 0) * Number(item.price || 0))}</div>
                 ${actionButton("删除商品", "delete", `removeEditOrderLine(${index})`)}
               </div>`).join("") : `<div class="empty">订单中还没有商品</div>`}
           </div>
-          <button class="btn" style="margin-top:12px" onclick="toggleEditProductPicker()">${state.editProductPickerOpen ? "收起商品库" : "添加商品"}</button>
+          <div class="edit-order-actions"><button class="btn" onclick="toggleEditProductPicker()">${state.editProductPickerOpen ? "收起商品库" : "+ 添加商品"}</button><strong>合计 <span id="editOrderTotal">${money(draftTotal)}</span></strong></div>
           ${state.editProductPickerOpen ? renderEditProductPicker() : ""}
         </div>
         <div class="modal-foot"><button class="btn" onclick="closeModal()">取消</button><button class="btn primary" onclick="saveOrderEdits(${jsArg(id)})">保存修改</button></div>
@@ -2389,6 +2390,8 @@ function updateEditOrderLine(index, key, value) {
   item[key] = Number(value || 0);
   const subtotal = document.getElementById(`editOrderSubtotal${index}`);
   if (subtotal) subtotal.textContent = money(Number(item.quantity || 0) * Number(item.price || 0));
+  const total = document.getElementById("editOrderTotal");
+  if (total) total.textContent = money(state.editOrderDraft.items.reduce((sum, line) => sum + Number(line.quantity || 0) * Number(line.price || 0), 0));
 }
 
 function toggleEditProductPicker() {
