@@ -752,7 +752,7 @@ async function handleApi(req, res) {
     return sendJson(res, 200, {
       user: sanitizeUser(user),
       users: db.users.map(sanitizeUser),
-      customers: db.customers,
+      customers: db.customers.filter((customer) => user.role !== "销售人员" || customer.ownerId === user.id),
       products: db.products,
       orders: db.orders.filter((order) => !order.deletedAt && (user.role !== "销售人员" || order.salesUserId === user.id)).map(publicOrder),
     });
@@ -799,6 +799,59 @@ async function handleApi(req, res) {
       });
       writeDb(db);
       return sendJson(res, 200, { user: sanitizeUser(user) });
+    }
+  }
+
+  if (url.pathname === "/api/customers") {
+    const user = requireUser(req, res);
+    if (!user) return;
+    const db = readDb();
+    if (method === "GET") {
+      const list = db.customers.filter((customer) => user.role !== "销售人员" || customer.ownerId === user.id);
+      return sendJson(res, 200, { customers: list });
+    }
+    if (method === "POST") {
+      const payload = await readBody(req);
+      if (!payload.name || !payload.phone) return sendError(res, 400, "客户名称和联系电话必填");
+      const ownerId = user.role === "销售人员" ? user.id : payload.ownerId || user.id;
+      if (!db.users.some((item) => item.id === ownerId && item.status !== "停用")) return sendError(res, 400, "所属销售不存在或已停用");
+      const customer = {
+        id: newId(),
+        name: String(payload.name).trim(),
+        contact: String(payload.contact || "").trim(),
+        phone: String(payload.phone).trim(),
+        email: String(payload.email || "").trim(),
+        address: String(payload.address || "").trim(),
+        ownerId,
+        createdAt: new Date().toISOString(),
+      };
+      db.customers.unshift(customer);
+      writeDb(db);
+      return sendJson(res, 201, { customer });
+    }
+  }
+
+  if (url.pathname.startsWith("/api/customers/")) {
+    const user = requireUser(req, res);
+    if (!user) return;
+    const id = decodeURIComponent(url.pathname.split("/").pop());
+    const db = readDb();
+    const customer = db.customers.find((item) => item.id === id);
+    if (!customer) return sendError(res, 404, "客户不存在");
+    if (user.role === "销售人员" && customer.ownerId !== user.id) return sendError(res, 403, "无权编辑该客户");
+    if (method === "PUT" || method === "PATCH") {
+      const payload = await readBody(req);
+      if (payload.name !== undefined && !String(payload.name).trim()) return sendError(res, 400, "客户名称必填");
+      if (payload.phone !== undefined && !String(payload.phone).trim()) return sendError(res, 400, "联系电话必填");
+      ["name", "contact", "phone", "email", "address"].forEach((key) => {
+        if (payload[key] !== undefined) customer[key] = String(payload[key]).trim();
+      });
+      if (user.role !== "销售人员" && payload.ownerId !== undefined) {
+        if (!db.users.some((item) => item.id === payload.ownerId && item.status !== "停用")) return sendError(res, 400, "所属销售不存在或已停用");
+        customer.ownerId = payload.ownerId;
+      }
+      writeDb(db);
+      return sendJson(res, 200, { customer });
     }
   }
 
@@ -870,6 +923,9 @@ async function handleApi(req, res) {
     }
     if (method === "POST") {
       const payload = await readBody(req);
+      const customer = db.customers.find((item) => item.id === payload.customerId);
+      if (!customer) return sendError(res, 400, "客户不存在");
+      if (user.role === "销售人员" && customer.ownerId !== user.id) return sendError(res, 403, "无权为该客户开单");
       if (invalidOrderProductIds(payload.items, db.products).length) {
         return sendError(res, 400, "订单包含产品库中不存在的商品，请重新选择");
       }

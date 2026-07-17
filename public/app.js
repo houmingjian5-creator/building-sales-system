@@ -28,6 +28,10 @@ const state = {
   editProductCategory: "全部",
   editProductSubcategory: "全部",
   editProductPickerOpen: false,
+  orderDraftCustomerId: "",
+  orderAddress: "",
+  orderPhone: "",
+  orderRemark: "",
 };
 
 let inputRenderTimer = null;
@@ -73,6 +77,72 @@ const money = (value) => `¥${Number(value || 0).toLocaleString("zh-CN", { maxim
 const byId = (list, id) => list.find((item) => item.id === id);
 const icon = (name) => ({ dashboard: "概", customers: "客", products: "品", create: "开", orders: "单", returns: "退", users: "员" }[name] || "•");
 const isAdmin = () => state.user && ["超级管理员", "管理员"].includes(state.user.role);
+
+function cartStorageKey(type = state.orderType) {
+  return state.user?.id ? `building-sales-cart:${state.user.id}:${type === "return" ? "return" : "sale"}` : "";
+}
+
+function persistCart(type = state.orderType) {
+  const key = cartStorageKey(type);
+  if (!key) return;
+  try {
+    localStorage.setItem(key, JSON.stringify(state.cart));
+  } catch (_) {
+    // The in-memory cart still works when browser storage is unavailable.
+  }
+}
+
+function restoreCart(type = state.orderType) {
+  const key = cartStorageKey(type);
+  if (!key) return;
+  try {
+    const saved = JSON.parse(localStorage.getItem(key) || "[]");
+    state.cart = Array.isArray(saved) ? saved.filter((item) => {
+      const product = byId(products, item.productId);
+      return product && isProductActive(product) && normalizeQuantity(item.quantity) > 0;
+    }).map((item) => ({
+      productId: item.productId,
+      quantity: normalizeQuantity(item.quantity),
+      price: Number(item.price || 0),
+    })) : [];
+  } catch (_) {
+    state.cart = [];
+  }
+}
+
+function clearPersistedCart(type = state.orderType) {
+  const key = cartStorageKey(type);
+  if (!key) return;
+  try {
+    localStorage.removeItem(key);
+  } catch (_) {
+    // Ignore browser storage failures after a successful order save.
+  }
+}
+
+function resetOrderDraft(customer = null) {
+  state.orderDraftCustomerId = customer?.id || "";
+  state.orderAddress = customer?.address || "";
+  state.orderPhone = customer?.phone || "";
+  state.orderRemark = "";
+}
+
+function ensureOrderDraft(customer) {
+  if (!customer) return;
+  if (state.orderDraftCustomerId !== customer.id) resetOrderDraft(customer);
+}
+
+function updateOrderDraftField(field, value) {
+  if (field === "address") state.orderAddress = value;
+  if (field === "phone") state.orderPhone = value;
+  if (field === "remark") state.orderRemark = value;
+}
+
+function selectOrderCustomer(customerId) {
+  state.selectedCustomerId = customerId;
+  resetOrderDraft(byId(customers, customerId));
+  render();
+}
 
 function orderItemDetails(item = {}) {
   const product = byId(products, item.productId) || {};
@@ -151,6 +221,7 @@ function toggleLoginPassword() {
 }
 
 function render() {
+  if (state.user && !state.loading) persistCart();
   if (state.loading) {
     app.innerHTML = `<div class="login-shell"><section class="login-panel"><div class="login-card"><div class="brand-row"><div class="brand-mark">建</div><div><h1 class="page-title">建材销售开单系统</h1><p class="page-subtitle">正在加载...</p></div></div></div></section><section class="login-visual"><div class="visual-board"></div></section></div>`;
     return;
@@ -248,6 +319,8 @@ async function loadBootstrap() {
   orders = data.orders;
   state.selectedCustomerId = customers[0]?.id || "";
   state.salesUserId = state.user?.id || salesUsers[0]?.id || "";
+  resetOrderDraft(byId(customers, state.selectedCustomerId));
+  restoreCart(state.orderType);
 }
 
 async function boot() {
@@ -764,6 +837,7 @@ function renderModal() {
   if (type === "customerOrders") return customerOrdersModal(id);
   if (type === "product") return productModal(id);
   if (type === "document") return documentModal(id);
+  if (type === "delivery") return deliveryModal(id);
   if (type === "editOrder") return editOrderModal(id);
   if (type === "user") return userModal();
   if (type === "aiOrder") return aiOrderModal();
@@ -857,15 +931,55 @@ function renderAiUnmatched(list) {
 }
 function customerModal(id) {
   const c = byId(customers, id) || {};
+  const ownerId = c.ownerId || state.user?.id || "";
   return modalShell(id ? "编辑客户" : "新增客户", `
     <div class="form-grid">
-      ${field("客户名称 *", c.name || "")}
-      ${field("联系人", c.contact || "")}
-      ${field("联系电话 *", c.phone || "")}
-      ${field("邮箱", c.email || "")}
-      <div class="field" style="grid-column:1/-1"><label>地址</label><input class="input" value="${c.address || ""}" placeholder="请输入地址" /></div>
+      <div class="field"><label>客户名称 *</label><input id="customerName" class="input" value="${html(c.name || "")}" /></div>
+      <div class="field"><label>联系人</label><input id="customerContact" class="input" value="${html(c.contact || "")}" /></div>
+      <div class="field"><label>联系电话 *</label><input id="customerPhone" class="input" value="${html(c.phone || "")}" /></div>
+      <div class="field"><label>邮箱</label><input id="customerEmail" class="input" value="${html(c.email || "")}" /></div>
+      ${canChooseSalesperson() ? `<div class="field"><label>所属销售</label><select id="customerOwner" class="select">${activeSalesUsers().map((user) => `<option value="${html(user.id)}" ${user.id === ownerId ? "selected" : ""}>${html(user.name)}</option>`).join("")}</select></div>` : ""}
+      <div class="field" style="grid-column:1/-1"><label>地址</label><input id="customerAddress" class="input" value="${html(c.address || "")}" placeholder="请输入地址" /></div>
     </div>
-  `, "确认", "showToast('客户信息已更新');closeModal()");
+  `, "保存客户", `saveCustomer(${jsArg(id || "")})`);
+}
+
+async function saveCustomer(id) {
+  const payload = {
+    name: document.getElementById("customerName")?.value.trim() || "",
+    contact: document.getElementById("customerContact")?.value.trim() || "",
+    phone: document.getElementById("customerPhone")?.value.trim() || "",
+    email: document.getElementById("customerEmail")?.value.trim() || "",
+    address: document.getElementById("customerAddress")?.value.trim() || "",
+    ownerId: document.getElementById("customerOwner")?.value || state.user?.id || "",
+  };
+  if (!payload.name || !payload.phone) {
+    alert("客户名称和联系电话必填。");
+    return;
+  }
+  try {
+    const response = await fetch(id ? `/api/customers/${encodeURIComponent(id)}` : "/api/customers", {
+      method: id ? "PATCH" : "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+    const data = await response.json();
+    if (!response.ok) throw new Error(data.error || "保存客户失败");
+    if (id) {
+      const index = customers.findIndex((item) => item.id === id);
+      if (index >= 0) customers[index] = data.customer;
+    } else {
+      customers.unshift(data.customer);
+      state.selectedCustomerId = data.customer.id;
+      resetOrderDraft(data.customer);
+    }
+    state.query = "";
+    state.customerOwnerFilter = "全部";
+    closeModal();
+    showToast(id ? "客户信息已更新" : "客户已添加");
+  } catch (error) {
+    alert(error.message);
+  }
 }
 
 function productModal(id) {
@@ -909,6 +1023,37 @@ function editOrderModal(id) {
     </div>
     <div class="card table-wrap" style="margin-top:14px"><table><thead><tr><th>商品</th><th>数量</th><th>单价</th><th>小计</th></tr></thead><tbody>${order.items.map((item) => { const p = byId(products, item.productId); return `<tr><td>${p.name}</td><td>${item.quantity}</td><td>${money(item.price)}</td><td>${money(item.price * item.quantity)}</td></tr>`; }).join("")}</tbody></table></div>
   `, "保存修改", "showToast('订单已保存');closeModal()");
+}
+
+function deliveryModal(id) {
+  const order = byId(orders, id);
+  if (!order) return "";
+  const customer = byId(customers, order.customerId) || {};
+  const sales = byId(salesUsers, order.salesUserId) || {};
+  const rows = getDisplayRows(order);
+  return `
+    <div class="modal-backdrop" onclick="if(event.target.className==='modal-backdrop')closeModal()">
+      <div class="modal">
+        <div class="modal-head"><h3>订单详情 - 送货单</h3><div class="document-actions"><button class="btn export-btn" onclick="downloadDeliveryImage('${order.id}')">${svgIcon("image")}<span>下载送货单</span></button><button class="icon-btn" onclick="closeModal()">×</button></div></div>
+        <div class="modal-body">
+          <div class="doc-preview delivery-preview">
+            <h2>送货单</h2>
+            <div class="doc-subtitle">材达家建材销售系统</div>
+            <div class="doc-info">
+              <div><span>客户：</span>${html(customer.name || "-")}</div>
+              <div><span>单号：</span>${html(order.no || "-")}</div>
+              <div><span>日期：</span>${html(order.date || "-")}</div>
+              <div class="right"><span>销售：</span>${html(sales.name || "-")}</div>
+              <div class="doc-address"><span>地址：</span>${html(order.address || customer.address || "-")}</div>
+            </div>
+            <table><thead><tr><th>编号</th><th>商品名称</th><th>单位</th><th>数量</th></tr></thead><tbody>${rows.map((row) => row.empty ? `<tr><td>${row.index}</td><td></td><td></td><td></td></tr>` : `<tr><td>${row.index}</td><td>${html(row.name)}</td><td>${html(row.unit)}</td><td>${html(row.quantity)}</td></tr>`).join("")}</tbody></table>
+            <div class="delivery-bottom"><div><strong>收货电话：</strong>${html(order.phone || customer.phone || "-")}</div><div><strong>备注：</strong>${html(order.remark || "无")}</div></div>
+          </div>
+        </div>
+        <div class="modal-foot"><button class="btn" onclick="closeModal()">关闭</button></div>
+      </div>
+    </div>
+  `;
 }
 
 function documentModal(id) {
@@ -992,6 +1137,7 @@ function svgIcon(type) {
     plus: `<svg viewBox="0 0 24 24"><path d="M12 5v14"/><path d="M5 12h14"/></svg>`,
     image: `<svg viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="16" rx="2"/><circle cx="9" cy="10" r="2"/><path d="m5 18 4.5-4.5 3 3 2.5-2.5 4 4"/></svg>`,
     copy: `<svg viewBox="0 0 24 24"><rect x="8" y="8" width="11" height="12" rx="2"/><path d="M16 8V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h2"/></svg>`,
+    more: `<svg viewBox="0 0 24 24"><circle cx="5" cy="12" r="1.5"/><circle cx="12" cy="12" r="1.5"/><circle cx="19" cy="12" r="1.5"/></svg>`,
   };
   return icons[type] || icons.view;
 }
@@ -1223,8 +1369,10 @@ function downloadOrderHtml(orderId) {
   showToast("文档已下载");
 }
 
-function downloadOrderImage(orderId) {
-  const { order, customer, title } = getOrderDoc(orderId);
+function downloadOrderImage(orderId, deliveryOnly = false) {
+  const documentData = getOrderDoc(orderId);
+  const { order, customer } = documentData;
+  const title = deliveryOnly ? "送货单" : documentData.title;
   const sales = byId(salesUsers, order.salesUserId);
   const rows = getOrderRows(order);
   const rowCount = Math.max(rows.length, 8);
@@ -1274,9 +1422,9 @@ function downloadOrderImage(orderId) {
   ctx.fillText(`地址：${order.address || customer.address || "-"}`, 72, 350);
 
   const tableX = 57;
-  const cols = [84, 828, 112, 112, 168, 169];
+  const cols = deliveryOnly ? [84, 1050, 170, 169] : [84, 828, 112, 112, 168, 169];
   const tableW = cols.reduce((sum, value) => sum + value, 0);
-  const headers = ["编号", "商品名称", "单位", "数量", "单价", "金额"];
+  const headers = deliveryOnly ? ["编号", "商品名称", "单位", "数量"] : ["编号", "商品名称", "单位", "数量", "单价", "金额"];
   ctx.strokeStyle = "#cfcfcf";
   ctx.lineWidth = 1.5;
   ctx.strokeRect(tableX, tableY, tableW, rowHeight * (rowCount + 1));
@@ -1300,30 +1448,43 @@ function downloadOrderImage(orderId) {
   for (let rowIndex = 0; rowIndex < rowCount; rowIndex += 1) {
     const row = rows[rowIndex];
     const y = tableY + rowHeight * (rowIndex + 1);
-    const values = row ? [rowIndex + 1, row.name, row.unit, row.quantity, money(row.price), money(row.amount)] : [rowIndex + 1, "", "", "", "", ""];
+    const values = row
+      ? (deliveryOnly ? [rowIndex + 1, row.name, row.unit, row.quantity] : [rowIndex + 1, row.name, row.unit, row.quantity, money(row.price), money(row.amount)])
+      : (deliveryOnly ? [rowIndex + 1, "", "", ""] : [rowIndex + 1, "", "", "", "", ""]);
     let cellX = tableX;
     values.forEach((value, i) => {
-      drawCellText(ctx, String(value), cellX, y, cols[i], rowHeight, i === 1 ? "left" : i >= 4 ? "right" : "center");
+      drawCellText(ctx, String(value), cellX, y, cols[i], rowHeight, i === 1 ? "left" : (!deliveryOnly && i >= 4) ? "right" : "center");
       cellX += cols[i];
     });
   }
   ctx.textAlign = "left";
   ctx.fillStyle = "#172033";
-  ctx.font = "400 23px Microsoft YaHei, Arial";
-  ctx.fillText("合计大写：", 57, summaryY);
-  ctx.font = "700 23px Microsoft YaHei, Arial";
-  ctx.fillText(amountToChinese(order.amount), 165, summaryY);
-  ctx.textAlign = "right";
-  ctx.font = "400 23px Microsoft YaHei, Arial";
-  ctx.fillText(`此单合计金额：${money(order.amount)}`, width - 57, summaryY);
-  ctx.textAlign = "left";
-  ctx.font = "700 23px Microsoft YaHei, Arial";
-  ctx.fillText(`销售电话：${maskPhone(sales?.phone || customer.phone)}`, 57, summaryY + 50);
+  if (deliveryOnly) {
+    ctx.font = "700 23px Microsoft YaHei, Arial";
+    ctx.fillText(`收货电话：${order.phone || customer.phone || "-"}`, 57, summaryY);
+    ctx.font = "400 23px Microsoft YaHei, Arial";
+    drawCellText(ctx, `备注：${order.remark || "无"}`, 57, summaryY + 20, width - 114, 52, "left");
+  } else {
+    ctx.font = "400 23px Microsoft YaHei, Arial";
+    ctx.fillText("合计大写：", 57, summaryY);
+    ctx.font = "700 23px Microsoft YaHei, Arial";
+    ctx.fillText(amountToChinese(order.amount), 165, summaryY);
+    ctx.textAlign = "right";
+    ctx.font = "400 23px Microsoft YaHei, Arial";
+    ctx.fillText(`此单合计金额：${money(order.amount)}`, width - 57, summaryY);
+    ctx.textAlign = "left";
+    ctx.font = "700 23px Microsoft YaHei, Arial";
+    ctx.fillText(`销售电话：${maskPhone(sales?.phone || customer.phone)}`, 57, summaryY + 50);
+  }
 
   canvas.toBlob((blob) => {
     downloadBlob(`${title}_${order.no}.png`, "image/png", blob);
-    showToast("图片已下载");
+    showToast(deliveryOnly ? "送货单已下载" : "图片已下载");
   }, "image/png");
+}
+
+function downloadDeliveryImage(orderId) {
+  downloadOrderImage(orderId, true);
 }
 
 function drawTableGrid(ctx, x, y, cols, height) {
@@ -2010,6 +2171,7 @@ function renderCreateOrder() {
   ensureSalesScope();
   const customerList = visibleCustomers();
   const customer = byId(customerList, state.selectedCustomerId) || customerList[0];
+  ensureOrderDraft(customer);
   const productList = filteredProducts();
   const visible = productList.slice(0, 120);
   const salespersonField = canChooseSalesperson()
@@ -2337,6 +2499,7 @@ function renderCreateOrder() {
   ensureSalesScope();
   const customerList = visibleCustomers();
   const customer = byId(customerList, state.selectedCustomerId) || customerList[0];
+  ensureOrderDraft(customer);
   const productList = filteredProducts().filter(isProductActive);
   const pageData = paginateList(productList, "createProducts", EDIT_PAGE_SIZES.createProducts);
   const salespersonField = canChooseSalesperson()
@@ -2345,11 +2508,11 @@ function renderCreateOrder() {
   return `
     <div class="card card-pad" style="margin-bottom:16px">
       <div class="form-grid">
-        <div class="field"><label>选择客户 *</label><select class="select" onchange="state.selectedCustomerId=this.value;render()">${customerList.map((c) => `<option value="${html(c.id)}" ${c.id === customer?.id ? "selected" : ""}>${html(c.name)} - ${html(c.phone)}</option>`).join("")}</select></div>
+        <div class="field"><label>选择客户 *</label><select class="select" onchange="selectOrderCustomer(this.value)">${customerList.map((c) => `<option value="${html(c.id)}" ${c.id === customer?.id ? "selected" : ""}>${html(c.name)} - ${html(c.phone)}</option>`).join("")}</select></div>
         ${salespersonField}
-        <div class="field"><label>送货地址 *</label><input id="orderAddressInput" class="input" value="${html(customer?.address || "")}" /></div>
-        <div class="field"><label>收货人手机号 *</label><input id="orderPhoneInput" class="input" value="${html(customer?.phone || "")}" /></div>
-        <div class="field" style="grid-column:1/-1"><label>订单备注</label><textarea id="orderRemarkInput" class="textarea compact-textarea" placeholder="可填写配送说明、客户要求等"></textarea></div>
+        <div class="field"><label>送货地址 *</label><input id="orderAddressInput" class="input" value="${html(state.orderAddress)}" oninput="updateOrderDraftField('address',this.value)" /></div>
+        <div class="field"><label>收货人手机号 *</label><input id="orderPhoneInput" class="input" value="${html(state.orderPhone)}" oninput="updateOrderDraftField('phone',this.value)" /></div>
+        <div class="field" style="grid-column:1/-1"><label>订单备注</label><textarea id="orderRemarkInput" class="textarea compact-textarea" placeholder="可填写配送说明、客户要求等" oninput="updateOrderDraftField('remark',this.value)">${html(state.orderRemark)}</textarea></div>
       </div>
     </div>
     <div class="product-layout">
@@ -2386,9 +2549,9 @@ async function saveOrder() {
     customerId: customer.id,
     salesUserId: canChooseSalesperson() ? state.salesUserId : state.user.id,
     amount: cartTotal(),
-    phone: document.getElementById("orderPhoneInput")?.value.trim() || customer.phone || "",
-    address: document.getElementById("orderAddressInput")?.value.trim() || customer.address || "",
-    remark: document.getElementById("orderRemarkInput")?.value.trim() || "",
+    phone: state.orderPhone.trim() || customer.phone || "",
+    address: state.orderAddress.trim() || customer.address || "",
+    remark: state.orderRemark.trim(),
     payStatus: "未付款",
     items: state.cart.map((item) => {
       const product = byId(products, item.productId) || {};
@@ -2413,7 +2576,9 @@ async function saveOrder() {
     return;
   }
   orders.unshift(data.order);
+  clearPersistedCart(state.orderType);
   state.cart = [];
+  resetOrderDraft(customer);
   state.orderType = "sale";
   resetPage("orders");
   showToast("订单已生成");
@@ -2869,7 +3034,10 @@ async function deleteProduct(id) {
 }
 
 function openOrderRoute(type = "sale") {
-  state.orderType = type === "return" ? "return" : "sale";
+  const nextType = type === "return" ? "return" : "sale";
+  persistCart(state.orderType);
+  state.orderType = nextType;
+  restoreCart(nextType);
   state.route = state.orderType === "return" ? "returns" : "create";
   state.modal = null;
   state.query = "";
@@ -2879,11 +3047,14 @@ function openOrderRoute(type = "sale") {
 }
 
 function setRoute(route) {
+  const previousType = state.orderType;
+  persistCart(previousType);
   state.route = route;
   state.query = "";
   state.modal = null;
   if (route === "returns") state.orderType = "return";
   if (route === "create") state.orderType = "sale";
+  if (state.orderType !== previousType) restoreCart(state.orderType);
   ensureSalesScope();
   render();
 }
@@ -2912,6 +3083,17 @@ function orderActionButton(title, type, action, orderId) {
   return `<button type="button" class="btn order-action-btn ${action === "delete" ? "danger-soft" : ""}" onclick="handleOrderAction(${jsArg(action)}, ${jsArg(orderId)})">${html(title)}</button>`;
 }
 
+function orderMoreMenu(orderId) {
+  return `<details class="order-more-menu">
+    <summary class="icon-btn" title="更多操作" aria-label="更多操作">${svgIcon("more")}</summary>
+    <div class="order-more-dropdown">
+      <button type="button" onclick="repeatOrder(${jsArg(orderId)})">再来一单</button>
+      <button type="button" onclick="openModal('delivery',${jsArg(orderId)})">开送货单</button>
+      ${isAdmin() ? `<button type="button" class="danger" onclick="deleteOrder(${jsArg(orderId)})">删除订单</button>` : ""}
+    </div>
+  </details>`;
+}
+
 function handleOrderAction(action, orderId) {
   if (action === "view") {
     openModal("document", orderId);
@@ -2924,6 +3106,54 @@ function handleOrderAction(action, orderId) {
   if (action === "delete") {
     deleteOrder(orderId);
   }
+}
+
+function repeatOrder(orderId) {
+  const order = byId(orders, orderId);
+  if (!order) return alert("订单不存在");
+  const customer = byId(visibleCustomers(), order.customerId);
+  if (!customer) return alert("当前账号无权为该客户开单");
+
+  const previousType = state.orderType;
+  persistCart(previousType);
+  state.orderType = "sale";
+  restoreCart("sale");
+  if (state.cart.length && !confirm("当前销售购物车已有商品，是否用这张订单覆盖？")) {
+    state.orderType = previousType;
+    restoreCart(previousType);
+    return;
+  }
+
+  const unavailable = [];
+  const nextCart = (order.items || []).map((item) => {
+    const product = byId(products, item.productId);
+    if (!product || !isProductActive(product)) {
+      unavailable.push(orderItemDetails(item).label || item.productId);
+      return null;
+    }
+    return { productId: product.id, quantity: normalizeQuantity(item.quantity) || 1, price: Number(product.price || 0) };
+  }).filter(Boolean);
+  if (!nextCart.length) {
+    state.orderType = previousType;
+    restoreCart(previousType);
+    return alert("该订单中的商品当前均不在售，无法加入购物车");
+  }
+
+  state.cart = nextCart;
+  state.selectedCustomerId = customer.id;
+  const originalSalespersonActive = activeSalesUsers().some((user) => user.id === order.salesUserId);
+  state.salesUserId = canChooseSalesperson() && originalSalespersonActive ? order.salesUserId : state.user.id;
+  state.orderDraftCustomerId = customer.id;
+  state.orderAddress = order.address || customer.address || "";
+  state.orderPhone = order.phone || customer.phone || "";
+  state.orderRemark = order.remark || "";
+  state.route = "create";
+  state.modal = null;
+  state.query = "";
+  resetPage("createProducts");
+  persistCart("sale");
+  render();
+  showToast(unavailable.length ? `已恢复订单，${unavailable.length} 项已下架商品未加入` : "订单商品已放入购物车");
 }
 
 async function deleteOrder(orderId) {
@@ -2975,7 +3205,7 @@ function orderCard(order) {
           <div class="order-actions">
             ${orderActionButton("查看", "view", "view", order.id)}
             ${orderActionButton("编辑", "edit", "edit", order.id)}
-            ${isAdmin() ? orderActionButton("删除", "delete", "delete", order.id) : ""}
+            ${orderMoreMenu(order.id)}
           </div>
         </div>
       </div>
@@ -3022,7 +3252,11 @@ Object.assign(window, {
   handleRouteClick,
   handleOrderRouteClick,
   handleOrderAction,
+  repeatOrder,
   deleteOrder,
+  saveCustomer,
+  selectOrderCustomer,
+  updateOrderDraftField,
   updateEditOrderMeta,
   updateEditOrderLine,
   toggleEditProductPicker,
@@ -3034,6 +3268,7 @@ Object.assign(window, {
   updateOrderStatus,
   updateOrderPayment,
   downloadOrderImage,
+  downloadDeliveryImage,
   copyOrderText,
   exportOrderImage,
   login,

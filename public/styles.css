@@ -1391,6 +1391,20 @@ tbody tr:hover {
   stroke-linejoin: round;
 }
 
+.delivery-bottom {
+  display: grid;
+  gap: 10px;
+  margin-top: 22px;
+  font-size: 16px;
+  line-height: 1.6;
+}
+
+.delivery-preview table th:nth-child(2),
+.delivery-preview table td:nth-child(2) {
+  width: auto;
+  text-align: left;
+}
+
 .doc-preview {
   width: min(900px, 100%);
   margin: 0 auto;
@@ -2244,6 +2258,70 @@ tbody tr:hover {
   justify-content: flex-end;
 }
 
+.order-more-menu {
+  position: relative;
+  flex: 0 0 auto;
+}
+
+.order-more-menu > summary {
+  width: 40px;
+  height: 40px;
+  list-style: none;
+  cursor: pointer;
+}
+
+.order-more-menu > summary::-webkit-details-marker {
+  display: none;
+}
+
+.order-more-menu > summary svg {
+  width: 20px;
+  height: 20px;
+  fill: currentColor;
+  stroke: none;
+}
+
+.order-more-menu[open] > summary {
+  border-color: var(--primary);
+  color: var(--primary);
+  background: #f4f7ff;
+}
+
+.order-more-dropdown {
+  position: absolute;
+  z-index: 30;
+  top: calc(100% + 7px);
+  right: 0;
+  width: 150px;
+  padding: 6px;
+  border: 1px solid #dce5f3;
+  border-radius: 8px;
+  background: #fff;
+  box-shadow: 0 12px 30px rgba(18, 39, 74, 0.16);
+}
+
+.order-more-dropdown button {
+  width: 100%;
+  min-height: 38px;
+  padding: 8px 10px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text);
+  text-align: left;
+  font: inherit;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.order-more-dropdown button:hover {
+  background: #f3f6fb;
+}
+
+.order-more-dropdown button.danger {
+  color: #dc3545;
+}
+
 .order-card-polished .order-amount {
   align-self: start;
   font-size: 21px;
@@ -2268,6 +2346,11 @@ tbody tr:hover {
   border-radius: 10px;
   background: #fff;
   box-shadow: 0 10px 26px rgba(31, 52, 84, 0.055);
+  overflow: visible;
+}
+
+.order-card-polished .order-card-accent {
+  border-radius: 10px 0 0 10px;
 }
 
 .order-card-polished .order-card-body {
@@ -2388,5 +2471,9 @@ tbody tr:hover {
     flex: 1 1 0;
     min-width: 0;
     padding-inline: 10px;
+  }
+
+  .order-more-menu {
+    margin-left: auto;
   }
 }
