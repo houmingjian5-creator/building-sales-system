@@ -1144,6 +1144,60 @@ tbody tr:hover {
   min-height: 130px;
 }
 
+.ai-group-tabs {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 12px;
+  overflow-x: auto;
+}
+
+.ai-group-tab,
+.ai-group-add {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 38px;
+  padding: 0 12px;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  background: #fff;
+  color: var(--muted);
+  white-space: nowrap;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.ai-group-tab.active {
+  border-color: var(--primary);
+  background: #eef3ff;
+  color: var(--primary);
+}
+
+.ai-group-tab i {
+  font-style: normal;
+  font-size: 18px;
+}
+
+.ai-group-add {
+  border-style: dashed;
+  color: var(--primary);
+}
+
+.ai-group-panel {
+  padding: 14px;
+  margin-bottom: 14px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #f8fafc;
+}
+
+.ai-group-filters {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+
 .ai-actions {
   display: flex;
   align-items: center;
@@ -1154,6 +1208,36 @@ tbody tr:hover {
 .ai-result {
   display: grid;
   gap: 14px;
+}
+
+.ai-result-group {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #fff;
+  overflow: hidden;
+}
+
+.ai-result-group > summary {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 13px 14px;
+  background: #f8fafc;
+  cursor: pointer;
+}
+
+.ai-result-group-body {
+  display: grid;
+  gap: 10px;
+  padding: 10px;
+}
+
+.success-text {
+  color: #16856b;
+}
+
+.warning-text {
+  color: #b46a12;
 }
 
 .ai-section {
@@ -1249,6 +1333,19 @@ tbody tr:hover {
 
 .ai-candidate-option b {
   white-space: nowrap;
+}
+
+.ai-more-candidates > summary {
+  padding: 9px 11px;
+  color: var(--primary);
+  font-size: 13px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.ai-more-candidates[open] {
+  display: grid;
+  gap: 8px;
 }
 
 .muted-line {
@@ -1584,6 +1681,10 @@ tbody tr:hover {
 
   .ai-candidate-head {
     display: grid;
+  }
+
+  .ai-group-filters {
+    grid-template-columns: 1fr;
   }
 
   .doc-preview {

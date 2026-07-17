@@ -19,6 +19,8 @@ const state = {
   aiDraft: null,
   aiLoading: false,
   aiText: "",
+  aiGroups: [],
+  aiActiveGroupId: "",
   aiLearnPairs: [],
   loginPasswordVisible: false,
   editProductQuery: "",
@@ -497,24 +499,64 @@ function openAiOrderModal() {
   state.aiDraft = null;
   state.aiLoading = false;
   state.aiText = "";
+  state.aiGroups = [{ id: `ai-${Date.now()}`, cat1: "", cat2: "", content: "" }];
+  state.aiActiveGroupId = state.aiGroups[0].id;
   state.modal = { type: "aiOrder" };
   render();
 }
 
+function addAiGroup() {
+  const group = { id: `ai-${Date.now()}`, cat1: "", cat2: "", content: "" };
+  state.aiGroups.push(group);
+  state.aiActiveGroupId = group.id;
+  state.aiDraft = null;
+  render();
+}
+
+function removeAiGroup(groupId) {
+  if (state.aiGroups.length === 1) return;
+  state.aiGroups = state.aiGroups.filter((group) => group.id !== groupId);
+  if (!state.aiGroups.some((group) => group.id === state.aiActiveGroupId)) state.aiActiveGroupId = state.aiGroups[0].id;
+  state.aiDraft = null;
+  render();
+}
+
+function setAiGroupCategory(groupId, cat1) {
+  const group = state.aiGroups.find((item) => item.id === groupId);
+  if (!group) return;
+  group.cat1 = cat1;
+  group.cat2 = "";
+  state.aiDraft = null;
+  render();
+}
+
+function setAiGroupSubcategory(groupId, cat2) {
+  const group = state.aiGroups.find((item) => item.id === groupId);
+  if (!group) return;
+  group.cat2 = cat2;
+  state.aiDraft = null;
+  render();
+}
+
+function updateAiGroupText(groupId, value) {
+  const group = state.aiGroups.find((item) => item.id === groupId);
+  if (group) group.content = value;
+  state.aiDraft = null;
+}
+
 async function analyzeAiOrder() {
-  const content = document.getElementById("aiOrderText").value.trim();
-  if (!content) {
-    alert("请先粘贴客户发来的材料清单。");
+  const validGroups = state.aiGroups.filter((group) => group.cat1 && group.content.trim());
+  if (!validGroups.length || validGroups.length !== state.aiGroups.length) {
+    alert("每个材料窗口都需要选择一级分类并填写材料内容。");
     return;
   }
-  state.aiText = content;
   state.aiLoading = true;
   render();
   try {
     const response = await fetch("/api/ai/order-draft", {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ content, customerId: state.selectedCustomerId }),
+      body: JSON.stringify({ groups: validGroups, customerId: state.selectedCustomerId }),
     });
     const data = await response.json();
     if (!response.ok) throw new Error(data.error || "AI 识别失败");
@@ -711,6 +753,9 @@ function renderModal() {
 function aiOrderModal() {
   const customer = byId(customers, state.selectedCustomerId);
   const draft = state.aiDraft;
+  const cat1Options = [...new Set(products.map((product) => product.cat1).filter(Boolean))];
+  const activeGroup = state.aiGroups.find((group) => group.id === state.aiActiveGroupId) || state.aiGroups[0];
+  const cat2Options = activeGroup ? [...new Set(products.filter((product) => product.cat1 === activeGroup.cat1).map((product) => product.cat2).filter(Boolean))] : [];
   return `
     <div class="modal-backdrop" onclick="if(event.target.className==='modal-backdrop')closeModal()">
       <div class="modal ai-modal">
@@ -719,13 +764,11 @@ function aiOrderModal() {
           <button class="icon-btn" onclick="closeModal()">×</button>
         </div>
         <div class="modal-body">
-          <div class="field">
-            <label>客户发来的材料清单</label>
-            <textarea id="aiOrderText" class="textarea ai-textarea" oninput="state.aiText=this.value" placeholder="例如：石膏板18张主骨25根付骨47根丝杆4根，38钢钉3盒直钉3盒白乳胶一小桶...">${state.aiText}</textarea>
-          </div>
+          <div class="ai-group-tabs">${state.aiGroups.map((group, index) => `<button class="ai-group-tab ${group.id === state.aiActiveGroupId ? "active" : ""}" onclick="state.aiActiveGroupId='${html(group.id)}';render()"><span>${html(group.cat2 || group.cat1 || `分类 ${index + 1}`)}</span>${state.aiGroups.length > 1 ? `<i onclick="event.stopPropagation();removeAiGroup('${html(group.id)}')">×</i>` : ""}</button>`).join("")}<button class="ai-group-add" onclick="addAiGroup()">＋ 添加分类窗口</button></div>
+          ${activeGroup ? `<section class="ai-group-panel"><div class="ai-group-filters"><div class="field"><label>一级分类 *</label><select class="select" onchange="setAiGroupCategory('${html(activeGroup.id)}',this.value)"><option value="">请选择一级分类</option>${cat1Options.map((cat1) => `<option value="${html(cat1)}" ${activeGroup.cat1 === cat1 ? "selected" : ""}>${html(cat1)}</option>`).join("")}</select></div><div class="field"><label>二级分类（选填）</label><select class="select" ${activeGroup.cat1 ? "" : "disabled"} onchange="setAiGroupSubcategory('${html(activeGroup.id)}',this.value)"><option value="">全部二级分类</option>${cat2Options.map((cat2) => `<option value="${html(cat2)}" ${activeGroup.cat2 === cat2 ? "selected" : ""}>${html(cat2)}</option>`).join("")}</select></div></div><div class="field"><label>该分类下的材料清单</label><textarea class="textarea ai-textarea" oninput="updateAiGroupText('${html(activeGroup.id)}',this.value)" placeholder="只填写属于当前分类的材料，例如：20管6根，20弯头30个...">${html(activeGroup.content)}</textarea></div><div class="hint">匹配范围：${activeGroup.cat1 ? html(activeGroup.cat1) : "尚未选择"}${activeGroup.cat2 ? ` / ${html(activeGroup.cat2)}` : activeGroup.cat1 ? " / 全部二级分类" : ""}。系统不会跨出这个范围推荐商品。</div></section>` : ""}
           <div class="ai-actions">
             <button class="btn primary" onclick="analyzeAiOrder()" ${state.aiLoading ? "disabled" : ""}>${state.aiLoading ? "识别中..." : "开始识别"}</button>
-            <span class="hint">名称、单位、价格最终都以商品库为准。</span>
+            <span class="hint">唯一可靠商品自动匹配；不确定就留给你确认或进入未匹配。</span>
           </div>
           ${draft ? renderAiDraft(draft) : ""}
         </div>
@@ -739,14 +782,17 @@ function aiOrderModal() {
 }
 
 function renderAiDraft(draft) {
-  return `
-    <div class="ai-result">
-      ${renderAiMatched(draft.matched || [])}
-      ${renderAiNeedsQuantity(draft.needsQuantity || [])}
-      ${renderAiUncertain(draft.uncertain || [])}
-      ${renderAiUnmatched(draft.unmatched || [])}
-    </div>
-  `;
+  const all = [...(draft.matched || []), ...(draft.needsQuantity || []), ...(draft.uncertain || []), ...(draft.unmatched || [])];
+  const groupIds = [...new Set(all.map((item) => item.groupId || "ungrouped"))];
+  return `<div class="ai-result">${groupIds.map((groupId) => {
+    const matched = (draft.matched || []).filter((item) => (item.groupId || "ungrouped") === groupId);
+    const needsQuantity = (draft.needsQuantity || []).filter((item) => (item.groupId || "ungrouped") === groupId);
+    const uncertain = (draft.uncertain || []).filter((item) => (item.groupId || "ungrouped") === groupId);
+    const unmatched = (draft.unmatched || []).filter((item) => (item.groupId || "ungrouped") === groupId);
+    const title = (all.find((item) => (item.groupId || "ungrouped") === groupId) || {}).groupTitle || "识别结果";
+    const issueCount = needsQuantity.length + uncertain.length + unmatched.length;
+    return `<details class="ai-result-group" ${issueCount ? "open" : ""}><summary><strong>${html(title)}</strong><span><b class="success-text">已匹配 ${matched.length}</b>${issueCount ? ` · <b class="warning-text">需处理 ${issueCount}</b>` : ""}</span></summary><div class="ai-result-group-body">${renderAiMatched(matched)}${renderAiNeedsQuantity(needsQuantity)}${renderAiUncertain(uncertain)}${renderAiUnmatched(unmatched)}</div></details>`;
+  }).join("")}</div>`;
 }
 
 function renderAiMatched(list) {
@@ -774,7 +820,7 @@ function renderAiUncertain(list) {
   return `
     <section class="ai-section">
       <h4>需要选择商品</h4>
-      ${list.map((item, index) => `<div class="ai-candidate-block"><div class="ai-candidate-head"><div><strong>原文：${html(item.rawName || "-")}</strong><div class="hint">以下内容均来自当前商品库，请主动选择；不选择就不会加入订单。</div></div><input class="input ai-small-input" type="number" min="0" step="0.01" value="${html(item.quantity || "")}" placeholder="数量" data-ai-candidate-quantity="${index}" /></div><div class="ai-candidate-list">${(item.candidates || []).map((product) => `<label class="ai-candidate-option"><input type="radio" name="ai-candidate-${index}" value="${html(product.productId)}" data-ai-candidate-product data-ai-candidate-group="${index}" data-ai-raw-name="${html(item.rawName || "")}" /><span><strong>${html(product.name)}</strong><small>${html(product.spec || "无规格")} · ${html(product.unit || "-")} · ${html(product.cat1 || "-")}${product.cat2 ? " / " + html(product.cat2) : ""}</small></span><b>${money(product.price)}</b></label>`).join("")}</div></div>`).join("")}
+      ${list.map((item, index) => { const key = `${item.groupId || "group"}-${index}`; const candidates = item.candidates || []; const option = (product) => `<label class="ai-candidate-option"><input type="radio" name="ai-candidate-${html(key)}" value="${html(product.productId)}" data-ai-candidate-product data-ai-candidate-group="${html(key)}" data-ai-raw-name="${html(item.rawName || "")}" /><span><strong>${html(product.name)}</strong><small>${html(product.spec || "无规格")} · ${html(product.unit || "-")} · ${html(product.cat1 || "-")}${product.cat2 ? " / " + html(product.cat2) : ""}</small></span><b>${money(product.price)}</b></label>`; return `<div class="ai-candidate-block"><div class="ai-candidate-head"><div><strong>原文：${html(item.rawName || "-")}</strong><div class="hint">默认展示最相关商品；不选择就不会加入订单。</div></div><input class="input ai-small-input" type="number" min="0" step="0.01" value="${html(item.quantity || "")}" placeholder="数量" data-ai-candidate-quantity="${html(key)}" /></div><div class="ai-candidate-list">${candidates[0] ? option(candidates[0]) : ""}${candidates.length > 1 ? `<details class="ai-more-candidates"><summary>展开其他 ${candidates.length - 1} 个候选</summary>${candidates.slice(1).map(option).join("")}</details>` : ""}</div></div>`; }).join("")}
     </section>
   `;
 }

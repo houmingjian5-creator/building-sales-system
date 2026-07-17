@@ -303,6 +303,20 @@ function textTokens(value) {
 
 function productKind(product) {
   const text = normalizeMatchText([product.name, product.spec, product.brand, product.cat1, product.cat2, ...(product.aliases || [])].join(' '));
+  if (text.includes('过滤器')) return 'filter';
+  if (text.includes('三角阀')) return 'angleValve';
+  if (text.includes('截止阀')) return 'stopValve';
+  if (text.includes('管帽') || text.includes('堵头')) return 'pipeCap';
+  if (text.includes('双联') && (text.includes('弯头') || text.includes('内牙弯') || text.includes('内丝弯'))) return 'doubleInnerElbow';
+  if (text.includes('45') && (text.includes('弯头') || text.includes('弯'))) return 'elbow45';
+  if (text.includes('弯头') || text.includes('大弧弯') || text.includes('过桥弯') || text.includes('无口弯')) return 'elbow';
+  if (text.includes('三通')) return 'tee';
+  if (text.includes('直接') || text.includes('直通')) return 'coupling';
+  if (text.includes('吊卡')) return 'hanger';
+  if (text.includes('钉卡')) return 'nailClip';
+  if (text.includes('管卡') || text.includes('坐卡') || text.includes('座卡')) return 'pipeClip';
+  if (text.includes('波纹管')) return 'corrugatedPipe';
+  if (text.includes('线管') || text.includes('水管') || text.includes('排水管') || text.includes('热水管') || text.includes('冷水管') || text.endsWith('管') || text.includes('磁芯管') || text.includes('瓷芯管') || text.includes('双层管')) return 'pipe';
   if (text.includes('木方')) return 'woodBatten';
   if (text.includes('主龙骨')) return 'mainKeel';
   if (text.includes('副龙骨')) return 'subKeel';
@@ -325,6 +339,20 @@ function productKind(product) {
 
 function requestedKind(rawName) {
   const text = normalizeMatchText(rawName);
+  if (text.includes('过滤器')) return 'filter';
+  if (text.includes('三角阀')) return 'angleValve';
+  if (text.includes('截止阀')) return 'stopValve';
+  if (text.includes('管帽') || text.includes('堵头')) return 'pipeCap';
+  if ((text.includes('连体') || text.includes('双联')) && (text.includes('内弯') || text.includes('内丝弯') || text.includes('内牙弯'))) return 'doubleInnerElbow';
+  if ((text.includes('45') || text.includes('四十五')) && text.includes('弯')) return 'elbow45';
+  if (text.includes('弯头') || text.includes('无口弯') || text.includes('过桥弯') || text.includes('大弧弯') || text.endsWith('弯')) return 'elbow';
+  if (text.includes('三通')) return 'tee';
+  if (text.includes('直接') || text.includes('直通')) return 'coupling';
+  if (text.includes('吊卡')) return 'hanger';
+  if (text.includes('钉卡')) return 'nailClip';
+  if (text.includes('管卡') || text.includes('坐卡') || text.includes('座卡')) return 'pipeClip';
+  if (text.includes('波纹管')) return 'corrugatedPipe';
+  if (text.includes('管子') || text.includes('水管') || text.includes('线管') || /(^|[^\u4e00-\u9fa5])\d+(?:[.]\d+)?管$/.test(text) || /^\d+(?:[.]\d+)?管$/.test(text)) return 'pipe';
   if (text.includes('木方') || /\d+[*]\d+/.test(text) && text.includes('龙骨')) return 'woodBatten';
   if (text.includes('主龙骨')) return 'mainKeel';
   if (text.includes('副龙骨')) return 'subKeel';
@@ -361,16 +389,25 @@ function hasStandaloneNumber(product, token) {
   return new RegExp(`(^|[^0-9.])${escaped}([^0-9.]|$)`).test(text);
 }
 
+function requestedSpecNumbers(value) {
+  return [...new Set((String(value || '').match(/\d+(?:[.]\d+)?/g) || []).map((token) => String(Number(token))))];
+}
+
 function matchProductCandidates(products, rawName, options = {}) {
   const needle = normalizeMatchText(rawName);
   if (!needle) return [];
   const explicitBrandTerms = requestedBrandTerms(products, needle);
   const contextBrands = options.contextBrandTerms || [];
-  const kind = requestedKind(rawName);
+  const kind = requestedKind(options.itemText || rawName);
   const brandTerms = explicitBrandTerms.length ? explicitBrandTerms : (isBrandSensitiveKind(kind) ? contextBrands : []);
   const queryTokens = textTokens(rawName);
+  const specNumbers = requestedSpecNumbers(options.itemText || rawName);
   const scored = products
     .filter((product) => product.status !== '\u505c\u7528')
+    .filter((product) => !options.cat1 || product.cat1 === options.cat1)
+    .filter((product) => !options.cat2 || product.cat2 === options.cat2)
+    .filter((product) => !kind || productKind(product) === kind)
+    .filter((product) => !specNumbers.length || specNumbers.every((token) => hasStandaloneNumber(product, token)))
     .map((product) => {
       const aliases = productAliases(product);
       const name = normalizeMatchText(product.name);
@@ -510,7 +547,7 @@ function expandAiLines(lines) {
   return expanded;
 }
 
-function validateAiDraft(db, aiResult, content = '') {
+function validateAiDraft(db, aiResult, content = '', scopes = []) {
   const lines = Array.isArray(aiResult.items) ? aiResult.items : [];
   const matched = [];
   const needsQuantity = [];
@@ -520,29 +557,43 @@ function validateAiDraft(db, aiResult, content = '') {
 
   expandAiLines(lines).forEach((line) => {
     const rawName = String(line.rawName || line.name || '').trim();
+    const scope = scopes.find((item) => item.id === line.groupId) || (scopes.length === 1 ? scopes[0] : null);
+    if (!scope) {
+      unmatched.push({ groupId: '', groupTitle: '无法确定分类窗口', rawName, note: 'AI未能确定该商品属于哪个输入窗口，请重新识别或手动添加' });
+      return;
+    }
     const context = [line.brand, line.cat1, line.cat2, line.system, line.context].filter(Boolean).join(' ');
     const matchText = [context, rawName].filter(Boolean).join(' ');
     const quantity = Number(line.quantity);
     const lineContextBrands = requestedBrandTerms(db.products, normalizeMatchText(context));
-    const matches = matchProductCandidates(db.products, matchText, { db, contextBrandTerms: lineContextBrands.length ? lineContextBrands : contextBrands });
-    const product = matches[0] && matches[0].score >= 260 && (!matches[1] || matches[0].score - matches[1].score >= 100) ? matches[0].product : null;
+    const matches = matchProductCandidates(db.products, matchText, {
+      db,
+      itemText: rawName,
+      cat1: scope.cat1 || '',
+      cat2: scope.cat2 || '',
+      contextBrandTerms: lineContextBrands.length ? lineContextBrands : contextBrands,
+    });
+    const uniqueHardMatch = matches.length === 1 && requestedKind(rawName) && requestedSpecNumbers(rawName).length;
+    const product = uniqueHardMatch || (matches[0] && matches[0].score >= 260 && (!matches[1] || matches[0].score - matches[1].score >= 100)) ? matches[0].product : null;
     const candidateProducts = matches.map((item) => candidateFor(item.product));
+    const groupMeta = { groupId: scope.id || '', groupTitle: scope.title || scope.cat2 || scope.cat1 || '未分组' };
 
     if (!product) {
       if (candidateProducts.length) {
-        uncertain.push({ rawName, quantity: Number.isFinite(quantity) && quantity > 0 ? quantity : null, candidates: candidateProducts });
+        uncertain.push({ ...groupMeta, rawName, quantity: Number.isFinite(quantity) && quantity > 0 ? quantity : null, candidates: candidateProducts });
         return;
       }
-      unmatched.push({ rawName, note: line.note || '\u5546\u54c1\u5e93\u4e2d\u672a\u627e\u5230\u5339\u914d\u5546\u54c1' });
+      unmatched.push({ ...groupMeta, rawName, note: line.note || '\u6307\u5b9a\u5206\u7c7b\u4e2d\u672a\u627e\u5230\u7c7b\u578b\u548c\u89c4\u683c\u90fd\u7b26\u5408\u7684\u5546\u54c1' });
       return;
     }
 
     if (!Number.isFinite(quantity) || quantity <= 0) {
-      needsQuantity.push({ rawName, productId: product.id, name: product.name, spec: product.spec, unit: product.unit, price: product.price });
+      needsQuantity.push({ ...groupMeta, rawName, productId: product.id, name: product.name, spec: product.spec, unit: product.unit, price: product.price });
       return;
     }
 
     matched.push({
+      ...groupMeta,
       rawName,
       productId: product.id,
       name: product.name,
@@ -556,7 +607,15 @@ function validateAiDraft(db, aiResult, content = '') {
   return { matched, needsQuantity, uncertain, unmatched };
 }
 
-async function buildAiOrderDraft(db, content) {
+async function buildAiOrderDraft(db, groups) {
+  const scopes = (Array.isArray(groups) ? groups : []).map((group, index) => ({
+    id: String(group.id || `group-${index + 1}`),
+    title: String(group.title || group.cat2 || group.cat1 || `分类 ${index + 1}`),
+    cat1: String(group.cat1 || ''),
+    cat2: String(group.cat2 || ''),
+    content: String(group.content || '').slice(0, 1600),
+  })).filter((group) => group.cat1 && group.content.trim());
+  const content = scopes.map((group) => `[${group.id}] ${group.cat1}${group.cat2 ? ` / ${group.cat2}` : ''}\n${group.content}`).join('\n\n');
   const messages = [
     {
       role: 'system',
@@ -569,6 +628,7 @@ async function buildAiOrderDraft(db, content) {
         outputSchema: {
           items: [
             {
+              groupId: '\u5fc5\u987b\u539f\u6837\u8fd4\u56de\u8be5\u5546\u54c1\u6240\u5c5e\u8f93\u5165\u5206\u7ec4\u7684 id',
               rawName: '\u9500\u552e\u539f\u6587\u4e2d\u7684\u5546\u54c1\u53eb\u6cd5',
               quantity: '\u6570\u5b57\uff0c\u65e0\u6cd5\u786e\u5b9a\u5219 null',
               brand: '\u6bb5\u843d\u660e\u786e\u6307\u5b9a\u7684\u54c1\u724c\uff0c\u6ca1\u6709\u5219\u7a7a\u5b57\u7b26\u4e32',
@@ -585,12 +645,12 @@ async function buildAiOrderDraft(db, content) {
           '\u9634\u9633\u89d2\u5404\u4e00\u628a\u9700\u8981\u4fdd\u7559\u4e3a\u9634\u9633\u89d2\uff0c\u4e0d\u8981\u4e22\u5931',
           '\u5982\u679c\u5546\u54c1\u540d\u540e\u9762\u7d27\u8ddf\u6570\u5b57\u4e14\u6709\u5355\u4f4d\uff0c\u4f8b\u5982\u6469\u5229\u7f8e\u6d82\u77f3\u818f30\u888b\uff0c\u6570\u5b57\u662f\u6570\u91cf',
         ],
-        orderText: content,
+        orderGroups: scopes.map((group) => ({ id: group.id, category: group.cat1, subcategory: group.cat2, orderText: group.content })),
       }),
     },
   ];
   const text = await callDeepSeek(messages);
-  return validateAiDraft(db, parseJsonFromText(text), content);
+  return validateAiDraft(db, parseJsonFromText(text), content, scopes);
 }
 
 function recordAiLearning(db, pairs) {
@@ -767,11 +827,14 @@ async function handleApi(req, res) {
   if (method === "POST" && url.pathname === "/api/ai/order-draft") {
     const user = requireUser(req, res);
     if (!user) return;
-    const { content } = await readBody(req);
-    if (!String(content || "").trim()) return sendError(res, 400, "请先输入需要识别的订单内容");
+    const payload = await readBody(req);
+    const groups = Array.isArray(payload.groups) ? payload.groups.slice(0, 8) : [{ id: 'group-1', cat1: '', cat2: '', content: payload.content }];
+    if (!groups.some((group) => String((group && group.cat1) || '').trim() && String((group && group.content) || '').trim())) {
+      return sendError(res, 400, "请为材料窗口选择一级分类并输入订单内容");
+    }
     const db = readDb();
     try {
-      const draft = await buildAiOrderDraft(db, String(content).slice(0, 2000));
+      const draft = await buildAiOrderDraft(db, groups);
       return sendJson(res, 200, draft);
     } catch (error) {
       return sendError(res, 502, error.message || "AI 开单识别失败");
@@ -898,3 +961,4 @@ if (require.main === module) {
 }
 
 module.exports = server;
+module.exports.matchProductCandidates = matchProductCandidates;
