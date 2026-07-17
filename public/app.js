@@ -920,7 +920,7 @@ function documentModal(id) {
   return `
     <div class="modal-backdrop" onclick="if(event.target.className==='modal-backdrop')closeModal()">
       <div class="modal">
-        <div class="modal-head"><h3>订单详情 - ${title}</h3><div class="document-actions"><button class="btn" onclick="downloadOrderImage('${order.id}')">⇩ 图片</button><button class="btn" onclick="downloadOrderHtml('${order.id}')">文档</button><button class="icon-btn" onclick="closeModal()">×</button></div></div>
+        <div class="modal-head"><h3>订单详情 - ${title}</h3><div class="document-actions"><button class="btn export-btn" onclick="downloadOrderImage('${order.id}')">${svgIcon("image")}<span>导出图片</span></button><button class="btn export-btn" onclick="copyOrderText('${order.id}')">${svgIcon("copy")}<span>导出文字版</span></button><button class="icon-btn" onclick="closeModal()">×</button></div></div>
         <div class="modal-body">
           <div class="doc-preview">
             <h2>${title}</h2>
@@ -930,7 +930,7 @@ function documentModal(id) {
               <div><span>单号：</span>${order.no}</div>
               <div><span>日期：</span>${order.date}</div>
               <div class="right"><span>销售：</span>${s?.name || "-"}</div>
-              <div class="doc-address"><span>地址：</span>${c.address}</div>
+              <div class="doc-address"><span>地址：</span>${html(order.address || c.address || "-")}</div>
             </div>
             <table><thead><tr><th>编号</th><th>商品名称</th><th>单位</th><th>数量</th><th>单价</th><th>金额</th></tr></thead><tbody>${rows.map((row) => row.empty ? `<tr><td>${row.index}</td><td></td><td></td><td></td><td></td><td></td></tr>` : `<tr><td>${row.index}</td><td>${html(row.name)}</td><td>${html(row.unit)}</td><td>${row.quantity}</td><td>${money(row.price)}</td><td>${money(row.amount)}</td></tr>`).join("")}</tbody></table>
             <div class="doc-bottom">
@@ -990,6 +990,8 @@ function svgIcon(type) {
     refresh: `<svg viewBox="0 0 24 24"><path d="M20 12a8 8 0 0 1-13.4 5.9"/><path d="M4 12A8 8 0 0 1 17.4 6.1"/><path d="M17 3v4h-4"/><path d="M7 21v-4h4"/></svg>`,
     orders: `<svg viewBox="0 0 24 24"><path d="M6 4h12v16H6z"/><path d="M9 8h6"/><path d="M9 12h6"/><path d="M9 16h4"/></svg>`,
     plus: `<svg viewBox="0 0 24 24"><path d="M12 5v14"/><path d="M5 12h14"/></svg>`,
+    image: `<svg viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="16" rx="2"/><circle cx="9" cy="10" r="2"/><path d="m5 18 4.5-4.5 3 3 2.5-2.5 4 4"/></svg>`,
+    copy: `<svg viewBox="0 0 24 24"><rect x="8" y="8" width="11" height="12" rx="2"/><path d="M16 8V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h2"/></svg>`,
   };
   return icons[type] || icons.view;
 }
@@ -1084,6 +1086,64 @@ function getOrderDoc(orderId) {
   return { order, customer, title, rows: getOrderRows(order) };
 }
 
+function buildOrderText(orderId) {
+  const order = byId(orders, orderId);
+  if (!order) throw new Error("订单不存在");
+  const customer = byId(customers, order.customerId) || {};
+  const excludedTerms = ["运费", "搬运费", "货拉拉"];
+  const productLines = (order.items || []).filter((item) => {
+    const details = orderItemDetails(item);
+    return !excludedTerms.some((term) => String(details.name || "").includes(term));
+  }).map((item) => {
+    const details = orderItemDetails(item);
+    const quantity = Number(item.quantity);
+    const quantityText = Number.isFinite(quantity) ? String(quantity) : String(item.quantity || "");
+    return `${details.label}  ${quantityText}${details.unit || ""}`;
+  });
+  return [
+    "【送货信息】",
+    `联系电话：${order.phone || customer.phone || ""}`,
+    `送货地址：${order.address || customer.address || ""}`,
+    "",
+    "【产品清单】",
+    ...(productLines.length ? productLines : ["暂无产品"]),
+    "",
+    "【备注】",
+    String(order.remark || "").trim() || "无",
+  ].join("\n");
+}
+
+function fallbackCopyText(text) {
+  const textarea = document.createElement("textarea");
+  textarea.value = text;
+  textarea.setAttribute("readonly", "");
+  textarea.style.position = "fixed";
+  textarea.style.left = "-9999px";
+  document.body.appendChild(textarea);
+  textarea.select();
+  const copied = document.execCommand("copy");
+  textarea.remove();
+  if (!copied) throw new Error("浏览器未允许复制，请稍后重试");
+}
+
+async function copyOrderText(orderId) {
+  try {
+    const text = buildOrderText(orderId);
+    if (navigator.clipboard && window.isSecureContext) {
+      try {
+        await navigator.clipboard.writeText(text);
+      } catch (error) {
+        fallbackCopyText(text);
+      }
+    } else {
+      fallbackCopyText(text);
+    }
+    showToast("文字版已复制");
+  } catch (error) {
+    alert(error.message || "复制失败");
+  }
+}
+
 function downloadBlob(filename, mimeType, content) {
   const blob = content instanceof Blob ? content : new Blob([content], { type: mimeType });
   const url = URL.createObjectURL(blob);
@@ -1146,7 +1206,7 @@ function downloadOrderHtml(orderId) {
       <div><span>单号：</span>${order.no}</div>
       <div><span>日期：</span>${order.date}</div>
       <div class="right"><span>销售：</span>${sales?.name || "-"}</div>
-      <div class="address"><span>地址：</span>${customer.address}</div>
+      <div class="address"><span>地址：</span>${html(order.address || customer.address || "-")}</div>
     </section>
     <table>
       <thead><tr><th>编号</th><th>商品名称</th><th>单位</th><th>数量</th><th>单价</th><th>金额</th></tr></thead>
@@ -2289,6 +2349,7 @@ function renderCreateOrder() {
         ${salespersonField}
         <div class="field"><label>送货地址 *</label><input id="orderAddressInput" class="input" value="${html(customer?.address || "")}" /></div>
         <div class="field"><label>收货人手机号 *</label><input id="orderPhoneInput" class="input" value="${html(customer?.phone || "")}" /></div>
+        <div class="field" style="grid-column:1/-1"><label>订单备注</label><textarea id="orderRemarkInput" class="textarea compact-textarea" placeholder="可填写配送说明、客户要求等"></textarea></div>
       </div>
     </div>
     <div class="product-layout">
@@ -2325,7 +2386,9 @@ async function saveOrder() {
     customerId: customer.id,
     salesUserId: canChooseSalesperson() ? state.salesUserId : state.user.id,
     amount: cartTotal(),
+    phone: document.getElementById("orderPhoneInput")?.value.trim() || customer.phone || "",
     address: document.getElementById("orderAddressInput")?.value.trim() || customer.address || "",
+    remark: document.getElementById("orderRemarkInput")?.value.trim() || "",
     payStatus: "未付款",
     items: state.cart.map((item) => {
       const product = byId(products, item.productId) || {};
@@ -2468,6 +2531,7 @@ function openModal(type, id) {
       orderId: id,
       customerId: order?.customerId || "",
       date: order?.date || "",
+      phone: order?.phone || byId(customers, order?.customerId)?.phone || "",
       address: order?.address || byId(customers, order?.customerId)?.address || "",
       remark: order?.remark || "",
       items: (order?.items || []).map(orderLineSnapshot),
@@ -2491,7 +2555,7 @@ function editOrderModal(id) {
   const order = byId(orders, id);
   if (!order) return "";
   if (!state.editOrderDraft || state.editOrderDraft.orderId !== id) {
-    state.editOrderDraft = { orderId: id, customerId: order.customerId, date: order.date || "", address: order.address || "", remark: order.remark || "", items: (order.items || []).map(orderLineSnapshot) };
+    state.editOrderDraft = { orderId: id, customerId: order.customerId, date: order.date || "", phone: order.phone || byId(customers, order.customerId)?.phone || "", address: order.address || "", remark: order.remark || "", items: (order.items || []).map(orderLineSnapshot) };
   }
   const draft = state.editOrderDraft;
   const draftTotal = draft.items.reduce((sum, item) => sum + Number(item.quantity || 0) * Number(item.price || 0), 0);
@@ -2503,6 +2567,7 @@ function editOrderModal(id) {
           <div class="form-grid">
             <div class="field"><label>客户</label><select id="editOrderCustomer" class="select" onchange="updateEditOrderMeta('customerId',this.value)">${customers.map((customer) => `<option value="${html(customer.id)}" ${customer.id === draft.customerId ? "selected" : ""}>${html(customer.name)}</option>`).join("")}</select></div>
             <div class="field"><label>订单日期</label><input id="editOrderDate" class="input" value="${html(draft.date)}" oninput="updateEditOrderMeta('date',this.value)" /></div>
+            <div class="field" style="grid-column:1/-1"><label>收货人手机号</label><input id="editOrderPhone" class="input" value="${html(draft.phone)}" oninput="updateEditOrderMeta('phone',this.value)" /></div>
             <div class="field" style="grid-column:1/-1"><label>订单地址</label><input id="editOrderAddress" class="input" value="${html(draft.address)}" oninput="updateEditOrderMeta('address',this.value)" /></div>
             <div class="field" style="grid-column:1/-1"><label>订单备注</label><textarea id="editOrderRemark" class="textarea" placeholder="可填写客户特殊要求、配送说明等" oninput="updateEditOrderMeta('remark',this.value)">${html(draft.remark)}</textarea></div>
           </div>
@@ -2623,6 +2688,7 @@ async function saveOrderEdits(id) {
   const payload = {
     customerId: document.getElementById("editOrderCustomer")?.value,
     date: document.getElementById("editOrderDate")?.value.trim(),
+    phone: document.getElementById("editOrderPhone")?.value.trim(),
     address: document.getElementById("editOrderAddress")?.value.trim(),
     remark: document.getElementById("editOrderRemark")?.value.trim(),
     items,
@@ -2968,6 +3034,7 @@ Object.assign(window, {
   updateOrderStatus,
   updateOrderPayment,
   downloadOrderImage,
+  copyOrderText,
   exportOrderImage,
   login,
   logout,

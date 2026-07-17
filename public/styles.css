@@ -148,6 +148,10 @@ button {
   outline: none;
 }
 
+.compact-textarea {
+  min-height: 72px;
+}
+
 .textarea {
   min-height: 78px;
   resize: vertical;
@@ -1369,6 +1373,24 @@ tbody tr:hover {
   align-items: center;
 }
 
+.document-actions .export-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  white-space: nowrap;
+}
+
+.document-actions .export-btn svg {
+  width: 18px;
+  height: 18px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.8;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
 .doc-preview {
   width: min(900px, 100%);
   margin: 0 auto;
@@ -1673,6 +1695,11 @@ tbody tr:hover {
   .document-actions {
     flex-wrap: wrap;
     justify-content: flex-end;
+  }
+
+  .document-actions .export-btn {
+    min-height: 40px;
+    padding: 0 11px;
   }
 
   .ai-actions,

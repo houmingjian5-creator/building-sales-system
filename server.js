@@ -207,6 +207,7 @@ function publicOrder(order) {
     ...order,
     type: isReturn ? 'return' : order.type || 'sale',
     payStatus: normalizePayStatus(order.payStatus),
+    phone: order.phone || '',
     address: order.address || '',
     remark: order.remark || '',
     items,
@@ -879,6 +880,7 @@ async function handleApi(req, res) {
         customerId: payload.customerId,
         salesUserId: user.role === "销售人员" ? user.id : payload.salesUserId || user.id,
         date: payload.date || new Date().toLocaleDateString("zh-CN"),
+        phone: payload.phone || "",
         address: payload.address || "",
         remark: payload.remark || "",
         status: payload.type === "return" ? "已退货" : "待确认",
@@ -944,6 +946,7 @@ async function handleApi(req, res) {
       if (payload.customerId !== undefined) order.customerId = payload.customerId;
       if (payload.salesUserId !== undefined && user.role !== "销售人员") order.salesUserId = payload.salesUserId;
       if (payload.date !== undefined) order.date = payload.date;
+      if (payload.phone !== undefined) order.phone = payload.phone;
       if (payload.address !== undefined) order.address = payload.address;
       if (payload.remark !== undefined) order.remark = payload.remark;
       if (payload.status !== undefined && ORDER_STATUS_OPTIONS.has(payload.status)) order.status = payload.status;
