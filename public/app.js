@@ -574,6 +574,9 @@ async function analyzeAiOrder() {
       throw new Error(response.ok ? "服务器返回内容异常" : `服务器请求失败（${response.status}）`);
     }
     if (!response.ok) throw new Error(data.error || "AI 识别失败");
+    const resultCount = [data.matched, data.needsQuantity, data.uncertain, data.unmatched]
+      .reduce((sum, list) => sum + (Array.isArray(list) ? list.length : 0), 0);
+    if (!resultCount) throw new Error("AI没有返回任何材料，请检查输入内容后重试");
     state.aiDraft = data;
     state.aiLoading = false;
     state.aiError = "";

@@ -607,28 +607,27 @@ function validateAiDraft(db, aiResult, content = '', scopes = []) {
   return { matched, needsQuantity, uncertain, unmatched };
 }
 
-async function buildAiOrderDraft(db, groups) {
-  const scopes = (Array.isArray(groups) ? groups : []).map((group, index) => ({
-    id: String(group.id || `group-${index + 1}`),
-    title: String(group.title || group.cat2 || group.cat1 || `分类 ${index + 1}`),
-    cat1: String(group.cat1 || ''),
-    cat2: String(group.cat2 || ''),
-    content: String(group.content || '').slice(0, 1600),
-  })).filter((group) => group.cat1 && group.content.trim());
-  const content = scopes.map((group) => `[${group.id}] ${group.cat1}${group.cat2 ? ` / ${group.cat2}` : ''}\n${group.content}`).join('\n\n');
+function fallbackParseOrderText(content) {
+  return String(content || '').split(/[\n，,；;、]+/).map((part) => part.trim()).filter(Boolean).map((part) => {
+    const match = part.match(/^(.*?)(\d+(?:[.]\d+)?)\s*(根|个|只|套|瓶|包|盒|袋|张|卷|圈|米|桶|把)?\s*$/);
+    if (!match || !match[1].trim()) return { rawName: part, quantity: null };
+    return { rawName: match[1].trim(), quantity: Number(match[2]) };
+  });
+}
+
+async function parseAiOrderGroup(scope) {
   const messages = [
     {
       role: 'system',
-      content: '\u4f60\u662f\u5efa\u6750\u9500\u552e\u7cfb\u7edf\u7684\u5f00\u5355\u6587\u672c\u89e3\u6790\u52a9\u624b\u3002\u4f60\u53ea\u8d1f\u8d23\u4ece\u9500\u552e\u539f\u6587\u4e2d\u62c6\u51fa\u5546\u54c1\u53eb\u6cd5\u3001\u6570\u91cf\u548c\u6bb5\u843d\u4e0a\u4e0b\u6587\uff0c\u4e0d\u8981\u5339\u914d\u6216\u521b\u9020\u5546\u54c1\uff0c\u4e0d\u8981\u751f\u6210\u5546\u54c1\u540d\u3001\u89c4\u683c\u3001\u5355\u4f4d\u3001\u4ef7\u683c\u6216\u5546\u54c1ID\u3002\u6570\u91cf\u4e0d\u660e\u786e\u65f6 quantity=null\u3002\u6bb5\u843d\u6807\u9898\u4e2d\u7684\u54c1\u724c\u3001\u6750\u8d28\u548c\u7cfb\u7edf\u9700\u8981\u539f\u6837\u4f20\u9012\u7ed9\u8be5\u6bb5\u6bcf\u4e2a\u5546\u54c1\u3002\u53ea\u8fd4\u56de JSON\u3002',
+      content: '\u4f60\u662f\u5efa\u6750\u9500\u552e\u7cfb\u7edf\u7684\u5f00\u5355\u6587\u672c\u89e3\u6790\u52a9\u624b\u3002\u4f60\u53ea\u8d1f\u8d23\u4ece\u4e00\u4e2a\u5206\u7c7b\u7a97\u53e3\u7684\u9500\u552e\u539f\u6587\u4e2d\u62c6\u51fa\u6bcf\u4e2a\u5546\u54c1\u53eb\u6cd5\u548c\u6570\u91cf\uff0c\u4e0d\u8981\u5339\u914d\u6216\u521b\u9020\u5546\u54c1\uff0c\u4e0d\u8981\u751f\u6210\u5546\u54c1\u540d\u3001\u89c4\u683c\u3001\u5355\u4f4d\u3001\u4ef7\u683c\u6216\u5546\u54c1ID\u3002\u6570\u91cf\u4e0d\u660e\u786e\u65f6 quantity=null\u3002\u53ea\u8fd4\u56de JSON\u3002',
     },
     {
       role: 'user',
       content: JSON.stringify({
-        task: '\u4ece orderText \u4e2d\u8bc6\u522b\u5546\u54c1\u53eb\u6cd5\u548c\u6570\u91cf\u3002',
+        task: '\u4ece\u5f53\u524d\u5206\u7c7b\u7a97\u53e3\u7684 orderText \u4e2d\u8bc6\u522b\u6240\u6709\u5546\u54c1\u53eb\u6cd5\u548c\u6570\u91cf\uff0c\u4e0d\u5f97\u8fd4\u56de\u7a7a items\u3002',
         outputSchema: {
           items: [
             {
-              groupId: '\u5fc5\u987b\u539f\u6837\u8fd4\u56de\u8be5\u5546\u54c1\u6240\u5c5e\u8f93\u5165\u5206\u7ec4\u7684 id',
               rawName: '\u9500\u552e\u539f\u6587\u4e2d\u7684\u5546\u54c1\u53eb\u6cd5',
               quantity: '\u6570\u5b57\uff0c\u65e0\u6cd5\u786e\u5b9a\u5219 null',
               brand: '\u6bb5\u843d\u660e\u786e\u6307\u5b9a\u7684\u54c1\u724c\uff0c\u6ca1\u6709\u5219\u7a7a\u5b57\u7b26\u4e32',
@@ -645,12 +644,31 @@ async function buildAiOrderDraft(db, groups) {
           '\u9634\u9633\u89d2\u5404\u4e00\u628a\u9700\u8981\u4fdd\u7559\u4e3a\u9634\u9633\u89d2\uff0c\u4e0d\u8981\u4e22\u5931',
           '\u5982\u679c\u5546\u54c1\u540d\u540e\u9762\u7d27\u8ddf\u6570\u5b57\u4e14\u6709\u5355\u4f4d\uff0c\u4f8b\u5982\u6469\u5229\u7f8e\u6d82\u77f3\u818f30\u888b\uff0c\u6570\u5b57\u662f\u6570\u91cf',
         ],
-        orderGroups: scopes.map((group) => ({ id: group.id, category: group.cat1, subcategory: group.cat2, orderText: group.content })),
+        category: scope.cat1,
+        subcategory: scope.cat2,
+        orderText: scope.content,
       }),
     },
   ];
   const text = await callDeepSeek(messages);
-  return validateAiDraft(db, parseJsonFromText(text), content, scopes);
+  const result = parseJsonFromText(text);
+  const parsedItems = Array.isArray(result.items) && result.items.length ? result.items : fallbackParseOrderText(scope.content);
+  return parsedItems.map((item) => ({ ...item, groupId: scope.id, system: item.system || scope.cat2 || scope.cat1 }));
+}
+
+async function buildAiOrderDraft(db, groups) {
+  const scopes = (Array.isArray(groups) ? groups : []).map((group, index) => ({
+    id: String(group.id || `group-${index + 1}`),
+    title: String(group.title || group.cat2 || group.cat1 || `\u5206\u7c7b ${index + 1}`),
+    cat1: String(group.cat1 || ''),
+    cat2: String(group.cat2 || ''),
+    content: String(group.content || '').slice(0, 1600),
+  })).filter((group) => group.cat1 && group.content.trim());
+  const parsedGroups = await Promise.all(scopes.map((scope) => parseAiOrderGroup(scope)));
+  const items = parsedGroups.reduce((all, groupItems) => all.concat(groupItems), []);
+  if (!items.length) throw new Error('\u672a\u80fd\u4ece\u6750\u6599\u6587\u672c\u4e2d\u89e3\u6790\u51fa\u5546\u54c1\uff0c\u8bf7\u68c0\u67e5\u8f93\u5165\u5185\u5bb9');
+  const content = scopes.map((scope) => scope.content).join('\n');
+  return validateAiDraft(db, { items }, content, scopes);
 }
 
 function recordAiLearning(db, pairs) {
@@ -963,3 +981,4 @@ if (require.main === module) {
 
 module.exports = server;
 module.exports.matchProductCandidates = matchProductCandidates;
+module.exports.fallbackParseOrderText = fallbackParseOrderText;
