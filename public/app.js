@@ -18,6 +18,7 @@ const state = {
   orderType: "sale",
   aiDraft: null,
   aiLoading: false,
+  aiError: "",
   aiText: "",
   aiGroups: [],
   aiActiveGroupId: "",
@@ -498,6 +499,7 @@ function signedOrderPrice(item, price) {
 function openAiOrderModal() {
   state.aiDraft = null;
   state.aiLoading = false;
+  state.aiError = "";
   state.aiText = "";
   state.aiGroups = [{ id: `ai-${Date.now()}`, cat1: "", cat2: "", content: "" }];
   state.aiActiveGroupId = state.aiGroups[0].id;
@@ -542,31 +544,46 @@ function updateAiGroupText(groupId, value) {
   const group = state.aiGroups.find((item) => item.id === groupId);
   if (group) group.content = value;
   state.aiDraft = null;
+  state.aiError = "";
 }
 
 async function analyzeAiOrder() {
   const validGroups = state.aiGroups.filter((group) => group.cat1 && group.content.trim());
   if (!validGroups.length || validGroups.length !== state.aiGroups.length) {
-    alert("每个材料窗口都需要选择一级分类并填写材料内容。");
+    state.aiError = "每个材料窗口都需要选择一级分类并填写材料内容。请逐个检查上方标签。";
+    render();
     return;
   }
   state.aiLoading = true;
+  state.aiError = "";
   render();
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), 55000);
   try {
     const response = await fetch("/api/ai/order-draft", {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ groups: validGroups, customerId: state.selectedCustomerId }),
+      signal: controller.signal,
     });
-    const data = await response.json();
+    const raw = await response.text();
+    let data;
+    try {
+      data = JSON.parse(raw);
+    } catch (error) {
+      throw new Error(response.ok ? "服务器返回内容异常" : `服务器请求失败（${response.status}）`);
+    }
     if (!response.ok) throw new Error(data.error || "AI 识别失败");
     state.aiDraft = data;
     state.aiLoading = false;
+    state.aiError = "";
     render();
   } catch (error) {
     state.aiLoading = false;
+    state.aiError = error.name === "AbortError" ? "识别等待超时，请稍后重试；材料较多时可以减少单次分类窗口数量。" : error.message;
     render();
-    alert(error.message);
+  } finally {
+    clearTimeout(timeoutId);
   }
 }
 
@@ -768,8 +785,9 @@ function aiOrderModal() {
           ${activeGroup ? `<section class="ai-group-panel"><div class="ai-group-filters"><div class="field"><label>一级分类 *</label><select class="select" onchange="setAiGroupCategory('${html(activeGroup.id)}',this.value)"><option value="">请选择一级分类</option>${cat1Options.map((cat1) => `<option value="${html(cat1)}" ${activeGroup.cat1 === cat1 ? "selected" : ""}>${html(cat1)}</option>`).join("")}</select></div><div class="field"><label>二级分类（选填）</label><select class="select" ${activeGroup.cat1 ? "" : "disabled"} onchange="setAiGroupSubcategory('${html(activeGroup.id)}',this.value)"><option value="">全部二级分类</option>${cat2Options.map((cat2) => `<option value="${html(cat2)}" ${activeGroup.cat2 === cat2 ? "selected" : ""}>${html(cat2)}</option>`).join("")}</select></div></div><div class="field"><label>该分类下的材料清单</label><textarea class="textarea ai-textarea" oninput="updateAiGroupText('${html(activeGroup.id)}',this.value)" placeholder="只填写属于当前分类的材料，例如：20管6根，20弯头30个...">${html(activeGroup.content)}</textarea></div><div class="hint">匹配范围：${activeGroup.cat1 ? html(activeGroup.cat1) : "尚未选择"}${activeGroup.cat2 ? ` / ${html(activeGroup.cat2)}` : activeGroup.cat1 ? " / 全部二级分类" : ""}。系统不会跨出这个范围推荐商品。</div></section>` : ""}
           <div class="ai-actions">
             <button class="btn primary" onclick="analyzeAiOrder()" ${state.aiLoading ? "disabled" : ""}>${state.aiLoading ? "识别中..." : "开始识别"}</button>
-            <span class="hint">唯一可靠商品自动匹配；不确定就留给你确认或进入未匹配。</span>
+            <span class="hint">${state.aiLoading ? "正在提交分类材料并等待AI解析，请不要关闭窗口。" : "唯一可靠商品自动匹配；不确定就留给你确认或进入未匹配。"}</span>
           </div>
+          ${state.aiError ? `<div class="ai-error">${html(state.aiError)}</div>` : ""}
           ${draft ? renderAiDraft(draft) : ""}
         </div>
         <div class="modal-foot">

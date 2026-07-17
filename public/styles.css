@@ -1205,6 +1205,17 @@ tbody tr:hover {
   margin-bottom: 16px;
 }
 
+.ai-error {
+  padding: 10px 12px;
+  margin: -6px 0 14px;
+  border: 1px solid #f1b8bd;
+  border-radius: 7px;
+  background: #fff4f5;
+  color: #b42332;
+  font-size: 13px;
+  line-height: 1.6;
+}
+
 .ai-result {
   display: grid;
   gap: 14px;

@@ -501,7 +501,7 @@ function callDeepSeek(messages) {
           authorization: `Bearer ${DEEPSEEK_API_KEY}`,
           "content-length": Buffer.byteLength(body),
         },
-        timeout: 30000,
+        timeout: 50000,
       },
       (res) => {
         let raw = "";
@@ -837,6 +837,7 @@ async function handleApi(req, res) {
       const draft = await buildAiOrderDraft(db, groups);
       return sendJson(res, 200, draft);
     } catch (error) {
+      console.error(`[AI order] ${new Date().toISOString()} ${error && error.stack ? error.stack : error}`);
       return sendError(res, 502, error.message || "AI 开单识别失败");
     }
   }
