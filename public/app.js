@@ -32,6 +32,8 @@ const state = {
   orderAddress: "",
   orderPhone: "",
   orderRemark: "",
+  editCustomerQuery: "",
+  editCustomerPickerOpen: false,
 };
 
 let inputRenderTimer = null;
@@ -183,8 +185,24 @@ function renderKeepingInput(inputId, selectionStart, selectionEnd) {
 
 function scheduleInputRender(key, value, inputId, selectionStart, selectionEnd) {
   state[key] = value;
+  const input = document.getElementById(inputId);
+  if (input?.dataset.composing === "true") return;
   clearTimeout(inputRenderTimer);
   inputRenderTimer = setTimeout(() => renderKeepingInput(inputId, selectionStart, selectionEnd), 180);
+}
+
+function bindTextCompositionGuards() {
+  if (window.__buildingSalesCompositionBound) return;
+  document.addEventListener("compositionstart", (event) => {
+    if (!event.target.matches("input, textarea")) return;
+    event.target.dataset.composing = "true";
+    clearTimeout(inputRenderTimer);
+  }, true);
+  document.addEventListener("compositionend", (event) => {
+    if (!event.target.matches("input, textarea")) return;
+    event.target.dataset.composing = "false";
+  }, true);
+  window.__buildingSalesCompositionBound = true;
 }
 
 function updatePageQuery(input) {
@@ -1138,6 +1156,8 @@ function svgIcon(type) {
     image: `<svg viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="16" rx="2"/><circle cx="9" cy="10" r="2"/><path d="m5 18 4.5-4.5 3 3 2.5-2.5 4 4"/></svg>`,
     copy: `<svg viewBox="0 0 24 24"><rect x="8" y="8" width="11" height="12" rx="2"/><path d="M16 8V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h2"/></svg>`,
     more: `<svg viewBox="0 0 24 24"><circle cx="5" cy="12" r="1.5"/><circle cx="12" cy="12" r="1.5"/><circle cx="19" cy="12" r="1.5"/></svg>`,
+    up: `<svg viewBox="0 0 24 24"><path d="m6 15 6-6 6 6"/></svg>`,
+    down: `<svg viewBox="0 0 24 24"><path d="m6 9 6 6 6-6"/></svg>`,
   };
   return icons[type] || icons.view;
 }
@@ -2238,7 +2258,7 @@ function ensurePageState() {
   if (!state.pages) state.pages = {};
 }
 
-function scheduleInputValue(input, key, inputId) {
+function scheduleInputValue(input, key, inputId = input.id) {
   const start = input.selectionStart || 0;
   const end = input.selectionEnd || start;
   scheduleInputRender(key, input.value, inputId, start, end);
@@ -2323,7 +2343,7 @@ function toggleNewProductCat2() {
 }
 
 function updateProductQuery(input) {
-  scheduleInputValue(input, "productQuery", "productSearchInput");
+  scheduleInputValue(input, "productQuery", input.id);
   resetPage("products");
   resetPage("createProducts");
 }
@@ -2692,6 +2712,7 @@ function openModal(type, id) {
   state.modal = { type, id };
   if (type === "editOrder") {
     const order = byId(orders, id);
+    const customer = byId(customers, order?.customerId);
     state.editOrderDraft = {
       orderId: id,
       customerId: order?.customerId || "",
@@ -2705,6 +2726,8 @@ function openModal(type, id) {
     state.editProductQuery = "";
     state.editProductCategory = "全部";
     state.editProductSubcategory = "全部";
+    state.editCustomerQuery = customer?.name || "";
+    state.editCustomerPickerOpen = false;
   }
   render();
 }
@@ -2713,7 +2736,66 @@ function closeModal() {
   state.modal = null;
   state.editOrderDraft = null;
   state.editProductPickerOpen = false;
+  state.editCustomerPickerOpen = false;
   render();
+}
+
+function matchingEditCustomers() {
+  const query = state.editCustomerQuery.trim().toLowerCase();
+  return visibleCustomers().filter((customer) => !query || [customer.name, customer.contact, customer.phone]
+    .some((value) => String(value || "").toLowerCase().includes(query))).slice(0, 20);
+}
+
+function renderEditCustomerResults() {
+  const matches = matchingEditCustomers();
+  return matches.length ? matches.map((customer) => `
+    <button type="button" class="edit-customer-option ${customer.id === state.editOrderDraft?.customerId ? "selected" : ""}" onmousedown="event.preventDefault()" onclick="selectEditOrderCustomer(${jsArg(customer.id)})">
+      <strong>${html(customer.name)}</strong><span>${html(customer.phone || "-")} · ${html(customer.address || "未填写地址")}</span>
+    </button>`).join("") : `<div class="empty">没有匹配的客户</div>`;
+}
+
+function refreshEditCustomerResults() {
+  const results = document.getElementById("editCustomerResults");
+  if (!results) return;
+  results.innerHTML = renderEditCustomerResults();
+  results.classList.toggle("hidden", !state.editCustomerPickerOpen);
+}
+
+function openEditCustomerPicker() {
+  state.editCustomerPickerOpen = true;
+  refreshEditCustomerResults();
+}
+
+function closeEditCustomerPicker() {
+  setTimeout(() => {
+    state.editCustomerPickerOpen = false;
+    document.getElementById("editCustomerResults")?.classList.add("hidden");
+  }, 120);
+}
+
+function updateEditCustomerSearch(input) {
+  state.editCustomerQuery = input.value;
+  state.editCustomerPickerOpen = true;
+  if (input.dataset.composing === "true") return;
+  clearTimeout(inputRenderTimer);
+  inputRenderTimer = setTimeout(refreshEditCustomerResults, 120);
+}
+
+function selectEditOrderCustomer(customerId) {
+  const customer = byId(visibleCustomers(), customerId);
+  if (!customer || !state.editOrderDraft) return;
+  state.editOrderDraft.customerId = customer.id;
+  state.editOrderDraft.phone = customer.phone || "";
+  state.editOrderDraft.address = customer.address || "";
+  state.editCustomerQuery = customer.name || "";
+  state.editCustomerPickerOpen = false;
+  const input = document.getElementById("editCustomerSearch");
+  const phone = document.getElementById("editOrderPhone");
+  const address = document.getElementById("editOrderAddress");
+  if (input) input.value = state.editCustomerQuery;
+  if (phone) phone.value = state.editOrderDraft.phone;
+  if (address) address.value = state.editOrderDraft.address;
+  document.getElementById("editCustomerResults")?.classList.add("hidden");
 }
 
 function editOrderModal(id) {
@@ -2721,6 +2803,7 @@ function editOrderModal(id) {
   if (!order) return "";
   if (!state.editOrderDraft || state.editOrderDraft.orderId !== id) {
     state.editOrderDraft = { orderId: id, customerId: order.customerId, date: order.date || "", phone: order.phone || byId(customers, order.customerId)?.phone || "", address: order.address || "", remark: order.remark || "", items: (order.items || []).map(orderLineSnapshot) };
+    state.editCustomerQuery = byId(customers, order.customerId)?.name || "";
   }
   const draft = state.editOrderDraft;
   const draftTotal = draft.items.reduce((sum, item) => sum + Number(item.quantity || 0) * Number(item.price || 0), 0);
@@ -2730,7 +2813,7 @@ function editOrderModal(id) {
         <div class="modal-head"><h3>编辑订单</h3><button class="icon-btn" onclick="closeModal()">×</button></div>
         <div class="modal-body">
           <div class="form-grid">
-            <div class="field"><label>客户</label><select id="editOrderCustomer" class="select" onchange="updateEditOrderMeta('customerId',this.value)">${customers.map((customer) => `<option value="${html(customer.id)}" ${customer.id === draft.customerId ? "selected" : ""}>${html(customer.name)}</option>`).join("")}</select></div>
+            <div class="field edit-customer-field"><label>客户</label><div class="edit-customer-combobox"><input id="editCustomerSearch" class="input" value="${html(state.editCustomerQuery)}" placeholder="输入客户名称、联系人或手机号" autocomplete="off" role="combobox" onfocus="openEditCustomerPicker();this.select()" onblur="closeEditCustomerPicker()" oninput="updateEditCustomerSearch(this)" /><div id="editCustomerResults" class="edit-customer-results hidden">${renderEditCustomerResults()}</div></div></div>
             <div class="field"><label>订单日期</label><input id="editOrderDate" class="input" value="${html(draft.date)}" oninput="updateEditOrderMeta('date',this.value)" /></div>
             <div class="field" style="grid-column:1/-1"><label>收货人手机号</label><input id="editOrderPhone" class="input" value="${html(draft.phone)}" oninput="updateEditOrderMeta('phone',this.value)" /></div>
             <div class="field" style="grid-column:1/-1"><label>订单地址</label><input id="editOrderAddress" class="input" value="${html(draft.address)}" oninput="updateEditOrderMeta('address',this.value)" /></div>
@@ -2741,6 +2824,10 @@ function editOrderModal(id) {
             ${draft.items.length ? draft.items.map((item, index) => `
               <div class="edit-order-line">
                 <div class="edit-order-product"><strong>${html(orderItemDetails(item).label)}</strong><span>单位：${html(item.unit || "-")}</span></div>
+                <div class="edit-order-move" aria-label="调整商品顺序">
+                  <button type="button" class="icon-btn" title="上移" aria-label="上移" ${index === 0 ? "disabled" : ""} onclick="moveEditOrderLine(${index},-1)">${svgIcon("up")}</button>
+                  <button type="button" class="icon-btn" title="下移" aria-label="下移" ${index === draft.items.length - 1 ? "disabled" : ""} onclick="moveEditOrderLine(${index},1)">${svgIcon("down")}</button>
+                </div>
                 <label><span>数量</span><input id="editOrderItemQty${index}" class="input" type="number" min="0.01" step="0.01" value="${Number(item.quantity || 0)}" oninput="updateEditOrderLine(${index},'quantity',this.value)" /></label>
                 <label><span>单价</span><input id="editOrderItemPrice${index}" class="input" type="number" step="0.01" value="${Number(item.price || 0)}" oninput="updateEditOrderLine(${index},'price',this.value)" /></label>
                 <div id="editOrderSubtotal${index}" class="edit-order-subtotal">${money(Number(item.quantity || 0) * Number(item.price || 0))}</div>
@@ -2792,7 +2879,7 @@ function renderEditProductPicker() {
   }).slice(0, 60);
   return `<section class="edit-product-picker">
     <div class="edit-product-filters">
-      <input id="editProductSearch" class="input" value="${html(state.editProductQuery)}" placeholder="搜索商品名称、规格、品牌" oninput="updateEditProductFilter('query',this.value)" />
+      <input id="editProductSearch" class="input" value="${html(state.editProductQuery)}" placeholder="搜索商品名称、规格、品牌" oninput="updateEditProductFilter('query',this.value,this)" />
       <select class="select" onchange="updateEditProductFilter('category',this.value)">${optionList(PRODUCT_CATEGORIES, category)}</select>
       <select class="select" onchange="updateEditProductFilter('subcategory',this.value)">${optionList(subcategories, state.editProductSubcategory)}</select>
     </div>
@@ -2804,10 +2891,11 @@ function renderEditProductPicker() {
   </section>`;
 }
 
-function updateEditProductFilter(type, value) {
+function updateEditProductFilter(type, value, input = null) {
   if (type === "query") state.editProductQuery = value;
   if (type === "category") { state.editProductCategory = value; state.editProductSubcategory = "全部"; }
   if (type === "subcategory") state.editProductSubcategory = value;
+  if (input?.dataset.composing === "true") return;
   clearTimeout(inputRenderTimer);
   inputRenderTimer = setTimeout(() => refreshEditProductPicker(type === "query"), type === "query" ? 180 : 0);
 }
@@ -2840,6 +2928,21 @@ function removeEditOrderLine(index) {
   render();
 }
 
+function moveEditOrderLine(index, direction) {
+  if (!state.editOrderDraft) return;
+  const target = index + Number(direction || 0);
+  if (target < 0 || target >= state.editOrderDraft.items.length) return;
+  const modalBody = document.querySelector(".edit-order-modal .modal-body");
+  const scrollTop = modalBody?.scrollTop || 0;
+  const [item] = state.editOrderDraft.items.splice(index, 1);
+  state.editOrderDraft.items.splice(target, 0, item);
+  render();
+  requestAnimationFrame(() => {
+    const nextBody = document.querySelector(".edit-order-modal .modal-body");
+    if (nextBody) nextBody.scrollTop = scrollTop;
+  });
+}
+
 async function saveOrderEdits(id) {
   const items = (state.editOrderDraft?.items || []).map((item, index) => ({
     productId: item.productId || "",
@@ -2851,7 +2954,7 @@ async function saveOrderEdits(id) {
   })).filter((item) => item.name && item.quantity > 0);
   const amount = items.reduce((sum, item) => sum + item.quantity * item.price, 0);
   const payload = {
-    customerId: document.getElementById("editOrderCustomer")?.value,
+    customerId: state.editOrderDraft?.customerId,
     date: document.getElementById("editOrderDate")?.value.trim(),
     phone: document.getElementById("editOrderPhone")?.value.trim(),
     address: document.getElementById("editOrderAddress")?.value.trim(),
@@ -3259,6 +3362,11 @@ Object.assign(window, {
   updateOrderDraftField,
   updateEditOrderMeta,
   updateEditOrderLine,
+  moveEditOrderLine,
+  openEditCustomerPicker,
+  closeEditCustomerPicker,
+  updateEditCustomerSearch,
+  selectEditOrderCustomer,
   toggleEditProductPicker,
   updateEditProductFilter,
   refreshEditProductPicker,
@@ -3277,4 +3385,5 @@ Object.assign(window, {
 });
 
 bindGlobalClickHandlers();
+bindTextCompositionGuards();
 boot();
