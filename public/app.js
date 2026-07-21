@@ -1998,21 +1998,33 @@ function renderLogin() {
         </div>
       </section>
       <section class="login-visual">
-        <div class="visual-board material-hero" aria-hidden="true">
-          <div class="hero-sun"></div>
-          <div class="hero-card hero-card-a"></div>
-          <div class="hero-card hero-card-b"></div>
-          <div class="hero-truck">
-            <div class="truck-body"></div>
-            <div class="truck-cab"></div>
-            <div class="truck-wheel wheel-left"></div>
-            <div class="truck-wheel wheel-right"></div>
+        <div class="visual-board ai-login-hero" aria-hidden="true">
+          <div class="tech-hero-copy">
+            <span>CAIDAJIA INTELLIGENT ORDERING</span>
+            <h2>AI 材料订单引擎</h2>
+            <p>识别需求 · 锁定商品 · 生成订单</p>
           </div>
-          <div class="hero-stack stack-wood"></div>
-          <div class="hero-stack stack-tile"></div>
-          <div class="hero-worker"></div>
-          <div class="hero-title">材达家</div>
-          <div class="hero-subtitle">建材开单 · 客户跟进 · 订单管理</div>
+          <div class="tech-grid-floor"></div>
+          <div class="tech-scan-line"></div>
+          <div class="tech-orbit tech-orbit-outer"></div>
+          <div class="tech-orbit tech-orbit-inner"></div>
+          <div class="tech-ai-core">
+            <div class="tech-core-face tech-core-face-back"></div>
+            <div class="tech-core-face tech-core-face-front"></div>
+            <div class="tech-core-label"><strong>AI</strong><span>智能开单引擎</span></div>
+          </div>
+          <div class="tech-category tech-category-water"><strong>水电材料</strong><span>规格识别 · 品牌匹配</span></div>
+          <div class="tech-category tech-category-wood"><strong>木工材料</strong><span>名称纠错 · 系列锁定</span></div>
+          <div class="tech-category tech-category-tile"><strong>瓦工材料</strong><span>数量解析 · 单位校验</span></div>
+          <div class="tech-category tech-category-extra"><strong>辅助商品</strong><span>真实商品 · 实时价格</span></div>
+          <i class="tech-beam tech-beam-water"></i>
+          <i class="tech-beam tech-beam-wood"></i>
+          <i class="tech-beam tech-beam-tile"></i>
+          <i class="tech-beam tech-beam-extra"></i>
+          <i class="tech-particle tech-particle-a"></i>
+          <i class="tech-particle tech-particle-b"></i>
+          <i class="tech-particle tech-particle-c"></i>
+          <div class="tech-confidence">本次订单匹配置信度 <strong>96%</strong></div>
         </div>
       </section>
     </div>
