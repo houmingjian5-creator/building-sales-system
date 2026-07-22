@@ -4,6 +4,15 @@ const path = require('path');
 const server = require('../server');
 
 const db = JSON.parse(fs.readFileSync(path.join(__dirname, '..', 'data', 'db.json'), 'utf8'));
+const appSource = fs.readFileSync(path.join(__dirname, '..', 'public', 'app.js'), 'utf8');
+
+const finalProductModal = appSource.slice(appSource.lastIndexOf('function productModal'), appSource.lastIndexOf('async function saveProduct'));
+assert(finalProductModal.includes('onclick="saveProduct(${jsArg(id || "")})"'), '商品保存按钮必须安全传递商品 ID');
+assert(!finalProductModal.includes('onclick="saveProduct(${JSON.stringify'), '商品 ID 的引号不能破坏 onclick 属性');
+
+const finalEditOrderModal = appSource.slice(appSource.lastIndexOf('function editOrderModal'), appSource.indexOf('function updateEditOrderMeta', appSource.lastIndexOf('function editOrderModal')));
+assert(finalEditOrderModal.includes('edit-order-drag-handle'), '编辑订单商品行应提供拖拽手柄');
+assert(!finalEditOrderModal.includes('title="上移"'), '编辑订单不再显示上下移动按钮');
 
 const orangePipeMatches = server.matchProductCandidates(
   db.products,

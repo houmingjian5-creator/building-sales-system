@@ -1245,6 +1245,7 @@ function svgIcon(type) {
     image: `<svg viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="16" rx="2"/><circle cx="9" cy="10" r="2"/><path d="m5 18 4.5-4.5 3 3 2.5-2.5 4 4"/></svg>`,
     copy: `<svg viewBox="0 0 24 24"><rect x="8" y="8" width="11" height="12" rx="2"/><path d="M16 8V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h2"/></svg>`,
     more: `<svg viewBox="0 0 24 24"><circle cx="5" cy="12" r="1.5"/><circle cx="12" cy="12" r="1.5"/><circle cx="19" cy="12" r="1.5"/></svg>`,
+    grip: `<svg viewBox="0 0 24 24"><circle cx="9" cy="5" r="1.4"/><circle cx="15" cy="5" r="1.4"/><circle cx="9" cy="12" r="1.4"/><circle cx="15" cy="12" r="1.4"/><circle cx="9" cy="19" r="1.4"/><circle cx="15" cy="19" r="1.4"/></svg>`,
     up: `<svg viewBox="0 0 24 24"><path d="m6 15 6-6 6 6"/></svg>`,
     down: `<svg viewBox="0 0 24 24"><path d="m6 9 6 6 6-6"/></svg>`,
   };
@@ -1772,7 +1773,7 @@ function productModal(id) {
             </div>
           </details>
         </div>
-        <div class="modal-foot"><button class="btn" onclick="closeModal()">取消</button><button class="btn primary" onclick="saveProduct(${JSON.stringify(id || "")})">保存商品</button></div>
+        <div class="modal-foot"><button class="btn" onclick="closeModal()">取消</button><button class="btn primary" onclick="saveProduct(${jsArg(id || "")})">保存商品</button></div>
       </div>
     </div>
   `;
@@ -2352,7 +2353,7 @@ function renderOrders() {
 
 const ORDER_STATUS_FILTERS = ["全部", "待确认", "已确认", "已发货", "已完成", "已取消"];
 const ORDER_STATUS_CHOICES = ["待确认", "已确认", "已发货", "已完成", "已取消"];
-const PAY_STATUS_FILTERS = ["全部", "未付款", "已付款"];
+const PAY_STATUS_FILTERS = ["全部", "待回款", "已回款"];
 const EDIT_PAGE_SIZES = { products: 50, createProducts: 24, orders: 20 };
 
 function ensurePageState() {
@@ -2402,7 +2403,27 @@ function paginationControls(key, page, totalPages, total) {
 }
 
 function normalizeClientPayStatus(value) {
-  return value === "已付款" || value === "已回款" ? "已付款" : "未付款";
+  return value === "已付款" || value === "已回款" ? "已回款" : "待回款";
+}
+
+function orderStatusTone(status) {
+  if (status === "已确认") return "status-confirmed";
+  if (status === "已发货") return "status-shipped";
+  if (status === "已完成") return "status-completed";
+  if (status === "已取消" || status === "已退货") return "status-canceled";
+  return "status-pending";
+}
+
+function paymentStatusTone(status) {
+  return normalizeClientPayStatus(status) === "已回款" ? "payment-paid" : "payment-pending";
+}
+
+function orderStatusOptions(selected) {
+  return ORDER_STATUS_CHOICES.map((value) => `<option class="${orderStatusTone(value)}" value="${html(value)}" ${value === selected ? "selected" : ""}>${html(value)}</option>`).join("");
+}
+
+function paymentStatusOptions(selected) {
+  return ["待回款", "已回款"].map((value) => `<option class="${paymentStatusTone(value)}" value="${value}" ${value === selected ? "selected" : ""}>${value}</option>`).join("");
 }
 
 function optionList(values, selected) {
@@ -2552,7 +2573,7 @@ function productModal(id) {
             </div>
           </details>
         </div>
-        <div class="modal-foot"><button class="btn" onclick="closeModal()">取消</button><button class="btn primary" onclick="saveProduct(${JSON.stringify(id || "")})">保存商品</button></div>
+        <div class="modal-foot"><button class="btn" onclick="closeModal()">取消</button><button class="btn primary" onclick="saveProduct(${jsArg(id || "")})">保存商品</button></div>
       </div>
     </div>
   `;
@@ -2931,12 +2952,9 @@ function editOrderModal(id) {
           <div class="edit-order-items">
             <div class="edit-order-items-head"><strong>订单商品</strong><span>${draft.items.length} 项</span></div>
             ${draft.items.length ? draft.items.map((item, index) => `
-              <div class="edit-order-line">
+              <div class="edit-order-line" data-edit-order-line data-edit-order-index="${index}">
+                <button type="button" class="edit-order-drag-handle" title="按住拖动调整顺序" aria-label="拖动商品调整顺序" onpointerdown="startEditOrderDrag(event)" onkeydown="handleEditOrderDragKey(event,${index})">${svgIcon("grip")}</button>
                 <div class="edit-order-product"><strong>${html(orderItemDetails(item).label)}</strong><span>单位：${html(item.unit || "-")}</span></div>
-                <div class="edit-order-move" aria-label="调整商品顺序">
-                  <button type="button" class="icon-btn" title="上移" aria-label="上移" ${index === 0 ? "disabled" : ""} onclick="moveEditOrderLine(${index},-1)">${svgIcon("up")}</button>
-                  <button type="button" class="icon-btn" title="下移" aria-label="下移" ${index === draft.items.length - 1 ? "disabled" : ""} onclick="moveEditOrderLine(${index},1)">${svgIcon("down")}</button>
-                </div>
                 <label><span>数量</span><input id="editOrderItemQty${index}" class="input" type="number" min="0.01" step="0.01" value="${Number(item.quantity || 0)}" oninput="updateEditOrderLine(${index},'quantity',this.value)" /></label>
                 <label><span>单价</span><input id="editOrderItemPrice${index}" class="input" type="number" step="0.01" value="${Number(item.price || 0)}" oninput="updateEditOrderLine(${index},'price',this.value)" /></label>
                 <div id="editOrderSubtotal${index}" class="edit-order-subtotal">${money(Number(item.quantity || 0) * Number(item.price || 0))}</div>
@@ -3049,6 +3067,62 @@ function moveEditOrderLine(index, direction) {
   requestAnimationFrame(() => {
     const nextBody = document.querySelector(".edit-order-modal .modal-body");
     if (nextBody) nextBody.scrollTop = scrollTop;
+  });
+}
+
+function handleEditOrderDragKey(event, index) {
+  if (event.key !== "ArrowUp" && event.key !== "ArrowDown") return;
+  event.preventDefault();
+  moveEditOrderLine(index, event.key === "ArrowUp" ? -1 : 1);
+}
+
+function startEditOrderDrag(event) {
+  if (!state.editOrderDraft || event.button > 0) return;
+  const line = event.currentTarget.closest("[data-edit-order-line]");
+  const list = line?.parentElement;
+  const modalBody = document.querySelector(".edit-order-modal .modal-body");
+  if (!line || !list || !modalBody) return;
+  event.preventDefault();
+  state.editOrderDrag = { line, list, modalBody, pointerId: event.pointerId };
+  line.classList.add("is-dragging");
+  document.body.classList.add("is-edit-order-dragging");
+  document.addEventListener("pointermove", moveEditOrderDrag);
+  document.addEventListener("pointerup", finishEditOrderDrag, { once: true });
+  document.addEventListener("pointercancel", finishEditOrderDrag, { once: true });
+}
+
+function moveEditOrderDrag(event) {
+  const drag = state.editOrderDrag;
+  if (!drag || event.pointerId !== drag.pointerId) return;
+  event.preventDefault();
+  const bodyRect = drag.modalBody.getBoundingClientRect();
+  if (event.clientY < bodyRect.top + 64) drag.modalBody.scrollTop -= 18;
+  if (event.clientY > bodyRect.bottom - 64) drag.modalBody.scrollTop += 18;
+  const target = document.elementFromPoint(event.clientX, event.clientY)?.closest("[data-edit-order-line]");
+  if (!target || target.parentElement !== drag.list || target === drag.line) return;
+  const lines = [...drag.list.querySelectorAll("[data-edit-order-line]")];
+  const from = lines.indexOf(drag.line);
+  const to = lines.indexOf(target);
+  if (from < 0 || to < 0 || from === to) return;
+  const [item] = state.editOrderDraft.items.splice(from, 1);
+  state.editOrderDraft.items.splice(to, 0, item);
+  if (to > from) drag.list.insertBefore(drag.line, target.nextSibling);
+  else drag.list.insertBefore(drag.line, target);
+}
+
+function finishEditOrderDrag(event) {
+  const drag = state.editOrderDrag;
+  if (!drag || (event.pointerId !== undefined && event.pointerId !== drag.pointerId)) return;
+  const finalScrollTop = drag.modalBody.scrollTop;
+  document.removeEventListener("pointermove", moveEditOrderDrag);
+  document.removeEventListener("pointerup", finishEditOrderDrag);
+  document.removeEventListener("pointercancel", finishEditOrderDrag);
+  document.body.classList.remove("is-edit-order-dragging");
+  state.editOrderDrag = null;
+  render();
+  requestAnimationFrame(() => {
+    const modalBody = document.querySelector(".edit-order-modal .modal-body");
+    if (modalBody) modalBody.scrollTop = finalScrollTop;
   });
 }
 
@@ -3285,10 +3359,7 @@ function navButton(route, label) {
 }
 
 function orderBadgeClass(status) {
-  if (status === "已确认") return "success";
-  if (status === "已发货" || status === "已完成") return "info";
-  if (status === "已取消") return "danger";
-  return "warning";
+  return orderStatusTone(status);
 }
 
 function orderActionButton(title, type, action, orderId) {
@@ -3397,7 +3468,7 @@ function orderCard(order) {
           <div class="order-card-title-row">
             <h3>${html(order.no)}</h3>
             <span class="badge ${orderBadgeClass(status)}">${html(status)}</span>
-            <span class="badge ${payStatus === "已付款" ? "success" : "info"}">${html(payStatus)}</span>
+            <span class="badge ${paymentStatusTone(payStatus)}">${html(payStatus)}</span>
           </div>
           <strong class="order-amount">${money(order.amount)}</strong>
         </div>
@@ -3411,8 +3482,8 @@ function orderCard(order) {
         <div class="order-card-bottom">
           <div class="order-card-address">地址：${html(address)}</div>
           <div class="order-status-controls compact">
-            <select class="select inline-select" title="订单状态" onchange="updateOrderStatus(${jsArg(order.id)}, this.value)">${optionList(ORDER_STATUS_CHOICES, status)}</select>
-            <select class="select inline-select" title="付款状态" onchange="updateOrderPayment(${jsArg(order.id)}, this.value)">${optionList(["未付款", "已付款"], payStatus)}</select>
+            <select class="select inline-select status-select ${orderStatusTone(status)}" title="订单状态" onchange="updateOrderStatus(${jsArg(order.id)}, this.value)">${orderStatusOptions(status)}</select>
+            <select class="select inline-select status-select ${paymentStatusTone(payStatus)}" title="回款状态" onchange="updateOrderPayment(${jsArg(order.id)}, this.value)">${paymentStatusOptions(payStatus)}</select>
           </div>
           <div class="order-actions">
             ${orderActionButton("查看", "view", "view", order.id)}
@@ -3472,6 +3543,8 @@ Object.assign(window, {
   updateEditOrderMeta,
   updateEditOrderLine,
   moveEditOrderLine,
+  handleEditOrderDragKey,
+  startEditOrderDrag,
   openEditCustomerPicker,
   closeEditCustomerPicker,
   updateEditCustomerSearch,
@@ -3480,6 +3553,7 @@ Object.assign(window, {
   updateEditProductFilter,
   refreshEditProductPicker,
   addEditOrderProduct,
+  saveProduct,
   openModal,
   closeModal,
   updateOrderStatus,
