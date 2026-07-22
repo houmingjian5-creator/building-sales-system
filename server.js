@@ -256,8 +256,20 @@ function normalizeReturnItems(items) {
   }));
 }
 
-function candidateFor(product) {
-  return { productId: product.id, name: product.name, spec: product.spec, unit: product.unit, price: product.price, cat1: product.cat1 || '', cat2: product.cat2 || '' };
+function candidateFor(product, ranking = {}) {
+  return {
+    productId: product.id,
+    name: product.name,
+    spec: product.spec,
+    unit: product.unit,
+    price: product.price,
+    cat1: product.cat1 || '',
+    cat2: product.cat2 || '',
+    recommendation: ranking.recommendation || '',
+    customerOrderCount: Number(ranking.customerOrderCount || 0),
+    globalOrderCount: Number(ranking.globalOrderCount || 0),
+    globalQuantity: Number(ranking.globalQuantity || 0),
+  };
 }
 
 function isGenericBrandTerm(term) {
@@ -384,6 +396,112 @@ function learningScore(db, rawName, productId) {
   return Math.min(90, Number(learning[key][productId] || 0) * 18);
 }
 
+const AI_HISTORY_STATUSES = new Set(['已确认', '已发货', '已完成']);
+
+function isAiHistoryOrder(order) {
+  return order && !order.deletedAt && order.type !== 'return' && !String(order.no || '').startsWith('TH') && AI_HISTORY_STATUSES.has(order.status);
+}
+
+function orderHistoryTime(order, index) {
+  const parsed = Date.parse(String(order.date || '').replace(/\//g, '-'));
+  return Number.isFinite(parsed) ? parsed : -index;
+}
+
+function buildAiRecommendationContext(db, customerId = '') {
+  const orders = (Array.isArray(db.orders) ? db.orders : [])
+    .map((order, index) => ({ order, index, time: orderHistoryTime(order, index) }))
+    .filter((entry) => isAiHistoryOrder(entry.order))
+    .sort((a, b) => b.time - a.time || a.index - b.index);
+  const productStats = new Map();
+  const customerOrders = [];
+
+  orders.forEach((entry) => {
+    const globalSeen = new Set();
+    const customerSeen = new Set();
+    const isCustomerOrder = customerId && entry.order.customerId === customerId;
+    const items = (Array.isArray(entry.order.items) ? entry.order.items : []).filter((item) => item && item.productId);
+    items.forEach((item) => {
+      const productId = String(item.productId);
+      if (!productStats.has(productId)) {
+        productStats.set(productId, { globalOrderCount: 0, globalQuantity: 0, customerOrderCount: 0, customerQuantity: 0, customerLatestTime: 0 });
+      }
+      const stat = productStats.get(productId);
+      stat.globalQuantity += Math.max(0, Number(item.quantity || 0));
+      if (!globalSeen.has(productId)) {
+        globalSeen.add(productId);
+        stat.globalOrderCount += 1;
+      }
+      if (isCustomerOrder) {
+        stat.customerQuantity += Math.max(0, Number(item.quantity || 0));
+        stat.customerLatestTime = Math.max(stat.customerLatestTime, entry.time);
+        if (!customerSeen.has(productId)) {
+          customerSeen.add(productId);
+          stat.customerOrderCount += 1;
+        }
+      }
+    });
+    if (isCustomerOrder && items.length) customerOrders.push({ ...entry, items });
+  });
+
+  return { customerId, productStats, customerOrders };
+}
+
+function candidateHistoryStats(context, productIds) {
+  const ids = new Set(productIds);
+  const recentOrders = context && context.customerId
+    ? context.customerOrders.filter((entry) => entry.items.some((item) => ids.has(String(item.productId)))).slice(0, 3)
+    : [];
+  const recentCounts = new Map();
+  const latestRanks = new Map();
+  recentOrders.forEach((entry, rank) => {
+    const seen = new Set();
+    entry.items.forEach((item) => {
+      const productId = String(item.productId);
+      if (!ids.has(productId) || seen.has(productId)) return;
+      seen.add(productId);
+      recentCounts.set(productId, Number(recentCounts.get(productId) || 0) + 1);
+      if (!latestRanks.has(productId)) latestRanks.set(productId, rank);
+    });
+  });
+  const ranked = productIds
+    .map((productId) => ({ productId, count: Number(recentCounts.get(productId) || 0) }))
+    .sort((a, b) => b.count - a.count);
+  const stableProductId = ranked[0] && ranked[0].count >= 2 && (!ranked[1] || ranked[0].count > ranked[1].count) ? ranked[0].productId : '';
+  return { recentCounts, latestRanks, stableProductId };
+}
+
+function candidateRecommendation(stat) {
+  if (stat.stableHistory) return `客户近3次同类购买中有${stat.customerRecent3Count}次选择此商品`;
+  if (stat.customerRecent3Count) return `客户最近购买过 · 累计${stat.customerOrderCount}单`;
+  if (stat.customerOrderCount) return `客户历史购买${stat.customerOrderCount}单`;
+  if (stat.globalOrderCount) return `全站有效订单${stat.globalOrderCount}单 · 累计${Number(stat.globalQuantity.toFixed(2))}${stat.unit || ''}`;
+  return '按商品名称、规格和分类匹配';
+}
+
+function manualCandidateSuggestions(products, scope, rawName, recommendationContext) {
+  const kind = requestedKind(rawName);
+  if (!kind) return [];
+  return products
+    .filter((product) => product.status !== '停用')
+    .filter((product) => !scope.cat1 || product.cat1 === scope.cat1)
+    .filter((product) => !scope.cat2 || product.cat2 === scope.cat2)
+    .filter((product) => productKind(product) === kind)
+    .map((product) => {
+      const stat = recommendationContext.productStats.get(product.id) || {};
+      return {
+        product,
+        globalOrderCount: Number(stat.globalOrderCount || 0),
+        globalQuantity: Number(stat.globalQuantity || 0),
+        recommendation: stat.globalOrderCount
+          ? `同类热销 · 全站有效订单${stat.globalOrderCount}单`
+          : '同类型商品，可手动确认',
+      };
+    })
+    .sort((a, b) => b.globalOrderCount - a.globalOrderCount || b.globalQuantity - a.globalQuantity || String(a.product.name || '').localeCompare(String(b.product.name || ''), 'zh-CN'))
+    .slice(0, 5)
+    .map((item) => candidateFor(item.product, item));
+}
+
 function hasStandaloneNumber(product, token) {
   const text = [product.name, product.spec].join(' ');
   const escaped = String(token).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
@@ -407,6 +525,7 @@ function matchProductCandidates(products, rawName, options = {}) {
     .filter((product) => product.status !== '\u505c\u7528')
     .filter((product) => !options.cat1 || product.cat1 === options.cat1)
     .filter((product) => !options.cat2 || product.cat2 === options.cat2)
+    .filter((product) => !explicitBrandTerms.length || productHasBrandTerm(product, explicitBrandTerms))
     .filter((product) => !kind || productKind(product) === kind)
     .filter((product) => !specNumbers.length || specNumbers.every((token) => hasStandaloneNumber(product, token)))
     .map((product) => {
@@ -461,11 +580,39 @@ function matchProductCandidates(products, rawName, options = {}) {
       if (needle.includes('红色') && name.includes('保护膜') && !name.includes('绿色')) score += 30;
       if (kind === 'screw' && needle.includes('春雨') && searchable.includes('春雨')) score += 90;
       if (kind === 'screw' && needle.includes('黑') && searchable.includes('黑')) score += 70;
-      score += learningScore(options.db, rawName, product.id);
-      return { product, score };
+      const textScore = score;
+      const learnedScore = learningScore(options.db, rawName, product.id);
+      score += learnedScore;
+      return { product, score, textScore, learnedScore };
     })
-    .filter((item) => item.score >= 110)
-    .sort((a, b) => b.score - a.score || (String(a.product.name || '') + String(a.product.spec || '')).localeCompare(String(b.product.name || '') + String(b.product.spec || ''), 'zh-CN'));
+    .filter((item) => item.score >= 110);
+  const history = candidateHistoryStats(options.recommendationContext, scored.map((item) => item.product.id));
+  scored.forEach((item) => {
+    const saved = options.recommendationContext && options.recommendationContext.productStats.get(item.product.id);
+    const stat = {
+      customerRecent3Count: Number(history.recentCounts.get(item.product.id) || 0),
+      customerLatestRank: history.latestRanks.has(item.product.id) ? history.latestRanks.get(item.product.id) : 9999,
+      customerOrderCount: Number((saved && saved.customerOrderCount) || 0),
+      customerQuantity: Number((saved && saved.customerQuantity) || 0),
+      globalOrderCount: Number((saved && saved.globalOrderCount) || 0),
+      globalQuantity: Number((saved && saved.globalQuantity) || 0),
+      stableHistory: history.stableProductId === item.product.id,
+      unit: item.product.unit || '',
+    };
+    Object.assign(item, stat, { recommendation: candidateRecommendation(stat) });
+  });
+  const hasExplicitConstraints = explicitBrandTerms.length > 0 || specNumbers.length > 0;
+  scored.sort((a, b) => {
+    if (hasExplicitConstraints && b.textScore !== a.textScore) return b.textScore - a.textScore;
+    return b.customerRecent3Count - a.customerRecent3Count
+      || b.customerOrderCount - a.customerOrderCount
+      || a.customerLatestRank - b.customerLatestRank
+      || b.globalOrderCount - a.globalOrderCount
+      || b.globalQuantity - a.globalQuantity
+      || b.textScore - a.textScore
+      || b.learnedScore - a.learnedScore
+      || (String(a.product.name || '') + String(a.product.spec || '')).localeCompare(String(b.product.name || '') + String(b.product.spec || ''), 'zh-CN');
+  });
   return scored.slice(0, 8);
 }
 
@@ -548,15 +695,16 @@ function expandAiLines(lines) {
   return expanded;
 }
 
-function validateAiDraft(db, aiResult, content = '', scopes = []) {
+function validateAiDraft(db, aiResult, content = '', scopes = [], customerId = '') {
   const lines = Array.isArray(aiResult.items) ? aiResult.items : [];
   const matched = [];
   const needsQuantity = [];
   const uncertain = [];
   const unmatched = [];
   const contextBrands = contextBrandTerms(db.products, content);
+  const recommendationContext = buildAiRecommendationContext(db, customerId);
 
-  expandAiLines(lines).forEach((line) => {
+  expandAiLines(lines).forEach((line, lineIndex) => {
     const rawName = String(line.rawName || line.name || '').trim();
     const scope = scopes.find((item) => item.id === line.groupId) || (scopes.length === 1 ? scopes[0] : null);
     if (!scope) {
@@ -573,23 +721,44 @@ function validateAiDraft(db, aiResult, content = '', scopes = []) {
       cat1: scope.cat1 || '',
       cat2: scope.cat2 || '',
       contextBrandTerms: lineContextBrands.length ? lineContextBrands : contextBrands,
+      recommendationContext,
     });
     const uniqueHardMatch = matches.length === 1 && requestedKind(rawName) && requestedSpecNumbers(rawName).length;
-    const product = uniqueHardMatch || (matches[0] && matches[0].score >= 260 && (!matches[1] || matches[0].score - matches[1].score >= 100)) ? matches[0].product : null;
-    const candidateProducts = matches.map((item) => candidateFor(item.product));
-    const groupMeta = { groupId: scope.id || '', groupTitle: scope.title || scope.cat2 || scope.cat1 || '未分组' };
+    const highTextMatch = matches[0] && matches[0].textScore >= 260 && (!matches[1] || matches[0].textScore - matches[1].textScore >= 100);
+    const stableHistoryMatch = requestedKind(rawName) && matches[0] && matches[0].stableHistory;
+    const selectedMatch = uniqueHardMatch || highTextMatch || stableHistoryMatch ? matches[0] : null;
+    const product = selectedMatch ? selectedMatch.product : null;
+    const candidateProducts = matches.map((item) => candidateFor(item.product, item));
+    const groupMeta = { groupId: scope.id || '', groupTitle: scope.title || scope.cat2 || scope.cat1 || '未分组', lineKey: `${scope.id || 'group'}-${lineIndex}` };
 
     if (!product) {
       if (candidateProducts.length) {
         uncertain.push({ ...groupMeta, rawName, quantity: Number.isFinite(quantity) && quantity > 0 ? quantity : null, candidates: candidateProducts });
         return;
       }
-      unmatched.push({ ...groupMeta, rawName, note: line.note || '\u6307\u5b9a\u5206\u7c7b\u4e2d\u672a\u627e\u5230\u7c7b\u578b\u548c\u89c4\u683c\u90fd\u7b26\u5408\u7684\u5546\u54c1' });
+      unmatched.push({
+        ...groupMeta,
+        rawName,
+        cat1: scope.cat1 || '',
+        cat2: scope.cat2 || '',
+        note: line.note || '\u6307\u5b9a\u5206\u7c7b\u4e2d\u672a\u627e\u5230\u7c7b\u578b\u548c\u89c4\u683c\u90fd\u7b26\u5408\u7684\u5546\u54c1',
+        suggestions: manualCandidateSuggestions(db.products, scope, rawName, recommendationContext),
+      });
       return;
     }
 
     if (!Number.isFinite(quantity) || quantity <= 0) {
-      needsQuantity.push({ ...groupMeta, rawName, productId: product.id, name: product.name, spec: product.spec, unit: product.unit, price: product.price });
+      needsQuantity.push({
+        ...groupMeta,
+        rawName,
+        productId: product.id,
+        name: product.name,
+        spec: product.spec,
+        unit: product.unit,
+        price: product.price,
+        matchSource: selectedMatch && selectedMatch.stableHistory && !uniqueHardMatch && !highTextMatch ? 'customer-history' : 'text',
+        recommendation: selectedMatch ? selectedMatch.recommendation : '',
+      });
       return;
     }
 
@@ -602,6 +771,8 @@ function validateAiDraft(db, aiResult, content = '', scopes = []) {
       unit: product.unit,
       price: product.price,
       quantity,
+      matchSource: selectedMatch && selectedMatch.stableHistory && !uniqueHardMatch && !highTextMatch ? 'customer-history' : 'text',
+      recommendation: selectedMatch ? selectedMatch.recommendation : '',
     });
   });
 
@@ -657,7 +828,7 @@ async function parseAiOrderGroup(scope) {
   return parsedItems.map((item) => ({ ...item, groupId: scope.id, system: item.system || scope.cat2 || scope.cat1 }));
 }
 
-async function buildAiOrderDraft(db, groups) {
+async function buildAiOrderDraft(db, groups, customerId = '') {
   const scopes = (Array.isArray(groups) ? groups : []).map((group, index) => ({
     id: String(group.id || `group-${index + 1}`),
     title: String(group.title || group.cat2 || group.cat1 || `\u5206\u7c7b ${index + 1}`),
@@ -669,21 +840,47 @@ async function buildAiOrderDraft(db, groups) {
   const items = parsedGroups.reduce((all, groupItems) => all.concat(groupItems), []);
   if (!items.length) throw new Error('\u672a\u80fd\u4ece\u6750\u6599\u6587\u672c\u4e2d\u89e3\u6790\u51fa\u5546\u54c1\uff0c\u8bf7\u68c0\u67e5\u8f93\u5165\u5185\u5bb9');
   const content = scopes.map((scope) => scope.content).join('\n');
-  return validateAiDraft(db, { items }, content, scopes);
+  return validateAiDraft(db, { items }, content, scopes, customerId);
 }
 
-function recordAiLearning(db, pairs) {
+function recordAiLearning(db, pairs, options = {}) {
   const validPairs = Array.isArray(pairs) ? pairs : [];
-  if (!validPairs.length) return;
+  if (!validPairs.length) return [];
   if (!db.aiLearning) db.aiLearning = {};
   if (!db.aiLearning.productChoices) db.aiLearning.productChoices = {};
+  if (!Array.isArray(db.aiLearning.aliasHistory)) db.aiLearning.aliasHistory = [];
+  const canLearnAliases = options.orderType === 'sale' && options.user && ['超级管理员', '管理员'].includes(options.user.role);
+  const learnedAliases = [];
   validPairs.forEach((pair) => {
     const key = normalizeMatchText(pair.rawName || '');
     const productId = String(pair.productId || '');
-    if (!key || !productId || !db.products.some((product) => product.id === productId)) return;
+    const product = db.products.find((item) => item.id === productId);
+    if (!key || !productId || !product) return;
     if (!db.aiLearning.productChoices[key]) db.aiLearning.productChoices[key] = {};
     db.aiLearning.productChoices[key][productId] = Number(db.aiLearning.productChoices[key][productId] || 0) + 1;
+    if (!canLearnAliases || !pair.learnAlias) return;
+    const rawName = String(pair.rawName || '').trim().slice(0, 60);
+    if (rawName.length < 2 || !/[\u4e00-\u9fa5a-z0-9]/i.test(rawName)) return;
+    const existingTerms = [product.name, product.spec, product.brand, ...splitAliases(product.aliases)]
+      .map((term) => normalizeMatchText(term))
+      .filter(Boolean);
+    if (existingTerms.includes(key)) return;
+    product.aliases = [...splitAliases(product.aliases), rawName];
+    const history = {
+      id: newId(),
+      rawName,
+      normalized: key,
+      productId,
+      productName: product.name || '',
+      orderId: options.orderId || '',
+      userId: options.user.id,
+      userName: options.user.name || '',
+      createdAt: new Date().toISOString(),
+    };
+    db.aiLearning.aliasHistory.push(history);
+    learnedAliases.push({ productId, rawName });
   });
+  return learnedAliases;
 }
 
 function serveStatic(req, res) {
@@ -905,8 +1102,12 @@ async function handleApi(req, res) {
       return sendError(res, 400, "请为材料窗口选择一级分类并输入订单内容");
     }
     const db = readDb();
+    const customerId = String(payload.customerId || '');
+    const customer = customerId ? db.customers.find((item) => item.id === customerId) : null;
+    if (customerId && !customer) return sendError(res, 400, "客户不存在");
+    if (customer && user.role === "销售人员" && customer.ownerId !== user.id) return sendError(res, 403, "无权查看该客户的购买习惯");
     try {
-      const draft = await buildAiOrderDraft(db, groups);
+      const draft = await buildAiOrderDraft(db, groups, customerId);
       return sendJson(res, 200, draft);
     } catch (error) {
       console.error(`[AI order] ${new Date().toISOString()} ${error && error.stack ? error.stack : error}`);
@@ -946,9 +1147,12 @@ async function handleApi(req, res) {
       if (order.type === "return") order.items = normalizeReturnItems(order.items);
       order.amount = orderAmount(order.items);
       db.orders.unshift(order);
-      recordAiLearning(db, payload.aiLearnPairs);
+      const orderProductIds = new Set(order.items.map((item) => String(item.productId || '')).filter(Boolean));
+      const orderLearningPairs = (Array.isArray(payload.aiLearnPairs) ? payload.aiLearnPairs : [])
+        .filter((pair) => pair && orderProductIds.has(String(pair.productId || '')));
+      const learnedAliases = recordAiLearning(db, orderLearningPairs, { user, orderId: order.id, orderType: order.type });
       writeDb(db);
-      return sendJson(res, 201, { order: publicOrder(order) });
+      return sendJson(res, 201, { order: publicOrder(order), learnedAliases });
     }
   }
 
@@ -1041,3 +1245,6 @@ if (require.main === module) {
 module.exports = server;
 module.exports.matchProductCandidates = matchProductCandidates;
 module.exports.fallbackParseOrderText = fallbackParseOrderText;
+module.exports.buildAiRecommendationContext = buildAiRecommendationContext;
+module.exports.validateAiDraft = validateAiDraft;
+module.exports.recordAiLearning = recordAiLearning;

@@ -692,24 +692,113 @@ function addDraftLine(productId, quantity) {
   return true;
 }
 
-function rememberAiChoice(rawName, productId) {
+function rememberAiChoice(rawName, productId, learnAlias = false) {
   if (!rawName || !productId) return;
-  state.aiLearnPairs.push({ rawName, productId });
+  const existing = state.aiLearnPairs.find((item) => item.rawName === rawName && item.productId === productId);
+  if (existing) {
+    existing.learnAlias = existing.learnAlias || Boolean(learnAlias);
+    return;
+  }
+  state.aiLearnPairs.push({ rawName, productId, learnAlias: Boolean(learnAlias) });
+}
+
+function normalizeAiAliasText(value) {
+  return String(value || "").toLowerCase().replace(/[\s，,。；;、（）()\[\]【】_-]+/g, "");
+}
+
+function shouldOfferAiAlias(rawName, productId) {
+  if (!isAdmin()) return false;
+  const product = byId(products, productId);
+  const raw = normalizeAiAliasText(rawName);
+  if (!product || !raw) return false;
+  return ![product.name, product.spec, product.brand, ...(product.aliases || [])]
+    .some((value) => normalizeAiAliasText(value) === raw);
+}
+
+function aiAliasCheckbox(key) {
+  return [...document.querySelectorAll("[data-ai-learn-alias]")]
+    .find((input) => input.dataset.aiLearnAlias === String(key));
+}
+
+function renderAiAliasConsent(key, rawName, productId = "") {
+  if (!isAdmin()) return "";
+  const visible = productId && shouldOfferAiAlias(rawName, productId);
+  return `<label class="ai-alias-consent ${visible ? "" : "is-hidden"}" data-ai-alias-wrap="${html(key)}">
+    <input type="checkbox" data-ai-learn-alias="${html(key)}" />
+    <span>将“${html(rawName || "该叫法")}”加入所选商品的别名 / 关键词库</span>
+  </label>`;
+}
+
+function selectAiCandidateChoice(input) {
+  const key = input.dataset.aiCandidateGroup || "";
+  const wrap = [...document.querySelectorAll("[data-ai-alias-wrap]")]
+    .find((element) => element.dataset.aiAliasWrap === key);
+  const checkbox = aiAliasCheckbox(key);
+  if (!wrap || !checkbox) return;
+  const visible = shouldOfferAiAlias(input.dataset.aiRawName, input.value);
+  wrap.classList.toggle("is-hidden", !visible);
+  if (!visible) checkbox.checked = false;
+}
+
+function aiCandidateFromProduct(product) {
+  return {
+    productId: product.id,
+    name: product.name,
+    spec: product.spec,
+    unit: product.unit,
+    price: product.price,
+    cat1: product.cat1,
+    cat2: product.cat2,
+    recommendation: "在当前分类商品库中找到",
+  };
+}
+
+function aiCandidateOption(product, key, rawName) {
+  const reason = product.recommendation ? `<small class="ai-recommendation">${html(product.recommendation)}</small>` : "";
+  return `<label class="ai-candidate-option">
+    <input type="radio" name="ai-candidate-${html(key)}" value="${html(product.productId)}" data-ai-candidate-product data-ai-candidate-group="${html(key)}" data-ai-raw-name="${html(rawName || "")}" onchange="selectAiCandidateChoice(this)" />
+    <span><strong>${html(product.name)}</strong><small>${html(product.spec || "无规格")} · ${html(product.unit || "-")} · ${html(product.cat1 || "-")}${product.cat2 ? " / " + html(product.cat2) : ""}</small>${reason}</span>
+    <b>${money(product.price)}</b>
+  </label>`;
+}
+
+function updateAiManualSearch(input, key, rawName, cat1, cat2) {
+  if (input.dataset.composing === "true") return;
+  const query = input.value.trim().toLowerCase();
+  const candidates = products
+    .filter((product) => isProductActive(product))
+    .filter((product) => !cat1 || product.cat1 === cat1)
+    .filter((product) => !cat2 || product.cat2 === cat2)
+    .filter((product) => !query || productSearchText(product).includes(query))
+    .slice(0, 12)
+    .map(aiCandidateFromProduct);
+  const results = [...document.querySelectorAll("[data-ai-manual-results]")]
+    .find((element) => element.dataset.aiManualResults === String(key));
+  if (results) {
+    results.innerHTML = candidates.length
+      ? candidates.map((product) => aiCandidateOption(product, key, rawName)).join("")
+      : `<div class="ai-manual-empty">当前限定分类下没有找到商品，请换一个关键词。</div>`;
+  }
 }
 
 function applyAiDraft() {
   if (!state.aiDraft) return;
-  state.aiLearnPairs = [];
   state.aiDraft.matched.forEach((item) => {
-    if (addDraftLine(item.productId, item.quantity)) rememberAiChoice(item.rawName, item.productId);
+    const learnAlias = Boolean(aiAliasCheckbox(item.lineKey)?.checked);
+    if (addDraftLine(item.productId, item.quantity)) rememberAiChoice(item.rawName, item.productId, learnAlias);
   });
   document.querySelectorAll("[data-ai-quantity-product]").forEach((input) => {
-    if (addDraftLine(input.dataset.aiQuantityProduct, input.value)) rememberAiChoice(input.dataset.aiRawName, input.dataset.aiQuantityProduct);
+    const learnAlias = Boolean(aiAliasCheckbox(input.dataset.aiLineKey)?.checked);
+    if (addDraftLine(input.dataset.aiQuantityProduct, input.value)) rememberAiChoice(input.dataset.aiRawName, input.dataset.aiQuantityProduct, learnAlias);
   });
   document.querySelectorAll("[data-ai-candidate-product]:checked").forEach((input) => {
-    const quantityInput = document.querySelector(`[data-ai-candidate-quantity="${input.dataset.aiCandidateGroup}"]`);
-    if (addDraftLine(input.value, quantityInput ? quantityInput.value : "")) rememberAiChoice(input.dataset.aiRawName, input.value);
+    const key = input.dataset.aiCandidateGroup;
+    const quantityInput = [...document.querySelectorAll("[data-ai-candidate-quantity]")]
+      .find((element) => element.dataset.aiCandidateQuantity === key);
+    const learnAlias = Boolean(aiAliasCheckbox(key)?.checked);
+    if (addDraftLine(input.value, quantityInput ? quantityInput.value : "")) rememberAiChoice(input.dataset.aiRawName, input.value, learnAlias);
   });
+  persistCart();
   const count = state.cart.reduce((sum, item) => sum + item.quantity, 0);
   closeModal();
   showToast(`AI 已填入 ${count} 件商品，请确认后保存订单`);
@@ -913,7 +1002,7 @@ function renderAiMatched(list) {
   return `
     <section class="ai-section">
       <h4>已匹配商品</h4>
-      ${list.map((item) => `<div class="ai-line"><div><strong>${html(orderItemDetails(item).label)}</strong><div class="hint">${html(item.unit)} · 原文：${html(item.rawName || "-")}</div></div><div class="num">${html(item.quantity)} ${html(item.unit)}</div><div class="num">${money(item.price)}</div></div>`).join("")}
+      ${list.map((item) => `<div class="ai-line-wrap"><div class="ai-line"><div><strong>${html(orderItemDetails(item).label)}</strong><div class="hint">${html(item.unit)} · 原文：${html(item.rawName || "-")}</div>${item.recommendation ? `<div class="ai-match-reason">${html(item.recommendation)}</div>` : ""}</div><div class="num">${html(item.quantity)} ${html(item.unit)}</div><div class="num">${money(item.price)}</div></div>${renderAiAliasConsent(item.lineKey, item.rawName, item.productId)}</div>`).join("")}
     </section>
   `;
 }
@@ -923,7 +1012,7 @@ function renderAiNeedsQuantity(list) {
   return `
     <section class="ai-section">
       <h4>需要补数量</h4>
-      ${list.map((item) => `<div class="ai-line"><div><strong>${html(orderItemDetails(item).label)}</strong><div class="hint">${html(item.unit)} · 原文：${html(item.rawName || "-")}</div></div><input class="input ai-small-input" type="number" min="0" step="0.01" placeholder="数量" data-ai-quantity-product="${html(item.productId)}" data-ai-raw-name="${html(item.rawName || "")}" /><div class="num">${money(item.price)}</div></div>`).join("")}
+      ${list.map((item) => `<div class="ai-line-wrap"><div class="ai-line"><div><strong>${html(orderItemDetails(item).label)}</strong><div class="hint">${html(item.unit)} · 原文：${html(item.rawName || "-")}</div>${item.recommendation ? `<div class="ai-match-reason">${html(item.recommendation)}</div>` : ""}</div><input class="input ai-small-input" type="number" min="0" step="0.01" placeholder="数量" data-ai-quantity-product="${html(item.productId)}" data-ai-line-key="${html(item.lineKey)}" data-ai-raw-name="${html(item.rawName || "")}" /><div class="num">${money(item.price)}</div></div>${renderAiAliasConsent(item.lineKey, item.rawName, item.productId)}</div>`).join("")}
     </section>
   `;
 }
@@ -933,7 +1022,7 @@ function renderAiUncertain(list) {
   return `
     <section class="ai-section">
       <h4>需要选择商品</h4>
-      ${list.map((item, index) => { const key = `${item.groupId || "group"}-${index}`; const candidates = item.candidates || []; const option = (product) => `<label class="ai-candidate-option"><input type="radio" name="ai-candidate-${html(key)}" value="${html(product.productId)}" data-ai-candidate-product data-ai-candidate-group="${html(key)}" data-ai-raw-name="${html(item.rawName || "")}" /><span><strong>${html(product.name)}</strong><small>${html(product.spec || "无规格")} · ${html(product.unit || "-")} · ${html(product.cat1 || "-")}${product.cat2 ? " / " + html(product.cat2) : ""}</small></span><b>${money(product.price)}</b></label>`; return `<div class="ai-candidate-block"><div class="ai-candidate-head"><div><strong>原文：${html(item.rawName || "-")}</strong><div class="hint">默认展示最相关商品；不选择就不会加入订单。</div></div><input class="input ai-small-input" type="number" min="0" step="0.01" value="${html(item.quantity || "")}" placeholder="数量" data-ai-candidate-quantity="${html(key)}" /></div><div class="ai-candidate-list">${candidates[0] ? option(candidates[0]) : ""}${candidates.length > 1 ? `<details class="ai-more-candidates"><summary>展开其他 ${candidates.length - 1} 个候选</summary>${candidates.slice(1).map(option).join("")}</details>` : ""}</div></div>`; }).join("")}
+      ${list.map((item, index) => { const key = item.lineKey || `${item.groupId || "group"}-${index}`; const candidates = item.candidates || []; return `<div class="ai-candidate-block"><div class="ai-candidate-head"><div><strong>原文：${html(item.rawName || "-")}</strong><div class="hint">候选按客户习惯、出单频率和数量排序；不选择就不会加入订单。</div></div><input class="input ai-small-input" type="number" min="0" step="0.01" value="${html(item.quantity || "")}" placeholder="数量" data-ai-candidate-quantity="${html(key)}" /></div><div class="ai-candidate-list">${candidates[0] ? aiCandidateOption(candidates[0], key, item.rawName) : ""}${candidates.length > 1 ? `<details class="ai-more-candidates"><summary>展开其他 ${candidates.length - 1} 个候选</summary>${candidates.slice(1).map((product) => aiCandidateOption(product, key, item.rawName)).join("")}</details>` : ""}</div>${renderAiAliasConsent(key, item.rawName)}</div>`; }).join("")}
     </section>
   `;
 }
@@ -942,8 +1031,8 @@ function renderAiUnmatched(list) {
   if (!list.length) return "";
   return `
     <section class="ai-section">
-      <h4>未匹配，暂不加入订单</h4>
-      ${list.map((item) => `<div class="ai-line muted-line"><div><strong>${html(item.rawName || "-")}</strong><div class="hint">${html(item.note || "商品库中未找到明确商品")}</div></div></div>`).join("")}
+      <h4>未匹配商品</h4>
+      ${list.map((item, index) => { const key = item.lineKey || `${item.groupId || "unmatched"}-${index}`; const suggestions = item.suggestions || []; return `<div class="ai-candidate-block ai-unmatched-block"><div class="ai-candidate-head"><div><strong>原文：${html(item.rawName || "-")}</strong><div class="hint">${html(item.note || "未找到足够可靠的商品，请在当前分类内手动选择。")}</div></div><input class="input ai-small-input" type="number" min="0" step="0.01" value="${html(item.quantity || "")}" placeholder="数量" data-ai-candidate-quantity="${html(key)}" /></div><div class="ai-manual-search"><input class="input" placeholder="在 ${html([item.cat1, item.cat2].filter(Boolean).join(" / ") || "当前分类")} 中搜索商品" oncompositionstart="this.dataset.composing='true'" oncompositionend="this.dataset.composing='false';updateAiManualSearch(this,${jsArg(key)},${jsArg(item.rawName || "")},${jsArg(item.cat1 || "")},${jsArg(item.cat2 || "")})" oninput="updateAiManualSearch(this,${jsArg(key)},${jsArg(item.rawName || "")},${jsArg(item.cat1 || "")},${jsArg(item.cat2 || "")})" /></div><div class="ai-candidate-list ai-manual-results" data-ai-manual-results="${html(key)}">${suggestions.length ? suggestions.map((product) => aiCandidateOption(product, key, item.rawName)).join("") : `<div class="ai-manual-empty">输入商品名称、规格、品牌或关键词进行查找。</div>`}</div>${renderAiAliasConsent(key, item.rawName)}</div>`; }).join("")}
     </section>
   `;
 }
@@ -2585,6 +2674,7 @@ async function saveOrder() {
     address: state.orderAddress.trim() || customer.address || "",
     remark: state.orderRemark.trim(),
     payStatus: "未付款",
+    aiLearnPairs: state.aiLearnPairs,
     items: state.cart.map((item) => {
       const product = byId(products, item.productId) || {};
       return {
@@ -2608,12 +2698,19 @@ async function saveOrder() {
     return;
   }
   orders.unshift(data.order);
+  (data.learnedAliases || []).forEach((learned) => {
+    const product = byId(products, learned.productId);
+    if (!product) return;
+    product.aliases = Array.isArray(product.aliases) ? product.aliases : [];
+    if (!product.aliases.includes(learned.rawName)) product.aliases.push(learned.rawName);
+  });
   clearPersistedCart(state.orderType);
   state.cart = [];
+  state.aiLearnPairs = [];
   resetOrderDraft(customer);
   state.orderType = "sale";
   resetPage("orders");
-  showToast("订单已生成");
+  showToast(data.learnedAliases?.length ? `订单已生成，并新增 ${data.learnedAliases.length} 个商品关键词` : "订单已生成");
   setRoute("orders");
 }
 
