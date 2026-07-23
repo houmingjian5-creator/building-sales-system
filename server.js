@@ -3,11 +3,13 @@ const https = require("https");
 const fs = require("fs");
 const path = require("path");
 const crypto = require("crypto");
+const XlsxPopulate = require("xlsx-populate");
 
 const ROOT = __dirname;
 const PUBLIC_DIR = path.join(ROOT, "public");
 const DATA_DIR = path.join(ROOT, "data");
 const DB_PATH = path.join(DATA_DIR, "db.json");
+const PRODUCT_IMAGE_DIR = path.join(DATA_DIR, "product-images");
 const PORT = Number(process.env.PORT || 3000);
 const DEEPSEEK_API_KEY = process.env.DEEPSEEK_API_KEY || "";
 const DEEPSEEK_MODEL = process.env.DEEPSEEK_MODEL || "deepseek-chat";
@@ -40,12 +42,22 @@ function sendError(res, status, message) {
   sendJson(res, status, { error: message });
 }
 
+function sendBuffer(res, status, buffer, contentType, filename) {
+  res.writeHead(status, {
+    "content-type": contentType,
+    "content-length": buffer.length,
+    "content-disposition": `attachment; filename*=UTF-8''${encodeURIComponent(filename)}`,
+    "cache-control": "no-store",
+  });
+  res.end(buffer);
+}
+
 function readBody(req) {
   return new Promise((resolve, reject) => {
     let raw = "";
     req.on("data", (chunk) => {
       raw += chunk;
-      if (raw.length > 1_000_000) {
+      if (raw.length > 12_000_000) {
         reject(new Error("请求体过大"));
         req.destroy();
       }
@@ -123,7 +135,7 @@ function normalizeMatchText(value) {
 function splitAliases(value) {
   if (Array.isArray(value)) return value.map((item) => String(item).trim()).filter(Boolean);
   return String(value || '')
-    .split(/[,??;\n]/)
+    .split(/[,，、;\n]/)
     .map((item) => item.trim())
     .filter(Boolean);
 }
@@ -160,6 +172,7 @@ function publicProduct(product) {
     brand: product.brand || product.cat1 || '',
     cat1: product.cat1 || '',
     cat2: product.cat2 || '',
+    imageUrl: product.imageFile ? `/api/product-images/${encodeURIComponent(product.imageFile)}` : '',
     name: product.name || '',
     spec: product.spec || '',
     unit: product.unit || '',
@@ -190,7 +203,138 @@ function normalizeProductPayload(payload, existing = {}) {
     aliases: splitAliases(payload.aliases !== undefined ? payload.aliases : existing.aliases),
     color: existing.color || payload.color || '#dbe4ef',
     stock: Number(existing.stock || payload.stock || 0),
+    imageFile: existing.imageFile || '',
   };
+}
+
+const PRODUCT_SHEET_HEADERS = ['商品编码', '商品名称', '规格', '一级分类', '二级分类', '品牌', '单位', '销售价', '成本价', '状态', '别名/关键词'];
+
+function productSheetRow(product) {
+  return [
+    product.code || product.id || '',
+    product.name || '',
+    product.spec || '',
+    product.cat1 || '',
+    product.cat2 || '',
+    product.brand || '',
+    product.unit || '',
+    Number(product.price || 0),
+    Number(product.cost || 0),
+    product.status || '在售',
+    splitAliases(product.aliases).join('，'),
+  ];
+}
+
+async function buildProductWorkbook(products) {
+  const workbook = await XlsxPopulate.fromBlankAsync();
+  const sheet = workbook.sheet(0).name('产品');
+  const rows = [PRODUCT_SHEET_HEADERS].concat((products || []).map(productSheetRow));
+  sheet.cell('A1').value(rows);
+  sheet.freezePanes(0, 1);
+  sheet.range(`A1:K${Math.max(rows.length, 1)}`).style({ verticalAlignment: 'center' });
+  sheet.range('A1:K1').style({
+    bold: true,
+    fontColor: 'FFFFFF',
+    fill: '3159D9',
+    horizontalAlignment: 'center',
+  }).autoFilter();
+  [20, 34, 24, 14, 22, 18, 12, 12, 12, 12, 36].forEach((width, index) => {
+    sheet.column(index + 1).width(width);
+  });
+  sheet.column(8).style('numberFormat', '0.00');
+  sheet.column(9).style('numberFormat', '0.00');
+  const notes = workbook.addSheet('填写说明');
+  const noteRows = [
+    ['字段', '填写规则'],
+    ['商品编码', '必填且唯一；编码已存在时更新该商品，不存在时新增'],
+    ['商品名称', '必填'],
+    ['一级分类', '必填：水电、木、瓦、油、辅助商品'],
+    ['单位', '必填'],
+    ['销售价/成本价', '填写数字，不要带人民币符号'],
+    ['状态', '在售或停用；不填默认在售'],
+    ['别名/关键词', '多个词用中文逗号分隔'],
+  ];
+  notes.cell('A1').value(noteRows);
+  notes.column(1).width(20);
+  notes.column(2).width(72);
+  notes.range('A1:B1').style({ bold: true, fill: 'E8EEFF' });
+  return Buffer.from(await workbook.outputAsync());
+}
+
+function cellText(value) {
+  if (value === null || value === undefined) return '';
+  return String(value).trim();
+}
+
+async function parseProductWorkbook(buffer, db) {
+  const workbook = await XlsxPopulate.fromDataAsync(buffer);
+  const sheet = workbook.sheet('产品') || workbook.sheet(0);
+  if (!sheet) throw new Error('表格中没有“产品”工作表');
+  const values = sheet.usedRange() ? sheet.usedRange().value() : [];
+  const headers = (values[0] || []).map(cellText);
+  PRODUCT_SHEET_HEADERS.forEach((header) => {
+    if (!headers.includes(header)) throw new Error(`缺少固定列：${header}`);
+  });
+  const index = {};
+  headers.forEach((header, position) => { index[header] = position + 1; });
+  const allowedCategories = new Set(['水电', '木', '瓦', '油', '辅助商品']);
+  const allowedStatuses = new Set(['在售', '停用']);
+  const existingByCode = new Map((db.products || []).map((product) => [String(product.code || product.id || '').trim(), product]));
+  const seenCodes = new Set();
+  const rows = [];
+  const errors = [];
+  values.slice(1).forEach((row, rowOffset) => {
+    const rowNumber = rowOffset + 2;
+    const value = (header) => cellText(row[index[header] - 1]);
+    const code = value('商品编码');
+    const name = value('商品名称');
+    const cat1 = value('一级分类');
+    const unit = value('单位');
+    if (!code && !name && !cat1 && !unit) return;
+    const status = value('状态') || '在售';
+    const price = Number(value('销售价') || '0');
+    const cost = Number(value('成本价') || '0');
+    if (!code) errors.push(`第 ${rowNumber} 行：商品编码必填`);
+    if (!name) errors.push(`第 ${rowNumber} 行：商品名称必填`);
+    if (!allowedCategories.has(cat1)) errors.push(`第 ${rowNumber} 行：一级分类无效`);
+    if (!unit) errors.push(`第 ${rowNumber} 行：单位必填`);
+    if (!Number.isFinite(price) || price < 0) errors.push(`第 ${rowNumber} 行：销售价必须是非负数字`);
+    if (!Number.isFinite(cost) || cost < 0) errors.push(`第 ${rowNumber} 行：成本价必须是非负数字`);
+    if (!allowedStatuses.has(status)) errors.push(`第 ${rowNumber} 行：状态只能是“在售”或“停用”`);
+    if (seenCodes.has(code)) errors.push(`第 ${rowNumber} 行：商品编码 ${code} 在表格中重复`);
+    seenCodes.add(code);
+    rows.push(normalizeProductPayload({
+      code,
+      name,
+      spec: value('规格'),
+      cat1,
+      cat2: value('二级分类'),
+      brand: value('品牌') || cat1,
+      unit,
+      price,
+      cost,
+      status,
+      aliases: value('别名/关键词'),
+    }, existingByCode.get(code) || {}));
+  });
+  if (errors.length) throw new Error(errors.slice(0, 12).join('\n'));
+  if (!rows.length) throw new Error('表格中没有可导入的商品');
+  return rows;
+}
+
+function productImageInfo(dataUrl) {
+  const match = String(dataUrl || '').match(/^data:(image\/(?:png|jpeg|webp));base64,([A-Za-z0-9+/=\s]+)$/);
+  if (!match) throw new Error('仅支持 PNG、JPG 或 WebP 图片');
+  const buffer = Buffer.from(match[2].replace(/\s/g, ''), 'base64');
+  if (!buffer.length || buffer.length > 3 * 1024 * 1024) throw new Error('图片大小必须在 3MB 以内');
+  const mime = match[1];
+  const valid = mime === 'image/png'
+    ? buffer.slice(0, 8).equals(Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]))
+    : mime === 'image/jpeg'
+      ? buffer[0] === 0xff && buffer[1] === 0xd8
+      : buffer.slice(0, 4).toString('ascii') === 'RIFF' && buffer.slice(8, 12).toString('ascii') === 'WEBP';
+  if (!valid) throw new Error('图片文件内容无效');
+  return { buffer, ext: mime === 'image/png' ? 'png' : mime === 'image/jpeg' ? 'jpg' : 'webp', mime };
 }
 
 const ORDER_STATUS_OPTIONS = new Set(['待确认', '已确认', '已发货', '已完成', '已取消', '已退货']);
@@ -265,6 +409,7 @@ function candidateFor(product, ranking = {}) {
     price: product.price,
     cat1: product.cat1 || '',
     cat2: product.cat2 || '',
+    imageUrl: product.imageFile ? `/api/product-images/${encodeURIComponent(product.imageFile)}` : '',
     recommendation: ranking.recommendation || '',
     customerOrderCount: Number(ranking.customerOrderCount || 0),
     globalOrderCount: Number(ranking.globalOrderCount || 0),
@@ -729,7 +874,14 @@ function validateAiDraft(db, aiResult, content = '', scopes = [], customerId = '
     const selectedMatch = uniqueHardMatch || highTextMatch || stableHistoryMatch ? matches[0] : null;
     const product = selectedMatch ? selectedMatch.product : null;
     const candidateProducts = matches.map((item) => candidateFor(item.product, item));
-    const groupMeta = { groupId: scope.id || '', groupTitle: scope.title || scope.cat2 || scope.cat1 || '未分组', lineKey: `${scope.id || 'group'}-${lineIndex}` };
+    const groupMeta = {
+      groupId: scope.id || '',
+      groupTitle: scope.title || scope.cat2 || scope.cat1 || '未分组',
+      lineKey: `${scope.id || 'group'}-${lineIndex}`,
+      orderIndex: lineIndex,
+      cat1: scope.cat1 || '',
+      cat2: scope.cat2 || '',
+    };
 
     if (!product) {
       if (candidateProducts.length) {
@@ -950,7 +1102,7 @@ async function handleApi(req, res) {
       user: sanitizeUser(user),
       users: db.users.map(sanitizeUser),
       customers: db.customers.filter((customer) => user.role !== "销售人员" || customer.ownerId === user.id),
-      products: db.products,
+      products: db.products.map(publicProduct),
       orders: db.orders.filter((order) => !order.deletedAt && (user.role !== "销售人员" || order.salesUserId === user.id)).map(publicOrder),
     });
   }
@@ -1049,6 +1201,99 @@ async function handleApi(req, res) {
       }
       writeDb(db);
       return sendJson(res, 200, { customer });
+    }
+  }
+
+  if (method === "GET" && url.pathname.startsWith("/api/product-images/")) {
+    const user = requireUser(req, res);
+    if (!user) return;
+    const filename = decodeURIComponent(url.pathname.slice("/api/product-images/".length));
+    if (!/^[a-f0-9-]+\.(?:png|jpg|webp)$/i.test(filename)) return sendError(res, 400, "图片路径无效");
+    const filePath = path.join(PRODUCT_IMAGE_DIR, filename);
+    if (!filePath.startsWith(PRODUCT_IMAGE_DIR) || !fs.existsSync(filePath)) return sendError(res, 404, "商品图片不存在");
+    const ext = path.extname(filename).toLowerCase();
+    const contentType = ext === ".png" ? "image/png" : ext === ".webp" ? "image/webp" : "image/jpeg";
+    const buffer = fs.readFileSync(filePath);
+    res.writeHead(200, {
+      "content-type": contentType,
+      "content-length": buffer.length,
+      "cache-control": "private, max-age=86400",
+    });
+    return res.end(buffer);
+  }
+
+  if (method === "GET" && url.pathname === "/api/products/template") {
+    if (!requireAdmin(req, res)) return;
+    const buffer = await buildProductWorkbook([]);
+    return sendBuffer(res, 200, buffer, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", "产品批量导入模板.xlsx");
+  }
+
+  if (method === "POST" && url.pathname === "/api/products/export") {
+    const user = requireUser(req, res);
+    if (!user) return;
+    const payload = await readBody(req);
+    const db = readDb();
+    const ids = Array.isArray(payload.ids) ? new Set(payload.ids.map(String)) : null;
+    const selected = ids && ids.size ? db.products.filter((product) => ids.has(String(product.id))) : db.products;
+    if (!selected.length) return sendError(res, 400, "没有可导出的商品");
+    const buffer = await buildProductWorkbook(selected);
+    const filename = ids && ids.size ? `已选产品-${selected.length}项.xlsx` : `全部产品-${selected.length}项.xlsx`;
+    return sendBuffer(res, 200, buffer, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", filename);
+  }
+
+  if (method === "POST" && url.pathname === "/api/products/import") {
+    if (!requireAdmin(req, res)) return;
+    const payload = await readBody(req);
+    const match = String(payload.file || "").match(/^data:[^;]*;base64,(.+)$/);
+    if (!match) return sendError(res, 400, "请上传系统模板格式的 .xlsx 文件");
+    const buffer = Buffer.from(match[1], "base64");
+    if (!buffer.length || buffer.length > 8 * 1024 * 1024) return sendError(res, 400, "表格文件大小必须在 8MB 以内");
+    if (buffer.slice(0, 2).toString("ascii") !== "PK") return sendError(res, 400, "文件不是有效的 .xlsx 表格");
+    const db = readDb();
+    try {
+      const imported = await parseProductWorkbook(buffer, db);
+      let created = 0;
+      let updated = 0;
+      imported.forEach((product) => {
+        const index = db.products.findIndex((item) => item.id === product.id || String(item.code || item.id) === String(product.code));
+        if (index >= 0) {
+          db.products[index] = product;
+          updated += 1;
+        } else {
+          db.products.unshift(product);
+          created += 1;
+        }
+      });
+      writeDb(db);
+      return sendJson(res, 200, { created, updated, products: db.products.map(publicProduct) });
+    } catch (error) {
+      return sendError(res, 400, error.message || "产品表格解析失败");
+    }
+  }
+
+  if (method === "PUT" && /^\/api\/products\/[^/]+\/image$/.test(url.pathname)) {
+    if (!requireAdmin(req, res)) return;
+    const parts = url.pathname.split("/");
+    const id = decodeURIComponent(parts[3]);
+    const payload = await readBody(req);
+    const db = readDb();
+    const product = db.products.find((item) => item.id === id);
+    if (!product) return sendError(res, 404, "商品不存在");
+    try {
+      const image = productImageInfo(payload.image);
+      fs.mkdirSync(PRODUCT_IMAGE_DIR, { recursive: true });
+      const filename = `${crypto.createHash("sha1").update(String(product.id)).digest("hex").slice(0, 16)}-${Date.now()}.${image.ext}`;
+      fs.writeFileSync(path.join(PRODUCT_IMAGE_DIR, filename), image.buffer);
+      const previous = product.imageFile;
+      product.imageFile = filename;
+      writeDb(db);
+      if (previous && /^[a-f0-9-]+\.(?:png|jpg|webp)$/i.test(previous)) {
+        const previousPath = path.join(PRODUCT_IMAGE_DIR, previous);
+        if (fs.existsSync(previousPath)) fs.unlinkSync(previousPath);
+      }
+      return sendJson(res, 200, { product: publicProduct(product) });
+    } catch (error) {
+      return sendError(res, 400, error.message || "商品图片上传失败");
     }
   }
 
@@ -1248,3 +1493,5 @@ module.exports.fallbackParseOrderText = fallbackParseOrderText;
 module.exports.buildAiRecommendationContext = buildAiRecommendationContext;
 module.exports.validateAiDraft = validateAiDraft;
 module.exports.recordAiLearning = recordAiLearning;
+module.exports.buildProductWorkbook = buildProductWorkbook;
+module.exports.parseProductWorkbook = parseProductWorkbook;

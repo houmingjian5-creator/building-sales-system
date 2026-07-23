@@ -6,9 +6,12 @@
   "scripts": {
     "start": "node server.js",
     "dev": "node server.js",
-    "test": "node tests/ai-match.test.js"
+    "test": "node tests/ai-match.test.js && node tests/product-workbook.test.js"
   },
   "engines": {
     "node": ">=12"
+  },
+  "dependencies": {
+    "xlsx-populate": "^1.21.0"
   }
 }

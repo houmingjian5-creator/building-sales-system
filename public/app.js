@@ -34,6 +34,7 @@ const state = {
   orderRemark: "",
   editCustomerQuery: "",
   editCustomerPickerOpen: false,
+  selectedProductIds: [],
 };
 
 let inputRenderTimer = null;
@@ -749,54 +750,117 @@ function aiCandidateFromProduct(product) {
     price: product.price,
     cat1: product.cat1,
     cat2: product.cat2,
+    imageUrl: product.imageUrl || "",
     recommendation: "在当前分类商品库中找到",
   };
 }
 
-function aiCandidateOption(product, key, rawName) {
+function aiCandidateOption(product, key, rawName, orderIndex = "") {
   const reason = product.recommendation ? `<small class="ai-recommendation">${html(product.recommendation)}</small>` : "";
   return `<label class="ai-candidate-option">
-    <input type="radio" name="ai-candidate-${html(key)}" value="${html(product.productId)}" data-ai-candidate-product data-ai-candidate-group="${html(key)}" data-ai-raw-name="${html(rawName || "")}" onchange="selectAiCandidateChoice(this)" />
+    <input type="radio" name="ai-candidate-${html(key)}" value="${html(product.productId)}" data-ai-candidate-product data-ai-candidate-group="${html(key)}" data-ai-order-index="${html(orderIndex)}" data-ai-raw-name="${html(rawName || "")}" onchange="selectAiCandidateChoice(this)" />
+    ${product.imageUrl ? `<img class="ai-candidate-thumb" src="${html(product.imageUrl)}" alt="" loading="lazy" />` : ""}
     <span><strong>${html(product.name)}</strong><small>${html(product.spec || "无规格")} · ${html(product.unit || "-")} · ${html(product.cat1 || "-")}${product.cat2 ? " / " + html(product.cat2) : ""}</small>${reason}</span>
     <b>${money(product.price)}</b>
   </label>`;
 }
 
-function updateAiManualSearch(input, key, rawName, cat1, cat2) {
+function aiSearchSubcategories(cat1) {
+  return [...new Set(products.filter((product) => !cat1 || product.cat1 === cat1).map((product) => product.cat2).filter(Boolean))]
+    .sort((a, b) => a.localeCompare(b, "zh-CN"));
+}
+
+function aiSearchScopeControls(key, rawName, cat1, cat2, orderIndex) {
+  const categories = PRODUCT_CATEGORIES.filter((item) => item !== "全部");
+  const subcategories = aiSearchSubcategories(cat1);
+  return `<div class="ai-search-scope">
+    <select class="select" data-ai-search-cat1="${html(key)}" onchange="changeAiSearchCategory(this,${jsArg(key)},${jsArg(rawName)},${jsArg(orderIndex)})">
+      <option value="">全部商品</option>
+      ${categories.map((item) => `<option value="${html(item)}" ${item === cat1 ? "selected" : ""}>${html(item)}</option>`).join("")}
+    </select>
+    <select class="select" data-ai-search-cat2="${html(key)}" onchange="refreshAiManualSearch(${jsArg(key)},${jsArg(rawName)},${jsArg(orderIndex)})">
+      <option value="">全部二级分类</option>
+      ${subcategories.map((item) => `<option value="${html(item)}" ${item === cat2 ? "selected" : ""}>${html(item)}</option>`).join("")}
+    </select>
+  </div>`;
+}
+
+function changeAiSearchCategory(select, key, rawName, orderIndex) {
+  const cat2Select = [...document.querySelectorAll("[data-ai-search-cat2]")]
+    .find((element) => element.dataset.aiSearchCat2 === String(key));
+  if (cat2Select) {
+    cat2Select.innerHTML = `<option value="">全部二级分类</option>${aiSearchSubcategories(select.value).map((item) => `<option value="${html(item)}">${html(item)}</option>`).join("")}`;
+  }
+  refreshAiManualSearch(key, rawName, orderIndex);
+}
+
+function refreshAiManualSearch(key, rawName, orderIndex) {
+  const input = [...document.querySelectorAll("[data-ai-manual-input]")]
+    .find((element) => element.dataset.aiManualInput === String(key));
+  if (input) updateAiManualSearch(input, key, rawName, "", "", orderIndex);
+}
+
+function aiManualCandidateScore(product, query) {
+  if (!query) return 0;
+  const normalized = normalizeProductSearchQuery(query);
+  const name = normalizeProductSearchQuery(product.name);
+  const spec = normalizeProductSearchQuery(product.spec);
+  const aliases = normalizeProductSearchQuery((product.aliases || []).join(" "));
+  if (name === normalized) return 1000;
+  if (name.startsWith(normalized)) return 850;
+  if (name.includes(normalized)) return 700;
+  if (spec === normalized) return 600;
+  if (spec.includes(normalized)) return 500;
+  if (aliases.includes(normalized)) return 450;
+  return productSearchText(product).includes(normalized) ? 300 : 0;
+}
+
+function updateAiManualSearch(input, key, rawName, cat1, cat2, orderIndex = "") {
   if (input.dataset.composing === "true") return;
-  const query = input.value.trim().toLowerCase();
+  const query = input.value.trim();
+  const cat1Select = [...document.querySelectorAll("[data-ai-search-cat1]")]
+    .find((element) => element.dataset.aiSearchCat1 === String(key));
+  const cat2Select = [...document.querySelectorAll("[data-ai-search-cat2]")]
+    .find((element) => element.dataset.aiSearchCat2 === String(key));
+  const selectedCat1 = cat1Select ? cat1Select.value : cat1;
+  const selectedCat2 = cat2Select ? cat2Select.value : cat2;
   const candidates = products
     .filter((product) => isProductActive(product))
-    .filter((product) => !cat1 || product.cat1 === cat1)
-    .filter((product) => !cat2 || product.cat2 === cat2)
-    .filter((product) => !query || productSearchText(product).includes(query))
-    .slice(0, 12)
+    .filter((product) => !selectedCat1 || product.cat1 === selectedCat1)
+    .filter((product) => !selectedCat2 || product.cat2 === selectedCat2)
+    .map((product) => ({ product, score: aiManualCandidateScore(product, query) }))
+    .filter((entry) => !query || entry.score > 0)
+    .sort((a, b) => b.score - a.score || String(a.product.name).localeCompare(String(b.product.name), "zh-CN"))
+    .slice(0, 16)
+    .map((entry) => entry.product)
     .map(aiCandidateFromProduct);
   const results = [...document.querySelectorAll("[data-ai-manual-results]")]
     .find((element) => element.dataset.aiManualResults === String(key));
   if (results) {
     results.innerHTML = candidates.length
-      ? candidates.map((product) => aiCandidateOption(product, key, rawName)).join("")
-      : `<div class="ai-manual-empty">当前限定分类下没有找到商品，请换一个关键词。</div>`;
+      ? candidates.map((product) => aiCandidateOption(product, key, rawName, orderIndex)).join("")
+      : `<div class="ai-manual-empty">当前搜索范围没有找到商品，请更换关键词、分类或选择“全部商品”。</div>`;
   }
 }
 
 function applyAiDraft() {
   if (!state.aiDraft) return;
+  const entries = [];
   state.aiDraft.matched.forEach((item) => {
-    const learnAlias = Boolean(aiAliasCheckbox(item.lineKey)?.checked);
-    if (addDraftLine(item.productId, item.quantity)) rememberAiChoice(item.rawName, item.productId, learnAlias);
+    entries.push({ orderIndex: Number(item.orderIndex || 0), productId: item.productId, quantity: item.quantity, rawName: item.rawName, lineKey: item.lineKey });
   });
   document.querySelectorAll("[data-ai-quantity-product]").forEach((input) => {
-    const learnAlias = Boolean(aiAliasCheckbox(input.dataset.aiLineKey)?.checked);
-    if (addDraftLine(input.dataset.aiQuantityProduct, input.value)) rememberAiChoice(input.dataset.aiRawName, input.dataset.aiQuantityProduct, learnAlias);
+    entries.push({ orderIndex: Number(input.dataset.aiOrderIndex || 0), productId: input.dataset.aiQuantityProduct, quantity: input.value, rawName: input.dataset.aiRawName, lineKey: input.dataset.aiLineKey });
   });
   document.querySelectorAll("[data-ai-candidate-product]:checked").forEach((input) => {
     const key = input.dataset.aiCandidateGroup;
     const quantityInput = [...document.querySelectorAll("[data-ai-candidate-quantity]")]
       .find((element) => element.dataset.aiCandidateQuantity === key);
-    const learnAlias = Boolean(aiAliasCheckbox(key)?.checked);
-    if (addDraftLine(input.value, quantityInput ? quantityInput.value : "")) rememberAiChoice(input.dataset.aiRawName, input.value, learnAlias);
+    entries.push({ orderIndex: Number(input.dataset.aiOrderIndex || 0), productId: input.value, quantity: quantityInput ? quantityInput.value : "", rawName: input.dataset.aiRawName, lineKey: key });
+  });
+  entries.sort((a, b) => a.orderIndex - b.orderIndex).forEach((entry) => {
+    const learnAlias = Boolean(aiAliasCheckbox(entry.lineKey)?.checked);
+    if (addDraftLine(entry.productId, entry.quantity)) rememberAiChoice(entry.rawName, entry.productId, learnAlias);
   });
   persistCart();
   const count = state.cart.reduce((sum, item) => sum + item.quantity, 0);
@@ -943,6 +1007,7 @@ function renderModal() {
   if (type === "customer") return customerModal(id);
   if (type === "customerOrders") return customerOrdersModal(id);
   if (type === "product") return productModal(id);
+  if (type === "productImage") return productImageModal(id);
   if (type === "document") return documentModal(id);
   if (type === "delivery") return deliveryModal(id);
   if (type === "editOrder") return editOrderModal(id);
@@ -1012,7 +1077,7 @@ function renderAiNeedsQuantity(list) {
   return `
     <section class="ai-section">
       <h4>需要补数量</h4>
-      ${list.map((item) => `<div class="ai-line-wrap"><div class="ai-line"><div><strong>${html(orderItemDetails(item).label)}</strong><div class="hint">${html(item.unit)} · 原文：${html(item.rawName || "-")}</div>${item.recommendation ? `<div class="ai-match-reason">${html(item.recommendation)}</div>` : ""}</div><input class="input ai-small-input" type="number" min="0" step="0.01" placeholder="数量" data-ai-quantity-product="${html(item.productId)}" data-ai-line-key="${html(item.lineKey)}" data-ai-raw-name="${html(item.rawName || "")}" /><div class="num">${money(item.price)}</div></div>${renderAiAliasConsent(item.lineKey, item.rawName, item.productId)}</div>`).join("")}
+      ${list.map((item) => `<div class="ai-line-wrap"><div class="ai-line"><div><strong>${html(orderItemDetails(item).label)}</strong><div class="hint">${html(item.unit)} · 原文：${html(item.rawName || "-")}</div>${item.recommendation ? `<div class="ai-match-reason">${html(item.recommendation)}</div>` : ""}</div><input class="input ai-small-input" type="number" min="0" step="0.01" placeholder="数量" data-ai-quantity-product="${html(item.productId)}" data-ai-line-key="${html(item.lineKey)}" data-ai-order-index="${html(item.orderIndex)}" data-ai-raw-name="${html(item.rawName || "")}" /><div class="num">${money(item.price)}</div></div>${renderAiAliasConsent(item.lineKey, item.rawName, item.productId)}</div>`).join("")}
     </section>
   `;
 }
@@ -1022,7 +1087,7 @@ function renderAiUncertain(list) {
   return `
     <section class="ai-section">
       <h4>需要选择商品</h4>
-      ${list.map((item, index) => { const key = item.lineKey || `${item.groupId || "group"}-${index}`; const candidates = item.candidates || []; return `<div class="ai-candidate-block"><div class="ai-candidate-head"><div><strong>原文：${html(item.rawName || "-")}</strong><div class="hint">候选按客户习惯、出单频率和数量排序；不选择就不会加入订单。</div></div><input class="input ai-small-input" type="number" min="0" step="0.01" value="${html(item.quantity || "")}" placeholder="数量" data-ai-candidate-quantity="${html(key)}" /></div><div class="ai-candidate-list">${candidates[0] ? aiCandidateOption(candidates[0], key, item.rawName) : ""}${candidates.length > 1 ? `<details class="ai-more-candidates"><summary>展开其他 ${candidates.length - 1} 个候选</summary>${candidates.slice(1).map((product) => aiCandidateOption(product, key, item.rawName)).join("")}</details>` : ""}</div>${renderAiAliasConsent(key, item.rawName)}</div>`; }).join("")}
+      ${list.map((item, index) => { const key = item.lineKey || `${item.groupId || "group"}-${index}`; const candidates = item.candidates || []; return `<div class="ai-candidate-block"><div class="ai-candidate-head"><div><strong>原文：${html(item.rawName || "-")}</strong><div class="hint">候选按客户习惯、出单频率和数量排序；没有合适商品时可在下方搜索。</div></div><input class="input ai-small-input" type="number" min="0" step="0.01" value="${html(item.quantity || "")}" placeholder="数量" data-ai-candidate-quantity="${html(key)}" /></div><div class="ai-candidate-list">${candidates[0] ? aiCandidateOption(candidates[0], key, item.rawName, item.orderIndex) : ""}${candidates.length > 1 ? `<details class="ai-more-candidates"><summary>展开其他 ${candidates.length - 1} 个候选</summary>${candidates.slice(1).map((product) => aiCandidateOption(product, key, item.rawName, item.orderIndex)).join("")}</details>` : ""}</div><details class="ai-manual-picker"><summary>搜索其他商品</summary>${aiSearchScopeControls(key, item.rawName, item.cat1 || "", item.cat2 || "", item.orderIndex)}<div class="ai-manual-search"><input class="input" data-ai-manual-input="${html(key)}" placeholder="输入商品名称、规格、品牌或关键词" oncompositionstart="this.dataset.composing='true'" oncompositionend="this.dataset.composing='false';updateAiManualSearch(this,${jsArg(key)},${jsArg(item.rawName || "")},${jsArg(item.cat1 || "")},${jsArg(item.cat2 || "")},${jsArg(item.orderIndex)})" oninput="updateAiManualSearch(this,${jsArg(key)},${jsArg(item.rawName || "")},${jsArg(item.cat1 || "")},${jsArg(item.cat2 || "")},${jsArg(item.orderIndex)})" /></div><div class="ai-candidate-list ai-manual-results" data-ai-manual-results="${html(key)}"><div class="ai-manual-empty">输入关键词后即时显示匹配商品。</div></div></details>${renderAiAliasConsent(key, item.rawName)}</div>`; }).join("")}
     </section>
   `;
 }
@@ -1032,7 +1097,7 @@ function renderAiUnmatched(list) {
   return `
     <section class="ai-section">
       <h4>未匹配商品</h4>
-      ${list.map((item, index) => { const key = item.lineKey || `${item.groupId || "unmatched"}-${index}`; const suggestions = item.suggestions || []; return `<div class="ai-candidate-block ai-unmatched-block"><div class="ai-candidate-head"><div><strong>原文：${html(item.rawName || "-")}</strong><div class="hint">${html(item.note || "未找到足够可靠的商品，请在当前分类内手动选择。")}</div></div><input class="input ai-small-input" type="number" min="0" step="0.01" value="${html(item.quantity || "")}" placeholder="数量" data-ai-candidate-quantity="${html(key)}" /></div><div class="ai-manual-search"><input class="input" placeholder="在 ${html([item.cat1, item.cat2].filter(Boolean).join(" / ") || "当前分类")} 中搜索商品" oncompositionstart="this.dataset.composing='true'" oncompositionend="this.dataset.composing='false';updateAiManualSearch(this,${jsArg(key)},${jsArg(item.rawName || "")},${jsArg(item.cat1 || "")},${jsArg(item.cat2 || "")})" oninput="updateAiManualSearch(this,${jsArg(key)},${jsArg(item.rawName || "")},${jsArg(item.cat1 || "")},${jsArg(item.cat2 || "")})" /></div><div class="ai-candidate-list ai-manual-results" data-ai-manual-results="${html(key)}">${suggestions.length ? suggestions.map((product) => aiCandidateOption(product, key, item.rawName)).join("") : `<div class="ai-manual-empty">输入商品名称、规格、品牌或关键词进行查找。</div>`}</div>${renderAiAliasConsent(key, item.rawName)}</div>`; }).join("")}
+      ${list.map((item, index) => { const key = item.lineKey || `${item.groupId || "unmatched"}-${index}`; const suggestions = item.suggestions || []; return `<div class="ai-candidate-block ai-unmatched-block"><div class="ai-candidate-head"><div><strong>原文：${html(item.rawName || "-")}</strong><div class="hint">${html(item.note || "未找到足够可靠的商品，请手动选择。")}</div></div><input class="input ai-small-input" type="number" min="0" step="0.01" value="${html(item.quantity || "")}" placeholder="数量" data-ai-candidate-quantity="${html(key)}" /></div>${aiSearchScopeControls(key, item.rawName, item.cat1 || "", item.cat2 || "", item.orderIndex)}<div class="ai-manual-search"><input class="input" data-ai-manual-input="${html(key)}" placeholder="输入商品名称、规格、品牌或关键词" oncompositionstart="this.dataset.composing='true'" oncompositionend="this.dataset.composing='false';updateAiManualSearch(this,${jsArg(key)},${jsArg(item.rawName || "")},${jsArg(item.cat1 || "")},${jsArg(item.cat2 || "")},${jsArg(item.orderIndex)})" oninput="updateAiManualSearch(this,${jsArg(key)},${jsArg(item.rawName || "")},${jsArg(item.cat1 || "")},${jsArg(item.cat2 || "")},${jsArg(item.orderIndex)})" /></div><div class="ai-candidate-list ai-manual-results" data-ai-manual-results="${html(key)}">${suggestions.length ? suggestions.map((product) => aiCandidateOption(product, key, item.rawName, item.orderIndex)).join("") : `<div class="ai-manual-empty">输入关键词后即时显示匹配商品。</div>`}</div>${renderAiAliasConsent(key, item.rawName)}</div>`; }).join("")}
     </section>
   `;
 }
@@ -1096,6 +1161,10 @@ function productModal(id) {
       <div class="modal side">
         <div class="modal-head"><h3>${id ? "编辑产品" : "新增产品"}</h3><button class="icon-btn" onclick="closeModal()">×</button></div>
         <div class="modal-body">
+          <div class="product-image-editor">
+            ${p.imageUrl ? `<img src="${html(p.imageUrl)}" alt="${html(p.name || "商品图片")}" />` : `<div class="product-image-placeholder">暂无商品图片</div>`}
+            <div><label class="btn" for="productImageFile">选择图片</label><input id="productImageFile" type="file" accept="image/png,image/jpeg,image/webp" hidden onchange="previewProductImage(this)" /><div class="hint">支持 PNG、JPG、WebP，文件不超过 3MB。保存商品时一并上传。</div></div>
+          </div>
           <div class="form-grid">
             ${field("产品品牌 *", p.brand || "")}
             ${field("产品名称 *", p.name || "")}
@@ -1113,6 +1182,59 @@ function productModal(id) {
       </div>
     </div>
   `;
+}
+
+function productImageModal(id) {
+  const product = byId(products, id);
+  if (!product) return "";
+  return `
+    <div class="modal-backdrop" onclick="if(event.target.className==='modal-backdrop')closeModal()">
+      <div class="modal product-image-modal">
+        <div class="modal-head"><div><h3>${html(product.name)}</h3><div class="hint">${html(product.spec || "无规格")}</div></div><button class="icon-btn" onclick="closeModal()">×</button></div>
+        <div class="modal-body">
+          ${product.imageUrl ? `<img class="product-image-large" src="${html(product.imageUrl)}" alt="${html(product.name)}" />` : `<div class="product-image-empty">该商品暂未上传图片</div>`}
+        </div>
+        ${isAdmin() ? `<div class="modal-foot"><button class="btn" onclick="closeModal();openModal('product',${jsArg(product.id)})">编辑商品图片</button></div>` : ""}
+      </div>
+    </div>
+  `;
+}
+
+function previewProductImage(input) {
+  const file = input.files && input.files[0];
+  if (!file) return;
+  if (file.size > 3 * 1024 * 1024) {
+    alert("图片不能超过 3MB。");
+    input.value = "";
+    return;
+  }
+  const wrap = input.closest(".product-image-editor");
+  const preview = wrap && wrap.querySelector("img, .product-image-placeholder");
+  if (!preview) return;
+  const url = URL.createObjectURL(file);
+  if (preview.tagName === "IMG") preview.src = url;
+  else preview.outerHTML = `<img src="${html(url)}" alt="商品图片预览" />`;
+}
+
+function fileAsDataUrl(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(reader.result);
+    reader.onerror = () => reject(new Error("文件读取失败"));
+    reader.readAsDataURL(file);
+  });
+}
+
+async function uploadProductImage(productId, file) {
+  if (!file) return null;
+  const response = await fetch(`/api/products/${encodeURIComponent(productId)}/image`, {
+    method: "PUT",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ image: await fileAsDataUrl(file) }),
+  });
+  const data = await response.json();
+  if (!response.ok) throw new Error(data.error || "商品图片上传失败");
+  return data.product;
 }
 
 function customerOrdersModal(id) {
@@ -1657,7 +1779,12 @@ function html(value) {
 }
 
 function productSearchText(p) {
-  return [p.code, p.name, p.spec, p.cat1, p.cat2, p.unit, ...(p.aliases || [])].join(" ").toLowerCase();
+  const text = [p.code, p.name, p.spec, p.brand, p.cat1, p.cat2, p.unit, ...(p.aliases || [])].join(" ").toLowerCase();
+  return `${text} ${normalizeProductSearchQuery(text)}`;
+}
+
+function normalizeProductSearchQuery(value) {
+  return String(value || "").toLowerCase().replace(/[\s，。、“”‘’：:；;！!？?、,.（）()【】\[\]_-]+/g, "");
 }
 
 function isProductActive(p) {
@@ -1694,10 +1821,12 @@ function subcategoryTabs() {
 
 function filteredProducts() {
   const q = state.productQuery.trim().toLowerCase();
+  const normalized = normalizeProductSearchQuery(q);
   return products.filter((p) => {
     const categoryOk = state.category === "全部" || p.cat1 === state.category;
     const subcategoryOk = !state.productSubcategory || p.cat2 === state.productSubcategory;
-    return categoryOk && subcategoryOk && (!q || productSearchText(p).includes(q));
+    const searchText = productSearchText(p);
+    return categoryOk && subcategoryOk && (!q || searchText.includes(q) || searchText.includes(normalized));
   });
 }
 
@@ -1755,6 +1884,10 @@ function productModal(id) {
       <div class="modal side">
         <div class="modal-head"><h3>${id ? "编辑商品" : "新增商品"}</h3><button class="icon-btn" onclick="closeModal()">×</button></div>
         <div class="modal-body">
+          <div class="product-image-editor">
+            ${p.imageUrl ? `<img src="${html(p.imageUrl)}" alt="${html(p.name || "商品图片")}" />` : `<div class="product-image-placeholder">暂无商品图片</div>`}
+            <div><label class="btn" for="productImageFile">选择图片</label><input id="productImageFile" type="file" accept="image/png,image/jpeg,image/webp" hidden onchange="previewProductImage(this)" /><div class="hint">支持 PNG、JPG、WebP，文件不超过 3MB。保存商品时一并上传。</div></div>
+          </div>
           <div class="form-grid">
             <div class="field"><label>商品名称 *</label><input id="productName" class="input" value="${html(p.name || "")}" /></div>
             <div class="field"><label>规格 *</label><input id="productSpec" class="input" value="${html(p.spec || "")}" placeholder="必须写清楚规格，便于开单选择" /></div>
@@ -2465,9 +2598,17 @@ function toggleNewProductCat2() {
 }
 
 function updateProductQuery(input) {
-  scheduleInputValue(input, "productQuery", input.id);
+  state.productQuery = input.value;
   resetPage("products");
   resetPage("createProducts");
+  if (state.route === "products") {
+    renderProductTableResults();
+    return;
+  }
+  if (input.dataset.composing !== "true") {
+    clearTimeout(inputRenderTimer);
+    inputRenderTimer = setTimeout(() => renderKeepingInput(input.id, input.selectionStart || 0, input.selectionEnd || 0), 80);
+  }
 }
 
 function setProductCategory(category) {
@@ -2519,18 +2660,37 @@ function renderProducts() {
   const canManage = isAdmin();
   return `
     <div class="toolbar">
-      <input id="productSearchInput" class="input" placeholder="搜索商品名称 / 规格 / 编码 / 别名" value="${html(state.productQuery)}" oninput="updateProductQuery(this)" />
+      <input id="productSearchInput" class="input" placeholder="搜索商品名称 / 规格 / 编码 / 别名" value="${html(state.productQuery)}" oncompositionstart="this.dataset.composing='true'" oncompositionend="this.dataset.composing='false';updateProductQuery(this)" oninput="updateProductQuery(this)" />
       <div class="spacer"></div>
-      ${canManage ? `<button class="btn primary" onclick="openModal('product')">新增商品</button>` : ""}
+      <button id="productExportSelectedBtn" class="btn" onclick="exportProducts('selected')" ${state.selectedProductIds.length ? "" : "disabled"}>导出已选</button>
+      <button class="btn" onclick="exportProducts('all')">导出全部</button>
+      ${canManage ? `<button class="btn" onclick="downloadProductTemplate()">下载导入模板</button><button class="btn" onclick="document.getElementById('productImportFile').click()">批量上传</button><input id="productImportFile" type="file" accept=".xlsx" hidden onchange="importProducts(this)" /><button class="btn primary" onclick="openModal('product')">新增商品</button>` : ""}
     </div>
     ${categoryTabs()}
     ${subcategoryTabs()}
-    <div class="hint" style="margin:8px 0 12px">共 ${list.length} 个商品，当前显示 ${pageData.items.length} 个</div>
+    <div id="productTableResults">${productTableResultsHtml(list, pageData, canManage)}</div>
+  `;
+}
+
+function productThumbnail(product, extraClass = "") {
+  if (product.imageUrl) {
+    return `<button type="button" class="product-thumb-button ${extraClass}" title="查看商品图片" onclick="openModal('productImage',${jsArg(product.id)})"><img src="${html(product.imageUrl)}" alt="${html(product.name)}" loading="lazy" /></button>`;
+  }
+  return `<button type="button" class="product-thumb-button is-empty ${extraClass}" title="暂无商品图片" onclick="openModal('productImage',${jsArg(product.id)})"><span>暂无图</span></button>`;
+}
+
+function productTableResultsHtml(list, pageData, canManage = isAdmin()) {
+  const selected = new Set(state.selectedProductIds || []);
+  const pageAllSelected = pageData.items.length && pageData.items.every((product) => selected.has(product.id));
+  return `
+    <div class="product-list-summary"><span>共 ${list.length} 个商品，当前显示 ${pageData.items.length} 个</span><span>已选 ${selected.size} 个</span></div>
     <div class="card table-wrap product-table">
       <table>
-        <thead><tr><th>商品名称</th><th>规格</th><th>一级分类</th><th>二级分类</th><th>单位</th><th>销售价</th><th>状态</th>${canManage ? "<th>操作</th>" : ""}</tr></thead>
+        <thead><tr><th class="selection-cell"><input type="checkbox" title="选择当前页" ${pageAllSelected ? "checked" : ""} onchange="toggleCurrentProductPage(this.checked)" /></th><th>图片</th><th>商品名称</th><th>规格</th><th>一级分类</th><th>二级分类</th><th>单位</th><th>销售价</th><th>状态</th><th>操作</th></tr></thead>
         <tbody>${pageData.items.map((p) => `
           <tr>
+            <td class="selection-cell"><input type="checkbox" ${selected.has(p.id) ? "checked" : ""} onchange="toggleProductSelection(${jsArg(p.id)},this.checked)" /></td>
+            <td>${productThumbnail(p, "small")}</td>
             <td><div class="product-name-cell"><strong>${html(p.name)}</strong><span>${html(p.code || p.id)}</span></div></td>
             <td>${html(p.spec || "-")}</td>
             <td>${html(p.cat1 || "-")}</td>
@@ -2538,13 +2698,45 @@ function renderProducts() {
             <td>${html(p.unit)}</td>
             <td class="num">${money(p.price)}</td>
             <td><span class="badge ${isProductActive(p) ? "success" : "danger"}">${html(p.status || "在售")}</span></td>
-            ${canManage ? `<td class="row-actions">${actionButton("编辑", "edit", `openModal('product',${JSON.stringify(p.id)})`)}${actionButton("删除", "delete", `deleteProduct(${JSON.stringify(p.id)})`)}</td>` : ""}
+            <td class="row-actions">${actionButton("查看图片", "view", `openModal('productImage',${jsArg(p.id)})`)}${canManage ? `${actionButton("编辑", "edit", `openModal('product',${jsArg(p.id)})`)}${actionButton("删除", "delete", `deleteProduct(${jsArg(p.id)})`)}` : ""}</td>
           </tr>
         `).join("")}</tbody>
       </table>
     </div>
     ${paginationControls("products", pageData.page, pageData.totalPages, pageData.total)}
   `;
+}
+
+function renderProductTableResults() {
+  const container = document.getElementById("productTableResults");
+  if (!container) return;
+  const list = filteredProducts();
+  const pageData = paginateList(list, "products", EDIT_PAGE_SIZES.products);
+  container.innerHTML = productTableResultsHtml(list, pageData);
+}
+
+function toggleProductSelection(productId, checked) {
+  const selected = new Set(state.selectedProductIds || []);
+  if (checked) selected.add(productId);
+  else selected.delete(productId);
+  state.selectedProductIds = Array.from(selected);
+  renderProductTableResults();
+  syncProductExportButton();
+}
+
+function toggleCurrentProductPage(checked) {
+  const list = filteredProducts();
+  const pageData = paginateList(list, "products", EDIT_PAGE_SIZES.products);
+  const selected = new Set(state.selectedProductIds || []);
+  pageData.items.forEach((product) => checked ? selected.add(product.id) : selected.delete(product.id));
+  state.selectedProductIds = Array.from(selected);
+  renderProductTableResults();
+  syncProductExportButton();
+}
+
+function syncProductExportButton() {
+  const button = document.getElementById("productExportSelectedBtn");
+  if (button) button.disabled = !state.selectedProductIds.length;
 }
 
 function productModal(id) {
@@ -2633,6 +2825,77 @@ async function deleteProduct(id) {
     showToast("商品已删除");
     render();
   } catch (error) {
+    alert(error.message);
+  }
+}
+
+function downloadProductTemplate() {
+  const anchor = document.createElement("a");
+  anchor.href = "/api/products/template";
+  anchor.download = "产品批量导入模板.xlsx";
+  document.body.appendChild(anchor);
+  anchor.click();
+  anchor.remove();
+}
+
+async function exportProducts(mode) {
+  const ids = mode === "selected" ? state.selectedProductIds : [];
+  if (mode === "selected" && !ids.length) {
+    alert("请先勾选需要导出的商品。");
+    return;
+  }
+  try {
+    const response = await fetch("/api/products/export", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ ids }),
+    });
+    if (!response.ok) {
+      const data = await response.json();
+      throw new Error(data.error || "导出产品失败");
+    }
+    const blob = await response.blob();
+    const disposition = response.headers.get("content-disposition") || "";
+    const match = disposition.match(/filename\*=UTF-8''([^;]+)/i);
+    const filename = match ? decodeURIComponent(match[1]) : "产品列表.xlsx";
+    const url = URL.createObjectURL(blob);
+    const anchor = document.createElement("a");
+    anchor.href = url;
+    anchor.download = filename;
+    anchor.click();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+  } catch (error) {
+    alert(error.message);
+  }
+}
+
+async function importProducts(input) {
+  const file = input.files && input.files[0];
+  if (!file) return;
+  if (!/\.xlsx$/i.test(file.name)) {
+    alert("请上传从系统下载的 .xlsx 模板。");
+    input.value = "";
+    return;
+  }
+  if (!confirm("导入将按商品编码更新已有商品，并新增不存在的编码。确认继续吗？")) {
+    input.value = "";
+    return;
+  }
+  try {
+    const response = await fetch("/api/products/import", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ file: await fileAsDataUrl(file) }),
+    });
+    const data = await response.json();
+    if (!response.ok) throw new Error(data.error || "批量导入失败");
+    products = data.products;
+    state.selectedProductIds = [];
+    input.value = "";
+    render();
+    showToast(`批量导入完成：新增 ${data.created} 个，更新 ${data.updated} 个`);
+  } catch (error) {
+    input.value = "";
     alert(error.message);
   }
 }
@@ -3012,7 +3275,7 @@ function renderEditProductPicker() {
     </div>
     <div class="edit-product-results">${matches.length ? matches.map((p) => {
       const added = state.editOrderDraft.items.some((item) => item.productId === p.id);
-      return `<div class="edit-product-result"><div><strong>${html(orderItemDetails(p).label)}</strong><span>${html(p.brand || p.cat2 || "-")} · ${html(p.unit || "-")} · ${money(p.price)}</span></div><button class="btn ${added ? "ghost" : "primary"}" ${added ? "disabled" : ""} onclick="addEditOrderProduct(${jsArg(p.id)})">${added ? "已添加" : "添加"}</button></div>`;
+      return `<div class="edit-product-result">${productThumbnail(p, "small")}<div><strong>${html(orderItemDetails(p).label)}</strong><span>${html(p.brand || p.cat2 || "-")} · ${html(p.unit || "-")} · ${money(p.price)}</span></div><button class="btn ${added ? "ghost" : "primary"}" ${added ? "disabled" : ""} onclick="addEditOrderProduct(${jsArg(p.id)})">${added ? "已添加" : "添加"}</button></div>`;
     }).join("") : `<div class="empty">没有匹配的商品</div>`}</div>
     ${matches.length >= 60 ? `<div class="hint">结果较多，请继续输入关键词缩小范围</div>` : ""}
   </section>`;
@@ -3254,6 +3517,7 @@ function changeQty(productId, delta) {
 
 async function saveProduct(id) {
   const field = (fieldId) => document.getElementById(fieldId);
+  const imageFile = field("productImageFile")?.files?.[0] || null;
   const cat2Select = field("productCat2Select");
   const cat2New = field("productCat2New");
   let cat2 = cat2Select?.value || "";
@@ -3285,14 +3549,25 @@ async function saveProduct(id) {
     });
     const data = await response.json();
     if (!response.ok) throw new Error(data.error || "保存商品失败");
+    const savedId = data.product.id;
+    let savedProduct = data.product;
+    let imageError = "";
+    if (imageFile) {
+      try {
+        savedProduct = await uploadProductImage(savedId, imageFile);
+      } catch (error) {
+        imageError = error.message || "商品图片上传失败";
+      }
+    }
     if (id) {
       const index = products.findIndex((item) => item.id === id);
-      if (index >= 0) products[index] = data.product;
+      if (index >= 0) products[index] = savedProduct;
     } else {
-      products.unshift(data.product);
+      products.unshift(savedProduct);
     }
     closeModal();
-    showToast("商品信息已保存");
+    if (imageError) alert(`商品信息已保存，但图片上传失败：${imageError}`);
+    else showToast("商品信息已保存");
   } catch (error) {
     alert(error.message);
   }
@@ -3529,6 +3804,69 @@ function bindGlobalClickHandlers() {
   window.__buildingSalesClickBound = true;
 }
 
+function productCard(p) {
+  const selectedLine = cartItemForProduct(p.id);
+  const selected = Boolean(selectedLine);
+  const active = isProductActive(p);
+  const quantityControl = selected
+    ? `<div class="product-card-qty" title="已选数量">
+        <button type="button" onclick="event.stopPropagation();changeQty(${jsArg(p.id)},-1)">-</button>
+        <input class="qty-input" type="number" min="0" step="0.01" value="${Number(selectedLine.quantity || 0)}" onclick="event.stopPropagation()" onchange="setCartQuantity(${jsArg(p.id)},this.value)" onkeydown="if(event.key==='Enter')this.blur()" />
+        <button type="button" onclick="event.stopPropagation();changeQty(${jsArg(p.id)},1)">+</button>
+      </div>`
+    : active
+      ? `<button class="icon-btn product-add-btn" title="加入购物车" onclick="addToCart(${jsArg(p.id)})">${svgIcon("plus")}</button>`
+      : `<span class="badge danger">停用</span>`;
+  return `
+    <article class="product-card ${active ? "" : "disabled"} ${selected ? "selected" : ""}">
+      ${productThumbnail(p, "catalog")}
+      <div>
+        <h4 class="product-title">${html(p.name)}</h4>
+        <div class="product-spec">${html(p.spec || "无规格")}</div>
+        <div class="product-spec">${html(productMeta(p))} · ${html(p.unit || "-")}</div>
+        <div class="price">${money(p.price)}</div>
+      </div>
+      ${quantityControl}
+    </article>
+  `;
+}
+
+function productModal(id) {
+  const p = byId(products, id) || { cat1: "辅助商品", status: "在售", aliases: [] };
+  const aliases = Array.isArray(p.aliases) ? p.aliases.join("，") : (p.aliases || "");
+  return `
+    <div class="modal-backdrop" onclick="if(event.target.className==='modal-backdrop')closeModal()">
+      <div class="modal side">
+        <div class="modal-head"><h3>${id ? "编辑商品" : "新增商品"}</h3><button class="icon-btn" onclick="closeModal()">×</button></div>
+        <div class="modal-body">
+          <div class="product-image-editor">
+            ${p.imageUrl ? `<img src="${html(p.imageUrl)}" alt="${html(p.name || "商品图片")}" />` : `<div class="product-image-placeholder">暂无商品图片</div>`}
+            <div><label class="btn" for="productImageFile">选择图片</label><input id="productImageFile" type="file" accept="image/png,image/jpeg,image/webp" hidden onchange="previewProductImage(this)" /><div class="hint">支持 PNG、JPG、WebP，文件不超过 3MB。保存商品时一并上传。</div></div>
+          </div>
+          <div class="form-grid">
+            <div class="field"><label>商品名称 *</label><input id="productName" class="input" value="${html(p.name || "")}" /></div>
+            <div class="field"><label>规格</label><input id="productSpec" class="input" value="${html(p.spec || "")}" placeholder="可不填，有规格时建议写清楚" /></div>
+            <div class="field"><label>一级分类 *</label><select id="productCat1" class="select" onchange="refreshProductCat2Options()">${PRODUCT_CATEGORIES.filter((cat) => cat !== "全部").map((cat) => `<option ${p.cat1 === cat ? "selected" : ""}>${html(cat)}</option>`).join("")}</select></div>
+            <div class="field"><label>二级分类</label><div id="productCat2Wrap" class="stacked-field">${productCat2Control(p.cat1 || "辅助商品", p.cat2 || "")}</div></div>
+            <div class="field"><label>单位 *</label><input id="productUnit" class="input" value="${html(p.unit || "")}" /></div>
+            <div class="field"><label>销售价 *</label><input id="productPrice" class="input" type="number" step="0.01" value="${Number(p.price || 0)}" /></div>
+            <div class="field"><label>成本价</label><input id="productCost" class="input" type="number" step="0.01" value="${Number(p.cost || 0)}" /></div>
+            <div class="field"><label>状态</label><select id="productStatus" class="select">${["在售", "停用"].map((item) => `<option ${p.status === item ? "selected" : ""}>${item}</option>`).join("")}</select></div>
+          </div>
+          <details class="advanced-box">
+            <summary>高级设置</summary>
+            <div class="form-grid" style="margin-top:12px">
+              <div class="field"><label>商品编码</label><input id="productCode" class="input" value="${html(p.code || p.id || "")}" ${id ? "disabled" : ""} /></div>
+              <div class="field" style="grid-column:1/-1"><label>别名 / 关键词</label><textarea id="productAliases" class="textarea" placeholder="多个别名用逗号或换行隔开">${html(aliases)}</textarea><div class="hint">AI 开单会使用别名辅助匹配，开单显示仍以商品库名称、规格、单位、价格为准。</div></div>
+            </div>
+          </details>
+        </div>
+        <div class="modal-foot"><button class="btn" onclick="closeModal()">取消</button><button class="btn primary" onclick="saveProduct(${jsArg(id || "")})">保存商品</button></div>
+      </div>
+    </div>
+  `;
+}
+
 Object.assign(window, {
   setRoute,
   openOrderRoute,
@@ -3554,6 +3892,14 @@ Object.assign(window, {
   refreshEditProductPicker,
   addEditOrderProduct,
   saveProduct,
+  previewProductImage,
+  downloadProductTemplate,
+  exportProducts,
+  importProducts,
+  toggleProductSelection,
+  toggleCurrentProductPage,
+  changeAiSearchCategory,
+  refreshAiManualSearch,
   openModal,
   closeModal,
   updateOrderStatus,

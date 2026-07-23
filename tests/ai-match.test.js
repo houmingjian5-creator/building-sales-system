@@ -6,7 +6,7 @@ const server = require('../server');
 const db = JSON.parse(fs.readFileSync(path.join(__dirname, '..', 'data', 'db.json'), 'utf8'));
 const appSource = fs.readFileSync(path.join(__dirname, '..', 'public', 'app.js'), 'utf8');
 
-const finalProductModal = appSource.slice(appSource.lastIndexOf('function productModal'), appSource.lastIndexOf('async function saveProduct'));
+const finalProductModal = appSource.slice(appSource.lastIndexOf('function productModal'), appSource.lastIndexOf('Object.assign(window'));
 assert(finalProductModal.includes('onclick="saveProduct(${jsArg(id || "")})"'), '商品保存按钮必须安全传递商品 ID');
 assert(!finalProductModal.includes('onclick="saveProduct(${JSON.stringify'), '商品 ID 的引号不能破坏 onclick 属性');
 
@@ -101,6 +101,7 @@ const popularityDraft = server.validateAiDraft(
 );
 assert.strictEqual(popularityDraft.matched.length, 0, '全局热销只能调整候选顺序，不能自动确认');
 assert.strictEqual(popularityDraft.uncertain[0].candidates[0].productId, 'standard');
+assert.strictEqual(popularityDraft.uncertain[0].orderIndex, 0, 'AI 结果必须保留原始行顺序');
 
 const learningDb = {
   products: [{ id: 'p1', name: '日丰PPR等径弯头', brand: '日丰', spec: '20', aliases: [] }],
