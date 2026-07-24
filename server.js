@@ -387,6 +387,14 @@ function invalidOrderProductIds(items, products = []) {
     .filter((id) => !id || !ids.has(id));
 }
 
+function invalidOrderQuantityIndexes(items) {
+  return (Array.isArray(items) ? items : []).reduce((invalid, item, index) => {
+    const quantity = Number(item && item.quantity);
+    if (!Number.isInteger(quantity) || quantity <= 0) invalid.push(index);
+    return invalid;
+  }, []);
+}
+
 function orderAmount(items) {
   return (Array.isArray(items) ? items : []).reduce((sum, item) => sum + Number(item.quantity || 0) * Number(item.price || 0), 0);
 }
@@ -1303,7 +1311,7 @@ function validateAiDraft(db, aiResult, content = '', scopes = [], customerId = '
       return;
     }
 
-    if (!Number.isFinite(quantity) || quantity <= 0) {
+    if (!Number.isInteger(quantity) || quantity <= 0) {
       needsQuantity.push({
         ...groupMeta,
         rawName,
@@ -1312,6 +1320,8 @@ function validateAiDraft(db, aiResult, content = '', scopes = [], customerId = '
         spec: product.spec,
         unit: product.unit,
         price: product.price,
+        quantity: Number.isFinite(quantity) && quantity > 0 ? quantity : null,
+        quantityError: Number.isFinite(quantity) && quantity > 0 ? '商品数量必须为正整数' : '',
         matchSource: selectedMatch && selectedMatch.stableHistory && !uniqueHardMatch && !highTextMatch ? 'customer-history' : 'text',
         recommendation: selectedMatch ? selectedMatch.recommendation : '',
       });
@@ -1831,6 +1841,9 @@ async function handleApi(req, res) {
       if (invalidOrderProductIds(payload.items, db.products).length) {
         return sendError(res, 400, "订单包含产品库中不存在的商品，请重新选择");
       }
+      if (invalidOrderQuantityIndexes(payload.items).length) {
+        return sendError(res, 400, "商品数量必须为大于 0 的整数，请检查后再保存");
+      }
       const order = {
         id: newId(),
         type: payload.type === "return" ? "return" : "sale",
@@ -1904,6 +1917,12 @@ async function handleApi(req, res) {
     }
     if (method === "PUT" || method === "PATCH") {
       const payload = await readBody(req);
+      if (payload.items !== undefined && invalidOrderProductIds(payload.items, db.products).length) {
+        return sendError(res, 400, "订单包含产品库中不存在的商品，请重新选择");
+      }
+      if (payload.items !== undefined && invalidOrderQuantityIndexes(payload.items).length) {
+        return sendError(res, 400, "商品数量必须为大于 0 的整数，请检查后再保存");
+      }
       if (payload.customerId !== undefined) order.customerId = payload.customerId;
       if (payload.salesUserId !== undefined && user.role !== "销售人员") order.salesUserId = payload.salesUserId;
       if (payload.date !== undefined) order.date = payload.date;
@@ -1949,6 +1968,7 @@ module.exports.fallbackParseOrderText = fallbackParseOrderText;
 module.exports.buildAiRecommendationContext = buildAiRecommendationContext;
 module.exports.validateAiDraft = validateAiDraft;
 module.exports.recordAiLearning = recordAiLearning;
+module.exports.invalidOrderQuantityIndexes = invalidOrderQuantityIndexes;
 module.exports.buildProductWorkbook = buildProductWorkbook;
 module.exports.parseProductWorkbook = parseProductWorkbook;
 module.exports.assistantVisibleCustomers = assistantVisibleCustomers;

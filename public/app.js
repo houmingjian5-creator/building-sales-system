@@ -714,7 +714,7 @@ function addDraftLine(productId, quantity) {
   const product = byId(products, productId);
   if (!product) return false;
   const value = Number(quantity);
-  if (!Number.isFinite(value) || value <= 0) return false;
+  if (!isPositiveInteger(value)) return false;
   const line = state.cart.find((item) => item.productId === productId);
   if (line) line.quantity += value;
   else state.cart.push({ productId, quantity: value, price: product.price });
@@ -890,6 +890,20 @@ function applyAiDraft() {
       .find((element) => element.dataset.aiCandidateQuantity === key);
     entries.push({ orderIndex: Number(input.dataset.aiOrderIndex || 0), productId: input.value, quantity: quantityInput ? quantityInput.value : "", rawName: input.dataset.aiRawName, lineKey: key });
   });
+  const invalidEntries = entries.filter((entry) => !isPositiveInteger(entry.quantity));
+  if (invalidEntries.length) {
+    document.querySelectorAll("[data-ai-matched-quantity], [data-ai-quantity-product], [data-ai-candidate-quantity]").forEach((input) => {
+      setQuantityInputValidity(input);
+    });
+    const firstInvalidKey = invalidEntries[0].lineKey;
+    const firstInvalid = [...document.querySelectorAll("[data-ai-matched-quantity], [data-ai-quantity-product], [data-ai-candidate-quantity]")]
+      .find((input) => input.dataset.aiLineKey === firstInvalidKey || input.dataset.aiCandidateQuantity === firstInvalidKey)
+      || document.querySelector(".quantity-input-invalid");
+    firstInvalid?.focus();
+    firstInvalid?.scrollIntoView({ block: "center", behavior: "smooth" });
+    alert("商品数量必须为大于 0 的整数，请检查标红的数量。");
+    return;
+  }
   entries.sort((a, b) => a.orderIndex - b.orderIndex).forEach((entry) => {
     const learnAlias = Boolean(aiAliasCheckbox(entry.lineKey)?.checked);
     if (addDraftLine(entry.productId, entry.quantity)) rememberAiChoice(entry.rawName, entry.productId, learnAlias);
@@ -1109,7 +1123,7 @@ function renderAiMatched(list) {
                 <div class="hint">${html(item.unit)} · 原文：${html(item.rawName || "-")}</div>
                 ${item.recommendation ? `<div class="ai-match-reason">${html(item.recommendation)}</div>` : ""}
               </div>
-              <label class="ai-matched-quantity"><span>数量</span><input class="input ai-small-input" type="number" min="0.01" step="0.01" value="${html(item.quantity)}" data-ai-matched-quantity /></label>
+              <label class="ai-matched-quantity"><span>数量</span><input class="input ai-small-input${isPositiveInteger(item.quantity) ? "" : " quantity-input-invalid"}" type="number" min="1" step="1" inputmode="numeric" value="${html(item.quantity)}" data-ai-matched-quantity oninput="setQuantityInputValidity(this)" /></label>
               <div class="num ai-matched-price">${money(item.price)}</div>
               <button type="button" class="icon-btn danger ai-matched-delete" title="删除该商品" aria-label="删除该商品" onclick="removeAiMatchedLine(this)">${svgIcon("delete")}</button>
             </div>
@@ -1143,7 +1157,7 @@ function renderAiNeedsQuantity(list) {
   return `
     <section class="ai-section">
       <h4>需要补数量</h4>
-      ${list.map((item) => `<div class="ai-line-wrap"><div class="ai-line"><div><strong>${html(orderItemDetails(item).label)}</strong><div class="hint">${html(item.unit)} · 原文：${html(item.rawName || "-")}</div>${item.recommendation ? `<div class="ai-match-reason">${html(item.recommendation)}</div>` : ""}</div><input class="input ai-small-input" type="number" min="0" step="0.01" placeholder="数量" data-ai-quantity-product="${html(item.productId)}" data-ai-line-key="${html(item.lineKey)}" data-ai-order-index="${html(item.orderIndex)}" data-ai-raw-name="${html(item.rawName || "")}" /><div class="num">${money(item.price)}</div></div>${renderAiAliasConsent(item.lineKey, item.rawName, item.productId)}</div>`).join("")}
+      ${list.map((item) => `<div class="ai-line-wrap"><div class="ai-line"><div><strong>${html(orderItemDetails(item).label)}</strong><div class="hint">${html(item.unit)} · 原文：${html(item.rawName || "-")}</div>${item.quantityError ? `<div class="quantity-error-text">${html(item.quantityError)}</div>` : ""}${item.recommendation ? `<div class="ai-match-reason">${html(item.recommendation)}</div>` : ""}</div><input class="input ai-small-input${item.quantity && !isPositiveInteger(item.quantity) ? " quantity-input-invalid" : ""}" type="number" min="1" step="1" inputmode="numeric" value="${html(item.quantity || "")}" placeholder="整数数量" data-ai-quantity-product="${html(item.productId)}" data-ai-line-key="${html(item.lineKey)}" data-ai-order-index="${html(item.orderIndex)}" data-ai-raw-name="${html(item.rawName || "")}" oninput="setQuantityInputValidity(this)" /><div class="num">${money(item.price)}</div></div>${renderAiAliasConsent(item.lineKey, item.rawName, item.productId)}</div>`).join("")}
     </section>
   `;
 }
@@ -1153,7 +1167,7 @@ function renderAiUncertain(list) {
   return `
     <section class="ai-section">
       <h4>需要选择商品</h4>
-      ${list.map((item, index) => { const key = item.lineKey || `${item.groupId || "group"}-${index}`; const candidates = item.candidates || []; return `<div class="ai-candidate-block"><div class="ai-candidate-head"><div><strong>原文：${html(item.rawName || "-")}</strong><div class="hint">候选按客户习惯、出单频率和数量排序；没有合适商品时可在下方搜索。</div></div><input class="input ai-small-input" type="number" min="0" step="0.01" value="${html(item.quantity || "")}" placeholder="数量" data-ai-candidate-quantity="${html(key)}" /></div><div class="ai-candidate-list">${candidates[0] ? aiCandidateOption(candidates[0], key, item.rawName, item.orderIndex) : ""}${candidates.length > 1 ? `<details class="ai-more-candidates"><summary>展开其他 ${candidates.length - 1} 个候选</summary>${candidates.slice(1).map((product) => aiCandidateOption(product, key, item.rawName, item.orderIndex)).join("")}</details>` : ""}</div><details class="ai-manual-picker"><summary>搜索其他商品</summary>${aiSearchScopeControls(key, item.rawName, item.cat1 || "", item.cat2 || "", item.orderIndex)}<div class="ai-manual-search"><input class="input" data-ai-manual-input="${html(key)}" placeholder="输入商品名称、规格、品牌或关键词" oncompositionstart="this.dataset.composing='true'" oncompositionend="this.dataset.composing='false';updateAiManualSearch(this,${jsArg(key)},${jsArg(item.rawName || "")},${jsArg(item.cat1 || "")},${jsArg(item.cat2 || "")},${jsArg(item.orderIndex)})" oninput="updateAiManualSearch(this,${jsArg(key)},${jsArg(item.rawName || "")},${jsArg(item.cat1 || "")},${jsArg(item.cat2 || "")},${jsArg(item.orderIndex)})" /></div><div class="ai-candidate-list ai-manual-results" data-ai-manual-results="${html(key)}"><div class="ai-manual-empty">输入关键词后即时显示匹配商品。</div></div></details>${renderAiAliasConsent(key, item.rawName)}</div>`; }).join("")}
+      ${list.map((item, index) => { const key = item.lineKey || `${item.groupId || "group"}-${index}`; const candidates = item.candidates || []; return `<div class="ai-candidate-block"><div class="ai-candidate-head"><div><strong>原文：${html(item.rawName || "-")}</strong><div class="hint">候选按客户习惯、出单频率和数量排序；没有合适商品时可在下方搜索。</div></div><input class="input ai-small-input${item.quantity && !isPositiveInteger(item.quantity) ? " quantity-input-invalid" : ""}" type="number" min="1" step="1" inputmode="numeric" value="${html(item.quantity || "")}" placeholder="整数数量" data-ai-candidate-quantity="${html(key)}" oninput="setQuantityInputValidity(this)" /></div><div class="ai-candidate-list">${candidates[0] ? aiCandidateOption(candidates[0], key, item.rawName, item.orderIndex) : ""}${candidates.length > 1 ? `<details class="ai-more-candidates"><summary>展开其他 ${candidates.length - 1} 个候选</summary>${candidates.slice(1).map((product) => aiCandidateOption(product, key, item.rawName, item.orderIndex)).join("")}</details>` : ""}</div><details class="ai-manual-picker"><summary>搜索其他商品</summary>${aiSearchScopeControls(key, item.rawName, item.cat1 || "", item.cat2 || "", item.orderIndex)}<div class="ai-manual-search"><input class="input" data-ai-manual-input="${html(key)}" placeholder="输入商品名称、规格、品牌或关键词" oncompositionstart="this.dataset.composing='true'" oncompositionend="this.dataset.composing='false';updateAiManualSearch(this,${jsArg(key)},${jsArg(item.rawName || "")},${jsArg(item.cat1 || "")},${jsArg(item.cat2 || "")},${jsArg(item.orderIndex)})" oninput="updateAiManualSearch(this,${jsArg(key)},${jsArg(item.rawName || "")},${jsArg(item.cat1 || "")},${jsArg(item.cat2 || "")},${jsArg(item.orderIndex)})" /></div><div class="ai-candidate-list ai-manual-results" data-ai-manual-results="${html(key)}"><div class="ai-manual-empty">输入关键词后即时显示匹配商品。</div></div></details>${renderAiAliasConsent(key, item.rawName)}</div>`; }).join("")}
     </section>
   `;
 }
@@ -1163,7 +1177,7 @@ function renderAiUnmatched(list) {
   return `
     <section class="ai-section">
       <h4>未匹配商品</h4>
-      ${list.map((item, index) => { const key = item.lineKey || `${item.groupId || "unmatched"}-${index}`; const suggestions = item.suggestions || []; return `<div class="ai-candidate-block ai-unmatched-block"><div class="ai-candidate-head"><div><strong>原文：${html(item.rawName || "-")}</strong><div class="hint">${html(item.note || "未找到足够可靠的商品，请手动选择。")}</div></div><input class="input ai-small-input" type="number" min="0" step="0.01" value="${html(item.quantity || "")}" placeholder="数量" data-ai-candidate-quantity="${html(key)}" /></div>${aiSearchScopeControls(key, item.rawName, item.cat1 || "", item.cat2 || "", item.orderIndex)}<div class="ai-manual-search"><input class="input" data-ai-manual-input="${html(key)}" placeholder="输入商品名称、规格、品牌或关键词" oncompositionstart="this.dataset.composing='true'" oncompositionend="this.dataset.composing='false';updateAiManualSearch(this,${jsArg(key)},${jsArg(item.rawName || "")},${jsArg(item.cat1 || "")},${jsArg(item.cat2 || "")},${jsArg(item.orderIndex)})" oninput="updateAiManualSearch(this,${jsArg(key)},${jsArg(item.rawName || "")},${jsArg(item.cat1 || "")},${jsArg(item.cat2 || "")},${jsArg(item.orderIndex)})" /></div><div class="ai-candidate-list ai-manual-results" data-ai-manual-results="${html(key)}">${suggestions.length ? suggestions.map((product) => aiCandidateOption(product, key, item.rawName, item.orderIndex)).join("") : `<div class="ai-manual-empty">输入关键词后即时显示匹配商品。</div>`}</div>${renderAiAliasConsent(key, item.rawName)}</div>`; }).join("")}
+      ${list.map((item, index) => { const key = item.lineKey || `${item.groupId || "unmatched"}-${index}`; const suggestions = item.suggestions || []; return `<div class="ai-candidate-block ai-unmatched-block"><div class="ai-candidate-head"><div><strong>原文：${html(item.rawName || "-")}</strong><div class="hint">${html(item.note || "未找到足够可靠的商品，请手动选择。")}</div></div><input class="input ai-small-input${item.quantity && !isPositiveInteger(item.quantity) ? " quantity-input-invalid" : ""}" type="number" min="1" step="1" inputmode="numeric" value="${html(item.quantity || "")}" placeholder="整数数量" data-ai-candidate-quantity="${html(key)}" oninput="setQuantityInputValidity(this)" /></div>${aiSearchScopeControls(key, item.rawName, item.cat1 || "", item.cat2 || "", item.orderIndex)}<div class="ai-manual-search"><input class="input" data-ai-manual-input="${html(key)}" placeholder="输入商品名称、规格、品牌或关键词" oncompositionstart="this.dataset.composing='true'" oncompositionend="this.dataset.composing='false';updateAiManualSearch(this,${jsArg(key)},${jsArg(item.rawName || "")},${jsArg(item.cat1 || "")},${jsArg(item.cat2 || "")},${jsArg(item.orderIndex)})" oninput="updateAiManualSearch(this,${jsArg(key)},${jsArg(item.rawName || "")},${jsArg(item.cat1 || "")},${jsArg(item.cat2 || "")},${jsArg(item.orderIndex)})" /></div><div class="ai-candidate-list ai-manual-results" data-ai-manual-results="${html(key)}">${suggestions.length ? suggestions.map((product) => aiCandidateOption(product, key, item.rawName, item.orderIndex)).join("") : `<div class="ai-manual-empty">输入关键词后即时显示匹配商品。</div>`}</div>${renderAiAliasConsent(key, item.rawName)}</div>`; }).join("")}
     </section>
   `;
 }
@@ -3062,6 +3076,10 @@ async function saveOrder() {
     alert("请选择客户和商品。");
     return;
   }
+  if (state.cart.some((item) => !isPositiveInteger(item.quantity))) {
+    alert("商品数量必须为大于 0 的整数，请检查购物车后再结算。");
+    return;
+  }
   const payload = {
     type: state.orderType,
     customerId: customer.id,
@@ -3312,7 +3330,7 @@ function editOrderItemsHtml(draft) {
         <div class="edit-order-line" data-edit-order-line data-edit-order-index="${index}">
           <button type="button" class="edit-order-drag-handle" title="按住拖动调整顺序" aria-label="拖动商品调整顺序" onpointerdown="startEditOrderDrag(event)" onkeydown="handleEditOrderDragKey(event,${index})">${svgIcon("grip")}</button>
           <div class="edit-order-product"><strong>${html(orderItemDetails(item).label)}</strong><span>单位：${html(item.unit || "-")}</span></div>
-          <label><span>数量</span><input id="editOrderItemQty${index}" class="input" type="number" min="0.01" step="0.01" value="${Number(item.quantity || 0)}" oninput="updateEditOrderLine(${index},'quantity',this.value)" /></label>
+          <label class="edit-order-quantity-field${isPositiveInteger(item.quantity) ? "" : " has-error"}"><span>数量</span><input id="editOrderItemQty${index}" class="input${isPositiveInteger(item.quantity) ? "" : " quantity-input-invalid"}" type="number" min="1" step="1" inputmode="numeric" value="${Number(item.quantity || 0)}" oninput="updateEditOrderLine(${index},'quantity',this.value);setQuantityInputValidity(this)" />${isPositiveInteger(item.quantity) ? "" : `<small class="quantity-error-text">历史数量不是整数，请修正</small>`}</label>
           <label><span>单价</span><input id="editOrderItemPrice${index}" class="input" type="number" step="0.01" value="${Number(item.price || 0)}" oninput="updateEditOrderLine(${index},'price',this.value)" /></label>
           <div id="editOrderSubtotal${index}" class="edit-order-subtotal">${money(Number(item.quantity || 0) * Number(item.price || 0))}</div>
           ${actionButton("删除商品", "delete", `removeEditOrderLine(${index})`)}
@@ -3564,7 +3582,16 @@ async function saveOrderEdits(id) {
     unit: item.unit || "",
     quantity: Number(document.getElementById(`editOrderItemQty${index}`)?.value || 0),
     price: Number(document.getElementById(`editOrderItemPrice${index}`)?.value || 0),
-  })).filter((item) => item.name && item.quantity > 0);
+  })).filter((item) => item.name);
+  const invalidIndex = items.findIndex((item) => !isPositiveInteger(item.quantity));
+  if (invalidIndex >= 0) {
+    const input = document.getElementById(`editOrderItemQty${invalidIndex}`);
+    setQuantityInputValidity(input);
+    input?.focus();
+    input?.scrollIntoView({ block: "center", behavior: "smooth" });
+    alert("商品数量必须为大于 0 的整数，请修正后再保存。");
+    return;
+  }
   const amount = items.reduce((sum, item) => sum + item.quantity * item.price, 0);
   const payload = {
     customerId: state.editOrderDraft?.customerId,
@@ -3595,21 +3622,38 @@ function cartItemForProduct(productId) {
   return state.cart.find((item) => item.productId === productId);
 }
 
-function normalizeQuantity(value) {
+function isPositiveInteger(value) {
   const quantity = Number(value);
-  if (!Number.isFinite(quantity)) return 0;
-  return Math.max(0, quantity);
+  return Number.isInteger(quantity) && quantity > 0;
+}
+
+function normalizeQuantity(value) {
+  return isPositiveInteger(value) ? Number(value) : 0;
+}
+
+function setQuantityInputValidity(input) {
+  if (!input) return false;
+  const valid = isPositiveInteger(input.value);
+  input.classList.toggle("quantity-input-invalid", !valid);
+  input.setAttribute("aria-invalid", valid ? "false" : "true");
+  const field = input.closest(".edit-order-quantity-field");
+  if (field) {
+    field.classList.toggle("has-error", !valid);
+    const message = field.querySelector(".quantity-error-text");
+    if (message) message.hidden = valid;
+  }
+  return valid;
 }
 
 function setCartQuantity(productId, value) {
   const line = cartItemForProduct(productId);
   if (!line) return;
-  const quantity = normalizeQuantity(value);
-  if (quantity <= 0) {
-    state.cart = state.cart.filter((item) => item.productId !== productId);
-  } else {
-    line.quantity = quantity;
+  if (!isPositiveInteger(value)) {
+    showToast("商品数量必须为大于 0 的整数");
+    render();
+    return;
   }
+  line.quantity = Number(value);
   render();
 }
 
@@ -3620,7 +3664,7 @@ function productCard(p) {
   const quantityControl = selected
     ? `<div class="product-card-qty" title="已选数量">
         <button type="button" onclick="event.stopPropagation();changeQty(${jsArg(p.id)}, -1)">-</button>
-        <input class="qty-input" type="number" min="0" step="0.01" value="${Number(selectedLine.quantity || 0)}" onclick="event.stopPropagation()" onchange="setCartQuantity(${jsArg(p.id)}, this.value)" onkeydown="if(event.key==='Enter')this.blur()" />
+        <input class="qty-input" type="number" min="1" step="1" inputmode="numeric" value="${Number(selectedLine.quantity || 0)}" onclick="event.stopPropagation()" onchange="setCartQuantity(${jsArg(p.id)}, this.value)" onkeydown="if(event.key==='Enter')this.blur()" />
         <button type="button" onclick="event.stopPropagation();changeQty(${jsArg(p.id)}, 1)">+</button>
       </div>`
     : active
@@ -3667,7 +3711,7 @@ function cartLine(item) {
       <div class="cart-line-side">
         <div class="cart-line-controls">
           <button type="button" onclick="changeQty(${jsArg(p.id)}, -1)">-</button>
-          <input class="qty-input" type="number" min="0" step="0.01" value="${quantity}" onchange="setCartQuantity(${jsArg(p.id)}, this.value)" onkeydown="if(event.key==='Enter')this.blur()" />
+          <input class="qty-input" type="number" min="1" step="1" inputmode="numeric" value="${quantity}" onchange="setCartQuantity(${jsArg(p.id)}, this.value)" onkeydown="if(event.key==='Enter')this.blur()" />
           <button type="button" onclick="changeQty(${jsArg(p.id)}, 1)">+</button>
         </div>
         <div class="cart-line-bottom">
@@ -3850,6 +3894,11 @@ function repeatOrder(orderId) {
   if (!order) return alert("订单不存在");
   const customer = byId(visibleCustomers(), order.customerId);
   if (!customer) return alert("当前账号无权为该客户开单");
+  const invalidQuantityItems = (order.items || []).filter((item) => !isPositiveInteger(item.quantity));
+  if (invalidQuantityItems.length) {
+    const names = invalidQuantityItems.slice(0, 3).map((item) => orderItemDetails(item).label).join("、");
+    return alert(`该历史订单包含非整数数量（${names}${invalidQuantityItems.length > 3 ? "等" : ""}），请先编辑订单修正后再来一单。`);
+  }
 
   const previousType = state.orderType;
   persistCart(previousType);
@@ -3868,7 +3917,7 @@ function repeatOrder(orderId) {
       unavailable.push(orderItemDetails(item).label || item.productId);
       return null;
     }
-    return { productId: product.id, quantity: normalizeQuantity(item.quantity) || 1, price: Number(product.price || 0) };
+    return { productId: product.id, quantity: Number(item.quantity), price: Number(product.price || 0) };
   }).filter(Boolean);
   if (!nextCart.length) {
     state.orderType = previousType;
@@ -3990,7 +4039,7 @@ function productCard(p) {
   const quantityControl = selected
     ? `<div class="product-card-qty" title="已选数量">
         <button type="button" onclick="event.stopPropagation();changeQty(${jsArg(p.id)},-1)">-</button>
-        <input class="qty-input" type="number" min="0" step="0.01" value="${Number(selectedLine.quantity || 0)}" onclick="event.stopPropagation()" onchange="setCartQuantity(${jsArg(p.id)},this.value)" onkeydown="if(event.key==='Enter')this.blur()" />
+        <input class="qty-input" type="number" min="1" step="1" inputmode="numeric" value="${Number(selectedLine.quantity || 0)}" onclick="event.stopPropagation()" onchange="setCartQuantity(${jsArg(p.id)},this.value)" onkeydown="if(event.key==='Enter')this.blur()" />
         <button type="button" onclick="event.stopPropagation();changeQty(${jsArg(p.id)},1)">+</button>
       </div>`
     : active
