@@ -1373,9 +1373,17 @@ function documentModal(id) {
   const rows = getDisplayRows(order);
   return `
     <div class="modal-backdrop" onclick="if(event.target.className==='modal-backdrop')closeModal()">
-      <div class="modal">
-        <div class="modal-head"><h3>订单详情 - ${title}</h3><div class="document-actions"><button class="btn export-btn" onclick="downloadOrderImage('${order.id}')">${svgIcon("image")}<span>导出图片</span></button><button class="btn export-btn" onclick="copyOrderText('${order.id}')">${svgIcon("copy")}<span>导出文字版</span></button><button class="icon-btn" onclick="closeModal()">×</button></div></div>
+      <div class="modal order-document-modal">
+        <div class="modal-head"><h3>订单详情 - ${title}</h3><button class="icon-btn modal-close-button" title="关闭" aria-label="关闭" onclick="closeModal()">${svgIcon("close")}</button></div>
         <div class="modal-body">
+          <div class="document-toolbar">
+            <div class="document-phone"><span>销售电话</span><strong>${html(s?.phone || c.phone || "-")}</strong></div>
+            <div class="document-actions">
+              <button class="btn export-btn" onclick="printOrder('${order.id}')">${svgIcon("print")}<span>打印</span></button>
+              <button class="btn export-btn" onclick="copyOrderText('${order.id}')">${svgIcon("copy")}<span>导出文字版</span></button>
+              <button class="btn export-btn primary" onclick="downloadOrderImage('${order.id}')">${svgIcon("image")}<span>导出图片</span></button>
+            </div>
+          </div>
           <div class="doc-preview">
             <h2>${title}</h2>
             <div class="doc-subtitle">材达家建材销售系统</div>
@@ -1393,7 +1401,6 @@ function documentModal(id) {
             </div>
           </div>
         </div>
-        <div class="modal-foot"><button class="btn" onclick="closeModal()">关闭</button><button class="btn primary" onclick="printOrder('${order.id}')">打印</button></div>
       </div>
     </div>
   `;
@@ -1438,14 +1445,16 @@ function actionButton(title, type, onclick) {
 
 function svgIcon(type) {
   const icons = {
-    view: `<svg viewBox="0 0 24 24"><path d="M2.5 12s3.5-6 9.5-6 9.5 6 9.5 6-3.5 6-9.5 6-9.5-6-9.5-6Z"/><circle cx="12" cy="12" r="2.8"/></svg>`,
-    edit: `<svg viewBox="0 0 24 24"><path d="M4 20h4.2L18.7 9.5a2.2 2.2 0 0 0 0-3.1l-1.1-1.1a2.2 2.2 0 0 0-3.1 0L4 15.8V20Z"/><path d="m13.8 6 4.2 4.2"/></svg>`,
+    view: `<svg viewBox="0 0 24 24"><path d="M2.5 12s3.5-6 9.5-6 9.5 6 9.5 6-3.5 6-9.5 6-9.5-6-9.5-6Z"/><circle cx="12" cy="12" r="2.6"/></svg>`,
+    edit: `<svg viewBox="0 0 24 24"><path d="M13.5 6.5 17.5 10.5"/><path d="m5 19 3.5-.8L19 6.7a1.7 1.7 0 0 0-2.4-2.4L6.2 14.8 5 19Z"/><path d="M12 4H6a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-6"/></svg>`,
     delete: `<svg viewBox="0 0 24 24"><path d="M5 7h14"/><path d="M10 11v6"/><path d="M14 11v6"/><path d="M8 7l.7 12h6.6L16 7"/><path d="M9 7l1-2h4l1 2"/></svg>`,
     refresh: `<svg viewBox="0 0 24 24"><path d="M20 12a8 8 0 0 1-13.4 5.9"/><path d="M4 12A8 8 0 0 1 17.4 6.1"/><path d="M17 3v4h-4"/><path d="M7 21v-4h4"/></svg>`,
     orders: `<svg viewBox="0 0 24 24"><path d="M6 4h12v16H6z"/><path d="M9 8h6"/><path d="M9 12h6"/><path d="M9 16h4"/></svg>`,
     plus: `<svg viewBox="0 0 24 24"><path d="M12 5v14"/><path d="M5 12h14"/></svg>`,
     image: `<svg viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="16" rx="2"/><circle cx="9" cy="10" r="2"/><path d="m5 18 4.5-4.5 3 3 2.5-2.5 4 4"/></svg>`,
     copy: `<svg viewBox="0 0 24 24"><rect x="8" y="8" width="11" height="12" rx="2"/><path d="M16 8V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h2"/></svg>`,
+    truck: `<svg viewBox="0 0 24 24"><path d="M3 6h11v11H3z"/><path d="M14 10h4l3 3v4h-7z"/><circle cx="7" cy="18" r="2"/><circle cx="18" cy="18" r="2"/></svg>`,
+    print: `<svg viewBox="0 0 24 24"><path d="M7 8V3h10v5"/><rect x="4" y="8" width="16" height="9" rx="2"/><path d="M7 14h10v7H7z"/></svg>`,
     more: `<svg viewBox="0 0 24 24"><circle cx="5" cy="12" r="1.5"/><circle cx="12" cy="12" r="1.5"/><circle cx="19" cy="12" r="1.5"/></svg>`,
     grip: `<svg viewBox="0 0 24 24"><circle cx="9" cy="5" r="1.4"/><circle cx="15" cy="5" r="1.4"/><circle cx="9" cy="12" r="1.4"/><circle cx="15" cy="12" r="1.4"/><circle cx="9" cy="19" r="1.4"/><circle cx="15" cy="19" r="1.4"/></svg>`,
     up: `<svg viewBox="0 0 24 24"><path d="m6 15 6-6 6 6"/></svg>`,
@@ -3861,16 +3870,40 @@ function orderBadgeClass(status) {
 }
 
 function orderActionButton(title, type, action, orderId) {
-  return `<button type="button" class="btn order-action-btn ${action === "delete" ? "danger-soft" : ""}" onclick="handleOrderAction(${jsArg(action)}, ${jsArg(orderId)})">${html(title)}</button>`;
+  return `<button type="button" class="icon-btn order-tool-button" title="${html(title)}" aria-label="${html(title)}" onclick="handleOrderAction(${jsArg(action)}, ${jsArg(orderId)})">${svgIcon(type)}</button>`;
 }
 
 function orderMoreMenu(orderId) {
-  return `<details class="order-more-menu">
-    <summary class="icon-btn" title="更多操作" aria-label="更多操作">${svgIcon("more")}</summary>
+  return `<div class="order-more-menu order-popover-menu">
+    <button type="button" class="icon-btn order-tool-button order-more-trigger" title="更多操作" aria-label="更多操作" onpointerdown="event.stopPropagation();this.parentElement.toggleAttribute('open')">${svgIcon("more")}</button>
     <div class="order-more-dropdown">
-      <button type="button" onclick="repeatOrder(${jsArg(orderId)})">再来一单</button>
-      <button type="button" onclick="openModal('delivery',${jsArg(orderId)})">开送货单</button>
-      ${isAdmin() ? `<button type="button" class="danger" onclick="deleteOrder(${jsArg(orderId)})">删除订单</button>` : ""}
+      <button type="button" onclick="repeatOrder(${jsArg(orderId)})"><span>${svgIcon("copy")}</span>再来一单</button>
+      <button type="button" onclick="openModal('delivery',${jsArg(orderId)})"><span>${svgIcon("truck")}</span>开送货单</button>
+      ${isAdmin() ? `<button type="button" class="danger" onclick="deleteOrder(${jsArg(orderId)})"><span>${svgIcon("delete")}</span>删除订单</button>` : ""}
+    </div>
+  </div>`;
+}
+
+function orderStatusMenu(orderId, selected) {
+  return `<details class="order-status-menu order-popover-menu">
+    <summary class="icon-btn order-tool-button" title="修改订单状态" aria-label="修改订单状态">${svgIcon("down")}</summary>
+    <div class="order-status-dropdown">
+      ${ORDER_STATUS_CHOICES.map((value) => `
+        <button type="button" class="order-status-option ${orderStatusTone(value)} ${value === selected ? "selected" : ""}" onclick="updateOrderStatus(${jsArg(orderId)},${jsArg(value)})">
+          <span class="status-dot"></span><span>${html(value)}</span>${value === selected ? `<b>✓</b>` : ""}
+        </button>`).join("")}
+    </div>
+  </details>`;
+}
+
+function orderPaymentMenu(orderId, selected) {
+  return `<details class="order-payment-menu order-popover-menu">
+    <summary class="icon-btn order-tool-button order-payment-trigger" title="修改回款状态" aria-label="修改回款状态"><strong>￥</strong>${svgIcon("down")}</summary>
+    <div class="order-status-dropdown payment-dropdown">
+      ${["待回款", "已回款"].map((value) => `
+        <button type="button" class="order-status-option ${paymentStatusTone(value)} ${value === selected ? "selected" : ""}" onclick="updateOrderPayment(${jsArg(orderId)},${jsArg(value)})">
+          <span class="status-dot"></span><span>${value}</span>${value === selected ? `<b>✓</b>` : ""}
+        </button>`).join("")}
     </div>
   </details>`;
 }
@@ -3984,13 +4017,12 @@ function orderCard(order) {
         </div>
         <div class="order-card-bottom">
           <div class="order-card-address">地址：${html(address)}</div>
-          <div class="order-status-controls compact">
-            <select class="select inline-select status-select ${orderStatusTone(status)}" title="订单状态" onchange="updateOrderStatus(${jsArg(order.id)}, this.value)">${orderStatusOptions(status)}</select>
-            <select class="select inline-select status-select ${paymentStatusTone(payStatus)}" title="回款状态" onchange="updateOrderPayment(${jsArg(order.id)}, this.value)">${paymentStatusOptions(payStatus)}</select>
-          </div>
-          <div class="order-actions">
-            ${orderActionButton("查看", "view", "view", order.id)}
-            ${orderActionButton("编辑", "edit", "edit", order.id)}
+          <div class="order-actions order-icon-toolbar">
+            ${orderActionButton("查看订单", "view", "view", order.id)}
+            ${orderActionButton("编辑订单", "edit", "edit", order.id)}
+            <span class="order-tool-divider"></span>
+            ${orderStatusMenu(order.id, status)}
+            ${orderPaymentMenu(order.id, payStatus)}
             ${orderMoreMenu(order.id)}
           </div>
         </div>
@@ -4006,6 +4038,9 @@ function exportOrderImage(orderId) {
 function bindGlobalClickHandlers() {
   if (window.__buildingSalesClickBound) return;
   document.addEventListener("click", (event) => {
+    document.querySelectorAll(".order-popover-menu[open]").forEach((menu) => {
+      if (!menu.contains(event.target)) menu.removeAttribute("open");
+    });
     const orderAction = event.target.closest("[data-order-action]");
     if (orderAction) {
       event.preventDefault();
