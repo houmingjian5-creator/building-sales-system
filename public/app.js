@@ -35,9 +35,25 @@ const state = {
   editCustomerQuery: "",
   editCustomerPickerOpen: false,
   selectedProductIds: [],
+  assistantOpen: false,
+  assistantMessages: [],
+  assistantLoaded: false,
+  assistantLoading: false,
+  assistantError: "",
+  assistantLastQuestion: "",
+  assistantSide: (() => {
+    try {
+      return localStorage.getItem("xiaocai-side") === "left" ? "left" : "right";
+    } catch (_) {
+      return "right";
+    }
+  })(),
 };
 
 let inputRenderTimer = null;
+let assistantAbortController = null;
+let assistantStageTimer = null;
+let suppressAssistantClick = false;
 
 let salesUsers = [
   { id: "u1", name: "钱锦健", phone: "13800000001", password: "888888", role: "超级管理员", status: "启用" },
@@ -286,6 +302,7 @@ function render() {
         </header>
         <section class="content">${renderPage()}</section>
       </main>
+      ${renderXiaocai()}
       ${renderModal()}
     </div>
   `;
@@ -363,7 +380,14 @@ async function logout() {
   try {
     await fetch("/api/logout", { method: "POST" });
   } finally {
+    assistantAbortController?.abort();
+    clearInterval(assistantStageTimer);
     state.user = null;
+    state.assistantOpen = false;
+    state.assistantMessages = [];
+    state.assistantLoaded = false;
+    state.assistantLoading = false;
+    state.assistantError = "";
     render();
   }
 }
@@ -1362,6 +1386,8 @@ function svgIcon(type) {
     grip: `<svg viewBox="0 0 24 24"><circle cx="9" cy="5" r="1.4"/><circle cx="15" cy="5" r="1.4"/><circle cx="9" cy="12" r="1.4"/><circle cx="15" cy="12" r="1.4"/><circle cx="9" cy="19" r="1.4"/><circle cx="15" cy="19" r="1.4"/></svg>`,
     up: `<svg viewBox="0 0 24 24"><path d="m6 15 6-6 6 6"/></svg>`,
     down: `<svg viewBox="0 0 24 24"><path d="m6 9 6 6 6-6"/></svg>`,
+    close: `<svg viewBox="0 0 24 24"><path d="m6 6 12 12"/><path d="M18 6 6 18"/></svg>`,
+    arrowRight: `<svg viewBox="0 0 24 24"><path d="M5 12h13"/><path d="m14 7 5 5-5 5"/></svg>`,
   };
   return icons[type] || icons.view;
 }
@@ -3970,6 +3996,255 @@ function productModal(id) {
   `;
 }
 
+function assistantScopeText() {
+  if (isAdmin()) return "可查询全公司业务数据，成本与利润仅在管理员权限下显示";
+  return state.user?.role === "销售人员"
+    ? "只查询属于你的客户、订单和业绩数据"
+    : "按当前账号权限查询业务数据";
+}
+
+function assistantWelcomeHtml() {
+  const prompts = [
+    "查询今日销售情况",
+    "查询本月销售情况",
+    "查看待回款订单",
+    "查看本月热销商品",
+    "查询客户最近购买",
+  ];
+  return `
+    <div class="xiaocai-welcome">
+      <img src="./assets/xiaocai.png" alt="" />
+      <div><strong>你好，我是小材</strong><p>我可以帮你查询客户、商品、订单、回款和销售情况。</p></div>
+    </div>
+    <div class="xiaocai-scope">${svgIcon("view")}<span>${html(assistantScopeText())}</span></div>
+    <div class="xiaocai-quick-grid">${prompts.map((prompt) => `<button type="button" onclick="sendXiaocai(${jsArg(prompt)})">${html(prompt)}</button>`).join("")}</div>
+  `;
+}
+
+function assistantBlockHtml(block) {
+  if (!block) return "";
+  if (block.type === "metrics") {
+    return `<div class="xiaocai-metrics">${(block.items || []).map((item) => `<div><span>${html(item.label)}</span><strong>${html(item.value)}</strong></div>`).join("")}</div>`;
+  }
+  if (block.type === "table") {
+    return `
+      <div class="xiaocai-table-wrap">
+        ${block.title ? `<strong class="xiaocai-block-title">${html(block.title)}</strong>` : ""}
+        <table class="xiaocai-table">
+          <thead><tr>${(block.columns || []).map((column) => `<th>${html(column)}</th>`).join("")}</tr></thead>
+          <tbody>${(block.rows || []).map((row) => `<tr>${row.map((cell) => `<td>${html(cell)}</td>`).join("")}</tr>`).join("")}</tbody>
+        </table>
+      </div>
+    `;
+  }
+  return "";
+}
+
+function assistantMessageHtml(message, index) {
+  const isUser = message.role === "user";
+  return `
+    <div class="xiaocai-message ${isUser ? "is-user" : "is-assistant"}">
+      ${isUser ? "" : `<img class="xiaocai-message-avatar" src="./assets/xiaocai.png" alt="小材" />`}
+      <div class="xiaocai-message-content">
+        <div class="xiaocai-bubble">${html(message.content || "").replace(/\n/g, "<br />")}</div>
+        ${isUser ? "" : (message.blocks || []).map(assistantBlockHtml).join("")}
+        ${isUser ? "" : `<div class="xiaocai-message-actions">
+          ${(message.links || []).map((link) => `<button type="button" onclick="openXiaocaiRoute(${jsArg(link.route)})">${html(link.label)}</button>`).join("")}
+          ${(message.followUps || []).map((prompt) => `<button type="button" onclick="sendXiaocai(${jsArg(prompt)})">${html(prompt)}</button>`).join("")}
+        </div>`}
+      </div>
+    </div>
+  `;
+}
+
+function renderXiaocai() {
+  if (!state.user) return "";
+  const sideClass = state.assistantSide === "left" ? "is-left" : "is-right";
+  return `
+    <div class="xiaocai-assistant ${sideClass} ${state.assistantOpen ? "is-open" : ""}">
+      ${state.assistantOpen ? `
+        <section class="xiaocai-panel" aria-label="小材 AI 业务助手">
+          <header class="xiaocai-head">
+            <div class="xiaocai-identity"><img src="./assets/xiaocai.png" alt="" /><div><strong>小材</strong><span><i></i>AI 业务助手</span></div></div>
+            <div class="xiaocai-head-actions">
+              <button type="button" class="icon-btn" title="清空聊天记录" aria-label="清空聊天记录" onclick="clearXiaocaiHistory()">${svgIcon("delete")}</button>
+              <button type="button" class="icon-btn" title="收起小材" aria-label="收起小材" onclick="toggleXiaocai()">${svgIcon("close")}</button>
+            </div>
+          </header>
+          <div id="xiaocaiMessages" class="xiaocai-messages">
+            ${state.assistantMessages.length ? state.assistantMessages.map(assistantMessageHtml).join("") : assistantWelcomeHtml()}
+            ${state.assistantLoading ? `<div class="xiaocai-message is-assistant"><img class="xiaocai-message-avatar" src="./assets/xiaocai.png" alt="" /><div class="xiaocai-thinking"><span></span><span></span><span></span><em id="xiaocaiStage">正在理解问题</em></div></div>` : ""}
+            ${state.assistantError ? `<div class="xiaocai-error"><span>${html(state.assistantError)}</span><button type="button" onclick="retryXiaocai()">重试</button></div>` : ""}
+          </div>
+          <footer class="xiaocai-compose">
+            <textarea id="xiaocaiInput" maxlength="500" placeholder="问小材：钱勇最近买过什么？" oncompositionstart="this.dataset.composing='true'" oncompositionend="this.dataset.composing='false'" onkeydown="handleXiaocaiKey(event)"></textarea>
+            <div><span>小材只读取你有权限的数据</span>${state.assistantLoading ? `<button type="button" class="xiaocai-stop" onclick="stopXiaocai()">停止</button>` : `<button type="button" class="xiaocai-send" title="发送" aria-label="发送" onclick="sendXiaocai()">${svgIcon("arrowRight")}</button>`}</div>
+          </footer>
+        </section>
+      ` : ""}
+      <button type="button" class="xiaocai-launcher" title="打开小材 AI 助手" aria-label="打开小材 AI 助手" onpointerdown="startXiaocaiDrag(event)" onclick="toggleXiaocai()">
+        <span class="xiaocai-pulse"></span><img src="./assets/xiaocai.png" alt="" /><strong>小材</strong>
+      </button>
+    </div>
+  `;
+}
+
+function scrollXiaocaiToBottom() {
+  requestAnimationFrame(() => {
+    const container = document.getElementById("xiaocaiMessages");
+    if (container) container.scrollTop = container.scrollHeight;
+  });
+}
+
+async function loadXiaocaiHistory() {
+  if (state.assistantLoaded) return;
+  try {
+    const response = await fetch("/api/assistant/history");
+    const data = await response.json();
+    if (!response.ok) throw new Error(data.error || "聊天记录加载失败");
+    state.assistantMessages = Array.isArray(data.messages) ? data.messages : [];
+    state.assistantLoaded = true;
+    render();
+    scrollXiaocaiToBottom();
+  } catch (error) {
+    state.assistantLoaded = true;
+    state.assistantError = error.message;
+    render();
+  }
+}
+
+function toggleXiaocai() {
+  if (suppressAssistantClick) return;
+  state.assistantOpen = !state.assistantOpen;
+  render();
+  if (state.assistantOpen) {
+    loadXiaocaiHistory();
+    scrollXiaocaiToBottom();
+    requestAnimationFrame(() => document.getElementById("xiaocaiInput")?.focus());
+  }
+}
+
+function handleXiaocaiKey(event) {
+  if (event.key !== "Enter" || event.shiftKey || event.isComposing || event.currentTarget.dataset.composing === "true") return;
+  event.preventDefault();
+  sendXiaocai();
+}
+
+function startAssistantStages() {
+  clearInterval(assistantStageTimer);
+  const stages = ["正在理解问题", "正在查询业务数据", "正在整理答案"];
+  let index = 0;
+  assistantStageTimer = setInterval(() => {
+    index = Math.min(index + 1, stages.length - 1);
+    const stage = document.getElementById("xiaocaiStage");
+    if (stage) stage.textContent = stages[index];
+  }, 1800);
+}
+
+async function sendXiaocai(prompt = "") {
+  if (state.assistantLoading) return;
+  const input = document.getElementById("xiaocaiInput");
+  const message = String(prompt || input?.value || "").trim();
+  if (!message) return;
+  if (input) input.value = "";
+  state.assistantLastQuestion = message;
+  state.assistantError = "";
+  state.assistantLoading = true;
+  state.assistantMessages.push({ id: `local-${Date.now()}`, role: "user", content: message, createdAt: new Date().toISOString() });
+  render();
+  scrollXiaocaiToBottom();
+  startAssistantStages();
+  assistantAbortController = new AbortController();
+  try {
+    const response = await fetch("/api/assistant/chat", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ message }),
+      signal: assistantAbortController.signal,
+    });
+    const data = await response.json();
+    if (!response.ok) throw new Error(data.error || "小材暂时无法回答");
+    state.assistantMessages.push(data);
+    state.assistantLoaded = true;
+  } catch (error) {
+    state.assistantError = error.name === "AbortError" ? "已停止本次查询" : error.message;
+  } finally {
+    clearInterval(assistantStageTimer);
+    assistantAbortController = null;
+    state.assistantLoading = false;
+    render();
+    scrollXiaocaiToBottom();
+  }
+}
+
+function stopXiaocai() {
+  assistantAbortController?.abort();
+}
+
+function retryXiaocai() {
+  const question = state.assistantLastQuestion;
+  const last = state.assistantMessages[state.assistantMessages.length - 1];
+  if (last?.role === "user" && last.content === question) state.assistantMessages.pop();
+  state.assistantError = "";
+  sendXiaocai(question);
+}
+
+async function clearXiaocaiHistory() {
+  if (!confirm("确定清空当前账号最近 30 天的小材聊天记录吗？")) return;
+  try {
+    const response = await fetch("/api/assistant/history", { method: "DELETE" });
+    const data = await response.json();
+    if (!response.ok) throw new Error(data.error || "清空失败");
+    state.assistantMessages = [];
+    state.assistantError = "";
+    state.assistantLoaded = true;
+    render();
+  } catch (error) {
+    state.assistantError = error.message;
+    render();
+  }
+}
+
+function openXiaocaiRoute(route) {
+  if (!["dashboard", "customers", "products", "orders"].includes(route)) return;
+  state.assistantOpen = false;
+  setRoute(route);
+}
+
+function startXiaocaiDrag(event) {
+  if (window.matchMedia("(max-width: 720px)").matches) return;
+  const launcher = event.currentTarget;
+  const startX = event.clientX;
+  const startY = event.clientY;
+  let moved = false;
+  launcher.setPointerCapture?.(event.pointerId);
+  const move = (moveEvent) => {
+    const dx = moveEvent.clientX - startX;
+    const dy = moveEvent.clientY - startY;
+    if (Math.hypot(dx, dy) > 6) moved = true;
+    launcher.style.transform = `translate(${dx}px, ${dy}px)`;
+  };
+  const finish = (upEvent) => {
+    launcher.removeEventListener("pointermove", move);
+    launcher.removeEventListener("pointerup", finish);
+    launcher.removeEventListener("pointercancel", finish);
+    launcher.style.transform = "";
+    if (!moved) return;
+    suppressAssistantClick = true;
+    state.assistantSide = upEvent.clientX < window.innerWidth / 2 ? "left" : "right";
+    try {
+      localStorage.setItem("xiaocai-side", state.assistantSide);
+    } catch (_) {
+      // Keep the selected side for this session.
+    }
+    render();
+    setTimeout(() => { suppressAssistantClick = false; }, 0);
+  };
+  launcher.addEventListener("pointermove", move);
+  launcher.addEventListener("pointerup", finish);
+  launcher.addEventListener("pointercancel", finish);
+}
+
 Object.assign(window, {
   setRoute,
   openOrderRoute,
@@ -4014,6 +4289,14 @@ Object.assign(window, {
   login,
   logout,
   toggleLoginPassword,
+  toggleXiaocai,
+  sendXiaocai,
+  stopXiaocai,
+  retryXiaocai,
+  clearXiaocaiHistory,
+  openXiaocaiRoute,
+  handleXiaocaiKey,
+  startXiaocaiDrag,
 });
 
 bindGlobalClickHandlers();
