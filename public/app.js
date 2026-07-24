@@ -763,10 +763,17 @@ function selectAiCandidateChoice(input) {
   const wrap = [...document.querySelectorAll("[data-ai-alias-wrap]")]
     .find((element) => element.dataset.aiAliasWrap === key);
   const checkbox = aiAliasCheckbox(key);
-  if (!wrap || !checkbox) return;
-  const visible = shouldOfferAiAlias(input.dataset.aiRawName, input.value);
-  wrap.classList.toggle("is-hidden", !visible);
-  if (!visible) checkbox.checked = false;
+  if (wrap && checkbox) {
+    const visible = shouldOfferAiAlias(input.dataset.aiRawName, input.value);
+    wrap.classList.toggle("is-hidden", !visible);
+    if (!visible) checkbox.checked = false;
+  }
+  const matchedPicker = input.closest("[data-ai-matched-line]")?.querySelector(".ai-matched-picker");
+  const summary = matchedPicker?.querySelector(":scope > summary");
+  if (matchedPicker && summary) {
+    matchedPicker.classList.add("has-selection");
+    summary.textContent = `已选择替换商品：${input.dataset.aiProductName || "请确认"}`;
+  }
 }
 
 function aiCandidateFromProduct(product) {
@@ -786,7 +793,7 @@ function aiCandidateFromProduct(product) {
 function aiCandidateOption(product, key, rawName, orderIndex = "") {
   const reason = product.recommendation ? `<small class="ai-recommendation">${html(product.recommendation)}</small>` : "";
   return `<label class="ai-candidate-option">
-    <input type="radio" name="ai-candidate-${html(key)}" value="${html(product.productId)}" data-ai-candidate-product data-ai-candidate-group="${html(key)}" data-ai-order-index="${html(orderIndex)}" data-ai-raw-name="${html(rawName || "")}" onchange="selectAiCandidateChoice(this)" />
+    <input type="radio" name="ai-candidate-${html(key)}" value="${html(product.productId)}" data-ai-candidate-product data-ai-candidate-group="${html(key)}" data-ai-order-index="${html(orderIndex)}" data-ai-raw-name="${html(rawName || "")}" data-ai-product-name="${html(product.name || "")}" onchange="selectAiCandidateChoice(this)" />
     ${product.imageUrl ? `<img class="ai-candidate-thumb" src="${html(product.imageUrl)}" alt="" loading="lazy" />` : ""}
     <span><strong>${html(product.name)}</strong><small>${html(product.spec || "无规格")} · ${html(product.unit || "-")} · ${html(product.cat1 || "-")}${product.cat2 ? " / " + html(product.cat2) : ""}</small>${reason}</span>
     <b>${money(product.price)}</b>
@@ -862,13 +869,22 @@ function updateAiManualSearch(input, key, rawName, cat1, cat2, orderIndex = "") 
 function applyAiDraft() {
   if (!state.aiDraft) return;
   const entries = [];
-  state.aiDraft.matched.forEach((item) => {
-    entries.push({ orderIndex: Number(item.orderIndex || 0), productId: item.productId, quantity: item.quantity, rawName: item.rawName, lineKey: item.lineKey });
+  document.querySelectorAll("[data-ai-matched-line]").forEach((line) => {
+    const replacement = line.querySelector("[data-ai-candidate-product]:checked");
+    const quantityInput = line.querySelector("[data-ai-matched-quantity]");
+    entries.push({
+      orderIndex: Number(line.dataset.aiOrderIndex || 0),
+      productId: replacement?.value || line.dataset.aiProductId,
+      quantity: quantityInput?.value || "",
+      rawName: line.dataset.aiRawName || "",
+      lineKey: line.dataset.aiLineKey || "",
+    });
   });
   document.querySelectorAll("[data-ai-quantity-product]").forEach((input) => {
     entries.push({ orderIndex: Number(input.dataset.aiOrderIndex || 0), productId: input.dataset.aiQuantityProduct, quantity: input.value, rawName: input.dataset.aiRawName, lineKey: input.dataset.aiLineKey });
   });
   document.querySelectorAll("[data-ai-candidate-product]:checked").forEach((input) => {
+    if (input.closest("[data-ai-matched-line]")) return;
     const key = input.dataset.aiCandidateGroup;
     const quantityInput = [...document.querySelectorAll("[data-ai-candidate-quantity]")]
       .find((element) => element.dataset.aiCandidateQuantity === key);
@@ -1083,9 +1099,43 @@ function renderAiMatched(list) {
   return `
     <section class="ai-section">
       <h4>已匹配商品</h4>
-      ${list.map((item) => `<div class="ai-line-wrap"><div class="ai-line"><div><strong>${html(orderItemDetails(item).label)}</strong><div class="hint">${html(item.unit)} · 原文：${html(item.rawName || "-")}</div>${item.recommendation ? `<div class="ai-match-reason">${html(item.recommendation)}</div>` : ""}</div><div class="num">${html(item.quantity)} ${html(item.unit)}</div><div class="num">${money(item.price)}</div></div>${renderAiAliasConsent(item.lineKey, item.rawName, item.productId)}</div>`).join("")}
+      ${list.map((item, index) => {
+        const key = item.lineKey || `${item.groupId || "matched"}-${index}`;
+        return `
+          <div class="ai-line-wrap ai-matched-line" data-ai-matched-line data-ai-line-key="${html(key)}" data-ai-product-id="${html(item.productId)}" data-ai-order-index="${html(item.orderIndex)}" data-ai-raw-name="${html(item.rawName || "")}">
+            <div class="ai-line ai-matched-row">
+              <div class="ai-matched-product">
+                <strong>${html(orderItemDetails(item).label)}</strong>
+                <div class="hint">${html(item.unit)} · 原文：${html(item.rawName || "-")}</div>
+                ${item.recommendation ? `<div class="ai-match-reason">${html(item.recommendation)}</div>` : ""}
+              </div>
+              <label class="ai-matched-quantity"><span>数量</span><input class="input ai-small-input" type="number" min="0.01" step="0.01" value="${html(item.quantity)}" data-ai-matched-quantity /></label>
+              <div class="num ai-matched-price">${money(item.price)}</div>
+              <button type="button" class="icon-btn danger ai-matched-delete" title="删除该商品" aria-label="删除该商品" onclick="removeAiMatchedLine(this)">${svgIcon("delete")}</button>
+            </div>
+            <details class="ai-manual-picker ai-matched-picker">
+              <summary>匹配有误？更换商品</summary>
+              ${aiSearchScopeControls(key, item.rawName, item.cat1 || "", item.cat2 || "", item.orderIndex)}
+              <div class="ai-manual-search"><input class="input" data-ai-manual-input="${html(key)}" placeholder="输入正确商品的名称、规格、品牌或关键词" oncompositionstart="this.dataset.composing='true'" oncompositionend="this.dataset.composing='false';updateAiManualSearch(this,${jsArg(key)},${jsArg(item.rawName || "")},${jsArg(item.cat1 || "")},${jsArg(item.cat2 || "")},${jsArg(item.orderIndex)})" oninput="updateAiManualSearch(this,${jsArg(key)},${jsArg(item.rawName || "")},${jsArg(item.cat1 || "")},${jsArg(item.cat2 || "")},${jsArg(item.orderIndex)})" /></div>
+              <div class="ai-candidate-list ai-manual-results" data-ai-manual-results="${html(key)}"><div class="ai-manual-empty">输入关键词后即时显示匹配商品。</div></div>
+            </details>
+            ${renderAiAliasConsent(key, item.rawName)}
+          </div>
+        `;
+      }).join("")}
     </section>
   `;
+}
+
+function removeAiMatchedLine(button) {
+  const line = button.closest("[data-ai-matched-line]");
+  if (!line) return;
+  const section = line.closest(".ai-section");
+  line.classList.add("is-removing");
+  setTimeout(() => {
+    line.remove();
+    if (section && !section.querySelector("[data-ai-matched-line]")) section.remove();
+  }, 160);
 }
 
 function renderAiNeedsQuantity(list) {
@@ -4278,6 +4328,7 @@ Object.assign(window, {
   toggleCurrentProductPage,
   changeAiSearchCategory,
   refreshAiManualSearch,
+  removeAiMatchedLine,
   openModal,
   closeModal,
   updateOrderStatus,
