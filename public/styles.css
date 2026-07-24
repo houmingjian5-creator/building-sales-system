@@ -2556,6 +2556,8 @@ tbody tr:hover {
   grid-template-columns: 34px minmax(260px, 1fr) 88px 98px 100px 34px;
   gap: 10px;
   border-bottom: 1px solid var(--line);
+  transform-origin: center;
+  transition: opacity .15s ease, background-color .18s ease, box-shadow .18s ease, transform .18s ease;
 }
 
 .edit-order-line:last-child { border-bottom: 0; }
@@ -2603,6 +2605,14 @@ tbody tr:hover {
   z-index: 3;
   background: #f2f6ff;
   box-shadow: inset 3px 0 0 var(--primary), 0 10px 24px rgba(35, 64, 130, 0.12);
+  transform: scale(1.012);
+  opacity: .96;
+}
+
+.edit-order-line.is-removing {
+  pointer-events: none;
+  opacity: 0;
+  transform: translateX(18px) scale(.985);
 }
 
 .is-edit-order-dragging,
@@ -2830,6 +2840,24 @@ tbody tr:hover {
 
 .cart-line-total {
   color: var(--text);
+}
+
+.cart-line-bottom {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.cart-line-bottom .icon-btn {
+  width: 30px;
+  height: 30px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .edit-order-line {
+    transition: none;
+  }
 }
 
 .order-card.order-card-compact {

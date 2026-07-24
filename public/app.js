@@ -202,6 +202,10 @@ function bindTextCompositionGuards() {
   document.addEventListener("compositionend", (event) => {
     if (!event.target.matches("input, textarea")) return;
     event.target.dataset.composing = "false";
+    const target = event.target;
+    setTimeout(() => {
+      if (target.isConnected) target.dispatchEvent(new Event("input", { bubbles: true }));
+    }, 0);
   }, true);
   window.__buildingSalesCompositionBound = true;
 }
@@ -801,22 +805,10 @@ function refreshAiManualSearch(key, rawName, orderIndex) {
 }
 
 function aiManualCandidateScore(product, query) {
-  if (!query) return 0;
-  const normalized = normalizeProductSearchQuery(query);
-  const name = normalizeProductSearchQuery(product.name);
-  const spec = normalizeProductSearchQuery(product.spec);
-  const aliases = normalizeProductSearchQuery((product.aliases || []).join(" "));
-  if (name === normalized) return 1000;
-  if (name.startsWith(normalized)) return 850;
-  if (name.includes(normalized)) return 700;
-  if (spec === normalized) return 600;
-  if (spec.includes(normalized)) return 500;
-  if (aliases.includes(normalized)) return 450;
-  return productSearchText(product).includes(normalized) ? 300 : 0;
+  return productSearchScore(product, query);
 }
 
 function updateAiManualSearch(input, key, rawName, cat1, cat2, orderIndex = "") {
-  if (input.dataset.composing === "true") return;
   const query = input.value.trim();
   const cat1Select = [...document.querySelectorAll("[data-ai-search-cat1]")]
     .find((element) => element.dataset.aiSearchCat1 === String(key));
@@ -1787,6 +1779,27 @@ function normalizeProductSearchQuery(value) {
   return String(value || "").toLowerCase().replace(/[\s，。、“”‘’：:；;！!？?、,.（）()【】\[\]_-]+/g, "");
 }
 
+function productSearchScore(product, query) {
+  const rawQuery = String(query || "").trim().toLowerCase();
+  const normalized = normalizeProductSearchQuery(rawQuery);
+  if (!normalized) return 1;
+  const name = normalizeProductSearchQuery(product.name);
+  const code = normalizeProductSearchQuery(product.code || product.id);
+  const spec = normalizeProductSearchQuery(product.spec);
+  const brand = normalizeProductSearchQuery(product.brand);
+  const aliases = (product.aliases || []).map(normalizeProductSearchQuery);
+  if (name === normalized) return 1200;
+  if (code === normalized) return 1150;
+  if (aliases.includes(normalized)) return 1100;
+  if (name.startsWith(normalized)) return 950;
+  if (name.includes(normalized)) return 850;
+  if (spec === normalized) return 760;
+  if (spec.includes(normalized)) return 680;
+  if (brand === normalized) return 620;
+  if (aliases.some((alias) => alias.includes(normalized))) return 580;
+  return productSearchText(product).includes(rawQuery) || productSearchText(product).includes(normalized) ? 420 : 0;
+}
+
 function isProductActive(p) {
   return p.status !== "停用";
 }
@@ -2009,12 +2022,18 @@ function subcategoryTabs() {
 }
 
 function filteredProducts() {
-  const q = state.productQuery.trim().toLowerCase();
-  return products.filter((p) => {
+  const query = state.productQuery.trim();
+  const scoped = products.filter((p) => {
     const categoryOk = state.category === "全部" || p.cat1 === state.category;
     const subcategoryOk = !state.productSubcategory || p.cat2 === state.productSubcategory;
-    return categoryOk && subcategoryOk && (!q || productSearchText(p).includes(q));
+    return categoryOk && subcategoryOk;
   });
+  if (!query) return scoped;
+  return scoped
+    .map((product, index) => ({ product, index, score: productSearchScore(product, query) }))
+    .filter((entry) => entry.score > 0)
+    .sort((a, b) => b.score - a.score || a.index - b.index)
+    .map((entry) => entry.product);
 }
 
 function renderCustomers() {
@@ -2605,6 +2624,10 @@ function updateProductQuery(input) {
     renderProductTableResults();
     return;
   }
+  if (state.route === "create" || state.route === "returns") {
+    renderCreateProductResults();
+    return;
+  }
   if (input.dataset.composing !== "true") {
     clearTimeout(inputRenderTimer);
     inputRenderTimer = setTimeout(() => renderKeepingInput(input.id, input.selectionStart || 0, input.selectionEnd || 0), 80);
@@ -2698,7 +2721,7 @@ function productTableResultsHtml(list, pageData, canManage = isAdmin()) {
             <td>${html(p.unit)}</td>
             <td class="num">${money(p.price)}</td>
             <td><span class="badge ${isProductActive(p) ? "success" : "danger"}">${html(p.status || "在售")}</span></td>
-            <td class="row-actions">${actionButton("查看图片", "view", `openModal('productImage',${jsArg(p.id)})`)}${canManage ? `${actionButton("编辑", "edit", `openModal('product',${jsArg(p.id)})`)}${actionButton("删除", "delete", `deleteProduct(${jsArg(p.id)})`)}` : ""}</td>
+            <td class="row-actions">${actionButton("查看图片", "view", `openModal('productImage',${JSON.stringify(p.id)})`)}${canManage ? `${actionButton("编辑", "edit", `openModal('product',${JSON.stringify(p.id)})`)}${actionButton("删除", "delete", `deleteProduct(${JSON.stringify(p.id)})`)}` : ""}</td>
           </tr>
         `).join("")}</tbody>
       </table>
@@ -2900,6 +2923,22 @@ async function importProducts(input) {
   }
 }
 
+function createProductResultsHtml(productList, pageData) {
+  return `
+    <div class="hint product-count-hint">共 ${productList.length} 个商品，当前显示 ${pageData.items.length} 个</div>
+    ${pageData.items.length ? `<div class="product-grid">${pageData.items.map(productCard).join("")}</div>` : `<div class="empty">没有匹配的商品，请尝试商品名称、规格、编码或别名。</div>`}
+    ${paginationControls("createProducts", pageData.page, pageData.totalPages, pageData.total)}
+  `;
+}
+
+function renderCreateProductResults() {
+  const container = document.getElementById("createProductResults");
+  if (!container) return;
+  const productList = filteredProducts().filter(isProductActive);
+  const pageData = paginateList(productList, "createProducts", EDIT_PAGE_SIZES.createProducts);
+  container.innerHTML = createProductResultsHtml(productList, pageData);
+}
+
 function renderCreateOrder() {
   ensureSalesScope();
   const customerList = visibleCustomers();
@@ -2923,14 +2962,12 @@ function renderCreateOrder() {
     <div class="product-layout">
       <div>
         <div class="toolbar filter-toolbar">
-          <input id="orderProductSearchInput" class="input" placeholder="搜索商品名称、编码、拼音..." value="${html(state.productQuery)}" oninput="updateProductQuery(this)" />
+          <input id="orderProductSearchInput" class="input" placeholder="搜索商品名称、规格、编码、别名..." value="${html(state.productQuery)}" oncompositionstart="this.dataset.composing='true'" oncompositionend="this.dataset.composing='false';updateProductQuery(this)" oninput="updateProductQuery(this)" />
           <button class="btn primary" onclick="openAiOrderModal()">AI 帮我开单</button>
         </div>
         ${categoryTabs()}
         ${subcategoryTabs()}
-        <div class="hint product-count-hint">共 ${productList.length} 个商品，当前显示 ${pageData.items.length} 个</div>
-        <div class="product-grid">${pageData.items.map(productCard).join("")}</div>
-        ${paginationControls("createProducts", pageData.page, pageData.totalPages, pageData.total)}
+        <div id="createProductResults">${createProductResultsHtml(productList, pageData)}</div>
       </div>
       <aside class="card card-pad cart">
         <h3>${state.orderType === "return" ? "退货清单" : "购物车"}</h3>
@@ -3048,9 +3085,9 @@ function orderCard(order) {
           <select class="select inline-select" title="付款状态" onchange="updateOrderPayment(${jsArg(order.id)}, this.value)">${optionList(["未付款", "已付款"], payStatus)}</select>
         </div>
         <div class="order-actions">
-          ${actionButton("查看", "view", `openModal('order',${jsArg(order.id)})`)}
-          ${actionButton("编辑", "edit", `openModal('editOrder',${jsArg(order.id)})`)}
-          ${actionButton("导出图片", "refresh", `exportOrderImage(${jsArg(order.id)})`)}
+          ${actionButton("查看", "view", `openModal('order',${JSON.stringify(order.id)})`)}
+          ${actionButton("编辑", "edit", `openModal('editOrder',${JSON.stringify(order.id)})`)}
+          ${actionButton("导出图片", "refresh", `exportOrderImage(${JSON.stringify(order.id)})`)}
         </div>
       </div>
     </div>
@@ -3191,6 +3228,27 @@ function selectEditOrderCustomer(customerId) {
   document.getElementById("editCustomerResults")?.classList.add("hidden");
 }
 
+function editOrderItemsHtml(draft) {
+  return `
+    <div class="edit-order-items">
+      <div class="edit-order-items-head"><strong>订单商品</strong><span>${draft.items.length} 项</span></div>
+      ${draft.items.length ? draft.items.map((item, index) => `
+        <div class="edit-order-line" data-edit-order-line data-edit-order-index="${index}">
+          <button type="button" class="edit-order-drag-handle" title="按住拖动调整顺序" aria-label="拖动商品调整顺序" onpointerdown="startEditOrderDrag(event)" onkeydown="handleEditOrderDragKey(event,${index})">${svgIcon("grip")}</button>
+          <div class="edit-order-product"><strong>${html(orderItemDetails(item).label)}</strong><span>单位：${html(item.unit || "-")}</span></div>
+          <label><span>数量</span><input id="editOrderItemQty${index}" class="input" type="number" min="0.01" step="0.01" value="${Number(item.quantity || 0)}" oninput="updateEditOrderLine(${index},'quantity',this.value)" /></label>
+          <label><span>单价</span><input id="editOrderItemPrice${index}" class="input" type="number" step="0.01" value="${Number(item.price || 0)}" oninput="updateEditOrderLine(${index},'price',this.value)" /></label>
+          <div id="editOrderSubtotal${index}" class="edit-order-subtotal">${money(Number(item.quantity || 0) * Number(item.price || 0))}</div>
+          ${actionButton("删除商品", "delete", `removeEditOrderLine(${index})`)}
+        </div>`).join("") : `<div class="empty">订单中还没有商品</div>`}
+    </div>
+  `;
+}
+
+function editProductPickerSlotHtml() {
+  return state.editProductPickerOpen ? renderEditProductPicker() : "";
+}
+
 function editOrderModal(id) {
   const order = byId(orders, id);
   if (!order) return "";
@@ -3212,20 +3270,9 @@ function editOrderModal(id) {
             <div class="field" style="grid-column:1/-1"><label>订单地址</label><input id="editOrderAddress" class="input" value="${html(draft.address)}" oninput="updateEditOrderMeta('address',this.value)" /></div>
             <div class="field" style="grid-column:1/-1"><label>订单备注</label><textarea id="editOrderRemark" class="textarea" placeholder="可填写客户特殊要求、配送说明等" oninput="updateEditOrderMeta('remark',this.value)">${html(draft.remark)}</textarea></div>
           </div>
-          <div class="edit-order-items">
-            <div class="edit-order-items-head"><strong>订单商品</strong><span>${draft.items.length} 项</span></div>
-            ${draft.items.length ? draft.items.map((item, index) => `
-              <div class="edit-order-line" data-edit-order-line data-edit-order-index="${index}">
-                <button type="button" class="edit-order-drag-handle" title="按住拖动调整顺序" aria-label="拖动商品调整顺序" onpointerdown="startEditOrderDrag(event)" onkeydown="handleEditOrderDragKey(event,${index})">${svgIcon("grip")}</button>
-                <div class="edit-order-product"><strong>${html(orderItemDetails(item).label)}</strong><span>单位：${html(item.unit || "-")}</span></div>
-                <label><span>数量</span><input id="editOrderItemQty${index}" class="input" type="number" min="0.01" step="0.01" value="${Number(item.quantity || 0)}" oninput="updateEditOrderLine(${index},'quantity',this.value)" /></label>
-                <label><span>单价</span><input id="editOrderItemPrice${index}" class="input" type="number" step="0.01" value="${Number(item.price || 0)}" oninput="updateEditOrderLine(${index},'price',this.value)" /></label>
-                <div id="editOrderSubtotal${index}" class="edit-order-subtotal">${money(Number(item.quantity || 0) * Number(item.price || 0))}</div>
-                ${actionButton("删除商品", "delete", `removeEditOrderLine(${index})`)}
-              </div>`).join("") : `<div class="empty">订单中还没有商品</div>`}
-          </div>
-          <div class="edit-order-actions"><button class="btn" onclick="toggleEditProductPicker()">${state.editProductPickerOpen ? "收起商品库" : "+ 添加商品"}</button><strong>合计 <span id="editOrderTotal">${money(draftTotal)}</span></strong></div>
-          ${state.editProductPickerOpen ? renderEditProductPicker() : ""}
+          ${editOrderItemsHtml(draft)}
+          <div class="edit-order-actions"><button id="editProductPickerToggle" class="btn" onclick="toggleEditProductPicker()">${state.editProductPickerOpen ? "收起商品库" : "+ 添加商品"}</button><strong>合计 <span id="editOrderTotal">${money(draftTotal)}</span></strong></div>
+          <div id="editProductPickerSlot">${editProductPickerSlotHtml()}</div>
         </div>
         <div class="modal-foot"><button class="btn" onclick="closeModal()">取消</button><button class="btn primary" onclick="saveOrderEdits(${jsArg(id)})">保存修改</button></div>
       </div>
@@ -3247,9 +3294,27 @@ function updateEditOrderLine(index, key, value) {
   if (total) total.textContent = money(state.editOrderDraft.items.reduce((sum, line) => sum + Number(line.quantity || 0) * Number(line.price || 0), 0));
 }
 
+function refreshEditOrderItems(scrollTop = null) {
+  if (!state.editOrderDraft) return;
+  const modalBody = document.querySelector(".edit-order-modal .modal-body");
+  const currentScrollTop = scrollTop === null ? (modalBody?.scrollTop || 0) : scrollTop;
+  const section = document.querySelector(".edit-order-items");
+  if (section) section.outerHTML = editOrderItemsHtml(state.editOrderDraft);
+  const total = document.getElementById("editOrderTotal");
+  if (total) total.textContent = money(state.editOrderDraft.items.reduce((sum, item) => sum + Number(item.quantity || 0) * Number(item.price || 0), 0));
+  const nextBody = document.querySelector(".edit-order-modal .modal-body");
+  if (nextBody) nextBody.scrollTop = currentScrollTop;
+}
+
 function toggleEditProductPicker() {
+  const modalBody = document.querySelector(".edit-order-modal .modal-body");
+  const scrollTop = modalBody?.scrollTop || 0;
   state.editProductPickerOpen = !state.editProductPickerOpen;
-  render();
+  const button = document.getElementById("editProductPickerToggle");
+  const slot = document.getElementById("editProductPickerSlot");
+  if (button) button.textContent = state.editProductPickerOpen ? "收起商品库" : "+ 添加商品";
+  if (slot) slot.innerHTML = editProductPickerSlotHtml();
+  if (modalBody) modalBody.scrollTop = scrollTop;
   if (state.editProductPickerOpen) {
     requestAnimationFrame(() => {
       const picker = document.querySelector(".edit-product-picker");
@@ -3307,15 +3372,35 @@ function refreshEditProductPicker(restoreSearchFocus = false) {
 function addEditOrderProduct(productId) {
   const product = byId(products, productId);
   if (!product || !state.editOrderDraft || state.editOrderDraft.items.some((item) => item.productId === productId)) return;
+  const modalBody = document.querySelector(".edit-order-modal .modal-body");
+  const scrollTop = modalBody?.scrollTop || 0;
   state.editOrderDraft.items.push(orderLineSnapshot({ productId, quantity: 1 }));
-  render();
-  requestAnimationFrame(() => document.querySelector(".edit-product-picker")?.scrollIntoView({ block: "start" }));
+  refreshEditOrderItems(scrollTop);
+  refreshEditProductPicker(false);
+  const nextBody = document.querySelector(".edit-order-modal .modal-body");
+  if (nextBody) nextBody.scrollTop = scrollTop;
 }
 
 function removeEditOrderLine(index) {
   if (!state.editOrderDraft) return;
-  state.editOrderDraft.items.splice(index, 1);
-  render();
+  const draft = state.editOrderDraft;
+  const modalBody = document.querySelector(".edit-order-modal .modal-body");
+  const scrollTop = modalBody?.scrollTop || 0;
+  const line = document.querySelector(`[data-edit-order-index="${index}"]`);
+  const finish = () => {
+    draft.items.splice(index, 1);
+    if (state.editOrderDraft !== draft) return;
+    refreshEditOrderItems(scrollTop);
+    if (state.editProductPickerOpen) refreshEditProductPicker(false);
+    const nextBody = document.querySelector(".edit-order-modal .modal-body");
+    if (nextBody) nextBody.scrollTop = scrollTop;
+  };
+  if (!line) {
+    finish();
+    return;
+  }
+  line.classList.add("is-removing");
+  setTimeout(finish, 150);
 }
 
 function moveEditOrderLine(index, direction) {
@@ -3326,11 +3411,8 @@ function moveEditOrderLine(index, direction) {
   const scrollTop = modalBody?.scrollTop || 0;
   const [item] = state.editOrderDraft.items.splice(index, 1);
   state.editOrderDraft.items.splice(target, 0, item);
-  render();
-  requestAnimationFrame(() => {
-    const nextBody = document.querySelector(".edit-order-modal .modal-body");
-    if (nextBody) nextBody.scrollTop = scrollTop;
-  });
+  refreshEditOrderItems(scrollTop);
+  requestAnimationFrame(() => document.querySelector(`[data-edit-order-index="${target}"] .edit-order-drag-handle`)?.focus());
 }
 
 function handleEditOrderDragKey(event, index) {
@@ -3347,6 +3429,7 @@ function startEditOrderDrag(event) {
   if (!line || !list || !modalBody) return;
   event.preventDefault();
   state.editOrderDrag = { line, list, modalBody, pointerId: event.pointerId };
+  event.currentTarget.setPointerCapture?.(event.pointerId);
   line.classList.add("is-dragging");
   document.body.classList.add("is-edit-order-dragging");
   document.addEventListener("pointermove", moveEditOrderDrag);
@@ -3367,10 +3450,22 @@ function moveEditOrderDrag(event) {
   const from = lines.indexOf(drag.line);
   const to = lines.indexOf(target);
   if (from < 0 || to < 0 || from === to) return;
+  const positions = new Map(lines.map((element) => [element, element.getBoundingClientRect().top]));
   const [item] = state.editOrderDraft.items.splice(from, 1);
   state.editOrderDraft.items.splice(to, 0, item);
   if (to > from) drag.list.insertBefore(drag.line, target.nextSibling);
   else drag.list.insertBefore(drag.line, target);
+  if (window.matchMedia?.("(prefers-reduced-motion: reduce)").matches) return;
+  [...drag.list.querySelectorAll("[data-edit-order-line]")].forEach((element) => {
+    if (element === drag.line) return;
+    const delta = (positions.get(element) || element.getBoundingClientRect().top) - element.getBoundingClientRect().top;
+    if (!delta) return;
+    element.getAnimations().forEach((animation) => animation.cancel());
+    element.animate(
+      [{ transform: `translateY(${delta}px)` }, { transform: "translateY(0)" }],
+      { duration: 190, easing: "cubic-bezier(.2,.8,.2,1)" }
+    );
+  });
 }
 
 function finishEditOrderDrag(event) {
@@ -3382,11 +3477,7 @@ function finishEditOrderDrag(event) {
   document.removeEventListener("pointercancel", finishEditOrderDrag);
   document.body.classList.remove("is-edit-order-dragging");
   state.editOrderDrag = null;
-  render();
-  requestAnimationFrame(() => {
-    const modalBody = document.querySelector(".edit-order-modal .modal-body");
-    if (modalBody) modalBody.scrollTop = finalScrollTop;
-  });
+  refreshEditOrderItems(finalScrollTop);
 }
 
 async function saveOrderEdits(id) {
@@ -3503,7 +3594,10 @@ function cartLine(item) {
           <input class="qty-input" type="number" min="0" step="0.01" value="${quantity}" onchange="setCartQuantity(${jsArg(p.id)}, this.value)" onkeydown="if(event.key==='Enter')this.blur()" />
           <button type="button" onclick="changeQty(${jsArg(p.id)}, 1)">+</button>
         </div>
-        <strong class="cart-line-total">${money(quantity * displayPrice)}</strong>
+        <div class="cart-line-bottom">
+          <strong class="cart-line-total">${money(quantity * displayPrice)}</strong>
+          ${actionButton("从购物车删除", "delete", `removeCartItem(${JSON.stringify(p.id)})`)}
+        </div>
       </div>
     </div>
   `;
@@ -3513,6 +3607,15 @@ function changeQty(productId, delta) {
   const line = cartItemForProduct(productId);
   if (!line) return;
   setCartQuantity(productId, normalizeQuantity(line.quantity) + Number(delta || 0));
+}
+
+function removeCartItem(productId) {
+  const scrollX = window.scrollX;
+  const scrollY = window.scrollY;
+  state.cart = state.cart.filter((item) => item.productId !== productId);
+  persistCart();
+  render();
+  requestAnimationFrame(() => window.scrollTo(scrollX, scrollY));
 }
 
 async function saveProduct(id) {

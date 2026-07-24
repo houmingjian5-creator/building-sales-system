@@ -10,9 +10,21 @@ const finalProductModal = appSource.slice(appSource.lastIndexOf('function produc
 assert(finalProductModal.includes('onclick="saveProduct(${jsArg(id || "")})"'), '商品保存按钮必须安全传递商品 ID');
 assert(!finalProductModal.includes('onclick="saveProduct(${JSON.stringify'), '商品 ID 的引号不能破坏 onclick 属性');
 
+const finalProductQuery = appSource.slice(appSource.lastIndexOf('function updateProductQuery'), appSource.indexOf('function setProductCategory', appSource.lastIndexOf('function updateProductQuery')));
+assert(finalProductQuery.includes('renderCreateProductResults()'), '开单商品搜索必须局部即时刷新结果');
+const finalFilteredProducts = appSource.slice(appSource.lastIndexOf('function filteredProducts'), appSource.indexOf('function renderCustomers', appSource.lastIndexOf('function filteredProducts')));
+assert(finalFilteredProducts.includes('productSearchScore(product, query)'), '商品搜索结果必须按文字匹配度筛选和排序');
+const manualSearch = appSource.slice(appSource.indexOf('function updateAiManualSearch'), appSource.indexOf('function applyAiDraft'));
+assert(!manualSearch.includes('dataset.composing === "true") return'), 'AI 人工搜索不能在中文输入法合成期间停留在旧候选');
+const removeEditLine = appSource.slice(appSource.indexOf('function removeEditOrderLine'), appSource.indexOf('function moveEditOrderLine'));
+assert(removeEditLine.includes('refreshEditOrderItems(scrollTop)'), '编辑订单删除商品必须保留弹窗滚动位置');
+assert(!removeEditLine.includes('\n  render();'), '编辑订单删除商品不能整页重绘');
+
 const finalEditOrderModal = appSource.slice(appSource.lastIndexOf('function editOrderModal'), appSource.indexOf('function updateEditOrderMeta', appSource.lastIndexOf('function editOrderModal')));
-assert(finalEditOrderModal.includes('edit-order-drag-handle'), '编辑订单商品行应提供拖拽手柄');
-assert(!finalEditOrderModal.includes('title="上移"'), '编辑订单不再显示上下移动按钮');
+const editOrderItemsHtml = appSource.slice(appSource.indexOf('function editOrderItemsHtml'), appSource.indexOf('function editProductPickerSlotHtml'));
+assert(finalEditOrderModal.includes('editOrderItemsHtml(draft)'), '编辑订单应使用可局部刷新的商品列表');
+assert(editOrderItemsHtml.includes('edit-order-drag-handle'), '编辑订单商品行应提供拖拽手柄');
+assert(!editOrderItemsHtml.includes('title="上移"'), '编辑订单不再显示上下移动按钮');
 
 const orangePipeMatches = server.matchProductCandidates(
   db.products,
