@@ -9,6 +9,7 @@ const ROOT = __dirname;
 const PUBLIC_DIR = path.join(ROOT, "public");
 const DATA_DIR = path.join(ROOT, "data");
 const DB_PATH = path.join(DATA_DIR, "db.json");
+const DB_PREVIOUS_PATH = path.join(DATA_DIR, "db.previous.json");
 const ASSISTANT_CHAT_PATH = path.join(DATA_DIR, "assistant-chats.json");
 const PRODUCT_IMAGE_DIR = path.join(DATA_DIR, "product-images");
 const PORT = Number(process.env.PORT || 3000);
@@ -18,6 +19,11 @@ const DEEPSEEK_MODEL = process.env.DEEPSEEK_MODEL || "deepseek-chat";
 const sessions = new Map();
 const assistantRateLimits = new Map();
 const assistantInFlight = new Set();
+const loginFailures = new Map();
+
+const PASSWORD_PREFIX = "scrypt";
+const LOGIN_WINDOW_MS = 15 * 60 * 1000;
+const LOGIN_MAX_FAILURES = 5;
 
 function newId() {
   if (crypto.randomUUID) return crypto.randomUUID();
@@ -28,8 +34,120 @@ function readDb() {
   return JSON.parse(fs.readFileSync(DB_PATH, "utf8"));
 }
 
+function atomicWriteJson(filePath, data, previousPath) {
+  const directory = path.dirname(filePath);
+  fs.mkdirSync(directory, { recursive: true });
+  const serialized = JSON.stringify(data, null, 2);
+  JSON.parse(serialized);
+  const tempPath = path.join(directory, `.${path.basename(filePath)}.${process.pid}.${Date.now()}.tmp`);
+  let descriptor;
+  try {
+    descriptor = fs.openSync(tempPath, "w", 0o600);
+    fs.writeFileSync(descriptor, serialized, "utf8");
+    fs.fsyncSync(descriptor);
+    fs.closeSync(descriptor);
+    descriptor = null;
+    if (previousPath && fs.existsSync(filePath)) {
+      fs.copyFileSync(filePath, previousPath);
+      try {
+        fs.chmodSync(previousPath, 0o600);
+      } catch (_) {
+        // Windows may not support POSIX file modes.
+      }
+    }
+    fs.renameSync(tempPath, filePath);
+  } catch (error) {
+    if (descriptor !== undefined && descriptor !== null) {
+      try {
+        fs.closeSync(descriptor);
+      } catch (_) {
+        // Ignore close failures while preserving the original error.
+      }
+    }
+    try {
+      if (fs.existsSync(tempPath)) fs.unlinkSync(tempPath);
+    } catch (_) {
+      // Ignore cleanup failures while preserving the original error.
+    }
+    throw error;
+  }
+}
+
 function writeDb(db) {
-  fs.writeFileSync(DB_PATH, JSON.stringify(db, null, 2), "utf8");
+  atomicWriteJson(DB_PATH, db, DB_PREVIOUS_PATH);
+}
+
+function hashPassword(password) {
+  const salt = crypto.randomBytes(16);
+  const derived = crypto.scryptSync(String(password), salt, 64);
+  return `${PASSWORD_PREFIX}$${salt.toString("hex")}$${derived.toString("hex")}`;
+}
+
+function verifyPassword(user, password) {
+  const stored = String(user && user.passwordHash || "");
+  if (stored.startsWith(`${PASSWORD_PREFIX}$`)) {
+    const parts = stored.split("$");
+    if (parts.length !== 3) return false;
+    try {
+      const salt = Buffer.from(parts[1], "hex");
+      const expected = Buffer.from(parts[2], "hex");
+      const actual = crypto.scryptSync(String(password), salt, expected.length);
+      return expected.length === actual.length && crypto.timingSafeEqual(expected, actual);
+    } catch (_) {
+      return false;
+    }
+  }
+  const legacy = Buffer.from(String(user && user.password || ""));
+  const supplied = Buffer.from(String(password || ""));
+  return legacy.length === supplied.length && crypto.timingSafeEqual(legacy, supplied);
+}
+
+function setUserPassword(user, password) {
+  user.passwordHash = hashPassword(password);
+  delete user.password;
+}
+
+function loginRateKey(req, phone) {
+  const forwarded = String(req.headers["x-forwarded-for"] || "").split(",")[0].trim();
+  const address = forwarded || (req.socket && req.socket.remoteAddress) || "unknown";
+  return `${address}:${String(phone || "")}`;
+}
+
+function loginRateState(key) {
+  const now = Date.now();
+  const state = loginFailures.get(key);
+  if (!state || now - state.startedAt >= LOGIN_WINDOW_MS) {
+    const fresh = { count: 0, startedAt: now };
+    loginFailures.set(key, fresh);
+    return fresh;
+  }
+  return state;
+}
+
+function isLoginBlocked(key) {
+  return loginRateState(key).count >= LOGIN_MAX_FAILURES;
+}
+
+function recordLoginFailure(key) {
+  const state = loginRateState(key);
+  state.count += 1;
+}
+
+function clearLoginFailures(key) {
+  loginFailures.delete(key);
+}
+
+function isSecureRequest(req) {
+  if (process.env.COOKIE_SECURE === "true") return true;
+  const forwarded = String(req.headers["x-forwarded-proto"] || "").split(",")[0].trim();
+  return Boolean(req.socket && req.socket.encrypted) || forwarded === "https";
+}
+
+function sessionCookie(req, token, maxAge) {
+  const parts = [`sid=${encodeURIComponent(token || "")}`, "Path=/", "HttpOnly", "SameSite=Lax"];
+  if (isSecureRequest(req)) parts.push("Secure");
+  if (maxAge !== undefined) parts.push(`Max-Age=${maxAge}`);
+  return parts.join("; ");
 }
 
 function sendJson(res, status, data) {
@@ -112,8 +230,12 @@ function requireAdmin(req, res) {
 }
 
 function sanitizeUser(user) {
-  const { password, ...rest } = user;
+  const { password, passwordHash, ...rest } = user;
   return rest;
+}
+
+function canViewProductCost(user) {
+  return Boolean(user && ["\u8d85\u7ea7\u7ba1\u7406\u5458", "\u7ba1\u7406\u5458"].includes(user.role));
 }
 
 function normalizeText(value) {
@@ -168,8 +290,8 @@ function productAliases(product) {
   return [...new Set(terms.filter(Boolean))];
 }
 
-function publicProduct(product) {
-  return {
+function publicProduct(product, options) {
+  const result = {
     id: product.id,
     code: product.code || product.id,
     brand: product.brand || product.cat1 || '',
@@ -180,12 +302,13 @@ function publicProduct(product) {
     spec: product.spec || '',
     unit: product.unit || '',
     price: Number(product.price || 0),
-    cost: Number(product.cost || 0),
     status: product.status || '\u5728\u552e',
     aliases: splitAliases(product.aliases),
     color: product.color || '#dbe4ef',
     stock: Number(product.stock || 0),
   };
+  if (options && options.includeCost) result.cost = Number(product.cost || 0);
+  return result;
 }
 
 function normalizeProductPayload(payload, existing = {}) {
@@ -212,8 +335,8 @@ function normalizeProductPayload(payload, existing = {}) {
 
 const PRODUCT_SHEET_HEADERS = ['商品编码', '商品名称', '规格', '一级分类', '二级分类', '品牌', '单位', '销售价', '成本价', '状态', '别名/关键词'];
 
-function productSheetRow(product) {
-  return [
+function productSheetRow(product, options) {
+  const row = [
     product.code || product.id || '',
     product.name || '',
     product.spec || '',
@@ -222,30 +345,35 @@ function productSheetRow(product) {
     product.brand || '',
     product.unit || '',
     Number(product.price || 0),
-    Number(product.cost || 0),
     product.status || '在售',
     splitAliases(product.aliases).join('，'),
   ];
+  if (!options || options.includeCost !== false) row.splice(8, 0, Number(product.cost || 0));
+  return row;
 }
 
-async function buildProductWorkbook(products) {
+async function buildProductWorkbook(products, options) {
+  const includeCost = !options || options.includeCost !== false;
   const workbook = await XlsxPopulate.fromBlankAsync();
   const sheet = workbook.sheet(0).name('产品');
-  const rows = [PRODUCT_SHEET_HEADERS].concat((products || []).map(productSheetRow));
+  const headers = includeCost ? PRODUCT_SHEET_HEADERS : PRODUCT_SHEET_HEADERS.filter((_, index) => index !== 8);
+  const rows = [headers].concat((products || []).map((product) => productSheetRow(product, { includeCost })));
+  const lastColumn = includeCost ? 'K' : 'J';
   sheet.cell('A1').value(rows);
   sheet.freezePanes(0, 1);
-  sheet.range(`A1:K${Math.max(rows.length, 1)}`).style({ verticalAlignment: 'center' });
-  sheet.range('A1:K1').style({
+  sheet.range(`A1:${lastColumn}${Math.max(rows.length, 1)}`).style({ verticalAlignment: 'center' });
+  sheet.range(`A1:${lastColumn}1`).style({
     bold: true,
     fontColor: 'FFFFFF',
     fill: '3159D9',
     horizontalAlignment: 'center',
   }).autoFilter();
-  [20, 34, 24, 14, 22, 18, 12, 12, 12, 12, 36].forEach((width, index) => {
+  const widths = [20, 34, 24, 14, 22, 18, 12, 12, 12, 12, 36];
+  (includeCost ? widths : widths.filter((_, index) => index !== 8)).forEach((width, index) => {
     sheet.column(index + 1).width(width);
   });
   sheet.column(8).style('numberFormat', '0.00');
-  sheet.column(9).style('numberFormat', '0.00');
+  if (includeCost) sheet.column(9).style('numberFormat', '0.00');
   const notes = workbook.addSheet('填写说明');
   const noteRows = [
     ['字段', '填写规则'],
@@ -253,7 +381,7 @@ async function buildProductWorkbook(products) {
     ['商品名称', '必填'],
     ['一级分类', '必填：水电、木、瓦、油、辅助商品'],
     ['单位', '必填'],
-    ['销售价/成本价', '填写数字，不要带人民币符号'],
+    [includeCost ? '销售价/成本价' : '销售价', '填写数字，不要带人民币符号'],
     ['状态', '在售或停用；不填默认在售'],
     ['别名/关键词', '多个词用中文逗号分隔'],
   ];
@@ -1484,21 +1612,28 @@ async function handleApi(req, res) {
 
   if (method === "POST" && url.pathname === "/api/login") {
     const { phone, password } = await readBody(req);
+    const rateKey = loginRateKey(req, phone);
+    if (isLoginBlocked(rateKey)) return sendError(res, 429, "登录尝试次数过多，请 15 分钟后再试");
     const db = readDb();
     const user = db.users.find((item) => item.phone === phone);
-    if (!user || user.password !== password) return sendError(res, 401, "手机号或密码错误");
+    if (!user || !verifyPassword(user, password)) {
+      recordLoginFailure(rateKey);
+      return sendError(res, 401, "手机号或密码错误");
+    }
     if (user.status !== "启用") return sendError(res, 403, "账号已停用");
+    clearLoginFailures(rateKey);
+    if (!user.passwordHash) setUserPassword(user, password);
     const token = crypto.randomBytes(24).toString("hex");
     sessions.set(token, user.id);
     db.loginLogs.unshift({ id: newId(), userId: user.id, phone: user.phone, createdAt: new Date().toISOString() });
     writeDb(db);
-    res.setHeader("set-cookie", `sid=${token}; Path=/; HttpOnly; SameSite=Lax`);
-    return sendJson(res, 200, { token, user: sanitizeUser(user) });
+    res.setHeader("set-cookie", sessionCookie(req, token));
+    return sendJson(res, 200, { user: sanitizeUser(user) });
   }
 
   if (method === "POST" && url.pathname === "/api/logout") {
     sessions.delete(getToken(req));
-    res.setHeader("set-cookie", "sid=; Path=/; Max-Age=0");
+    res.setHeader("set-cookie", sessionCookie(req, "", 0));
     return sendJson(res, 200, { ok: true });
   }
 
@@ -1568,7 +1703,7 @@ async function handleApi(req, res) {
       user: sanitizeUser(user),
       users: db.users.map(sanitizeUser),
       customers: db.customers.filter((customer) => user.role !== "销售人员" || customer.ownerId === user.id),
-      products: db.products.map(publicProduct),
+      products: db.products.map((product) => publicProduct(product, { includeCost: canViewProductCost(user) })),
       orders: db.orders.filter((order) => !order.deletedAt && (user.role !== "销售人员" || order.salesUserId === user.id)).map(publicOrder),
     });
   }
@@ -1586,10 +1721,10 @@ async function handleApi(req, res) {
         id: newId(),
         name: payload.name,
         phone: payload.phone,
-        password: payload.password,
         role: payload.role || "销售人员",
         status: payload.status || "启用",
       };
+      setUserPassword(user, payload.password);
       db.users.unshift(user);
       writeDb(db);
       return sendJson(res, 201, { user: sanitizeUser(user) });
@@ -1609,9 +1744,10 @@ async function handleApi(req, res) {
       if (payload.phone && db.users.some((item) => item.phone === payload.phone && item.id !== id)) {
         return sendError(res, 409, "手机号已存在");
       }
-      ["name", "phone", "password", "role", "status"].forEach((key) => {
+      ["name", "phone", "role", "status"].forEach((key) => {
         if (payload[key] !== undefined) user[key] = payload[key];
       });
+      if (payload.password) setUserPassword(user, payload.password);
       writeDb(db);
       return sendJson(res, 200, { user: sanitizeUser(user) });
     }
@@ -1702,7 +1838,7 @@ async function handleApi(req, res) {
     const ids = Array.isArray(payload.ids) ? new Set(payload.ids.map(String)) : null;
     const selected = ids && ids.size ? db.products.filter((product) => ids.has(String(product.id))) : db.products;
     if (!selected.length) return sendError(res, 400, "没有可导出的商品");
-    const buffer = await buildProductWorkbook(selected);
+    const buffer = await buildProductWorkbook(selected, { includeCost: canViewProductCost(user) });
     const filename = ids && ids.size ? `已选产品-${selected.length}项.xlsx` : `全部产品-${selected.length}项.xlsx`;
     return sendBuffer(res, 200, buffer, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", filename);
   }
@@ -1731,7 +1867,7 @@ async function handleApi(req, res) {
         }
       });
       writeDb(db);
-      return sendJson(res, 200, { created, updated, products: db.products.map(publicProduct) });
+      return sendJson(res, 200, { created, updated, products: db.products.map((product) => publicProduct(product, { includeCost: true })) });
     } catch (error) {
       return sendError(res, 400, error.message || "产品表格解析失败");
     }
@@ -1757,7 +1893,7 @@ async function handleApi(req, res) {
         const previousPath = path.join(PRODUCT_IMAGE_DIR, previous);
         if (fs.existsSync(previousPath)) fs.unlinkSync(previousPath);
       }
-      return sendJson(res, 200, { product: publicProduct(product) });
+      return sendJson(res, 200, { product: publicProduct(product, { includeCost: true }) });
     } catch (error) {
       return sendError(res, 400, error.message || "商品图片上传失败");
     }
@@ -1767,7 +1903,11 @@ async function handleApi(req, res) {
     const user = requireUser(req, res);
     if (!user) return;
     const db = readDb();
-    if (method === "GET") return sendJson(res, 200, { products: db.products.map(publicProduct) });
+    if (method === "GET") {
+      return sendJson(res, 200, {
+        products: db.products.map((product) => publicProduct(product, { includeCost: canViewProductCost(user) })),
+      });
+    }
     if (method === "POST") {
       if (!requireAdmin(req, res)) return;
       const payload = await readBody(req);
@@ -1776,7 +1916,7 @@ async function handleApi(req, res) {
       if (db.products.some((item) => item.id === product.id)) product.id = newId();
       db.products.unshift(product);
       writeDb(db);
-      return sendJson(res, 201, { product: publicProduct(product) });
+      return sendJson(res, 201, { product: publicProduct(product, { includeCost: true }) });
     }
   }
 
@@ -1794,7 +1934,7 @@ async function handleApi(req, res) {
       const updated = normalizeProductPayload(payload, product);
       Object.assign(product, updated);
       writeDb(db);
-      return sendJson(res, 200, { product: publicProduct(product) });
+      return sendJson(res, 200, { product: publicProduct(product, { includeCost: true }) });
     }
     if (method === "DELETE") {
       if (!requireAdmin(req, res)) return;
@@ -1949,6 +2089,13 @@ async function handleApi(req, res) {
 }
 
 const server = http.createServer((req, res) => {
+  res.setHeader("x-content-type-options", "nosniff");
+  res.setHeader("x-frame-options", "SAMEORIGIN");
+  res.setHeader("referrer-policy", "same-origin");
+  res.setHeader("permissions-policy", "camera=(), microphone=(), geolocation=()");
+  if (isSecureRequest(req)) {
+    res.setHeader("strict-transport-security", "max-age=31536000; includeSubDomains");
+  }
   if (req.url.startsWith("/api/")) {
     handleApi(req, res).catch((error) => sendError(res, 500, error.message || "服务器错误"));
     return;
@@ -1978,3 +2125,11 @@ module.exports.assistantReceivables = assistantReceivables;
 module.exports.assistantProductRanking = assistantProductRanking;
 module.exports.assistantCustomerHistory = assistantCustomerHistory;
 module.exports.executeAssistantTools = executeAssistantTools;
+module.exports.readDb = readDb;
+module.exports.writeDb = writeDb;
+module.exports.atomicWriteJson = atomicWriteJson;
+module.exports.hashPassword = hashPassword;
+module.exports.verifyPassword = verifyPassword;
+module.exports.setUserPassword = setUserPassword;
+module.exports.publicProduct = publicProduct;
+module.exports.canViewProductCost = canViewProductCost;

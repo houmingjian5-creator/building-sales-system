@@ -4,3 +4,6 @@ node_modules
 data/product-images/
 data/assistant-chats.json
 data/assistant-chats.json.tmp
+data/db.previous.json
+data/.db.json.*.tmp
+data/backups/

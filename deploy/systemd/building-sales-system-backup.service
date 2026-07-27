@@ -1,0 +1,14 @@
+[Unit]
+Description=Building Sales System database backup
+After=network-online.target
+
+[Service]
+Type=oneshot
+User=admin
+WorkingDirectory=/opt/building-sales-system
+Environment=BACKUP_RETENTION_DAYS=30
+EnvironmentFile=-/etc/building-sales-system-backup.env
+ExecStart=/usr/bin/node /opt/building-sales-system/scripts/backup-db.js
+
+[Install]
+WantedBy=multi-user.target

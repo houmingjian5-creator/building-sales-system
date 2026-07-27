@@ -56,11 +56,11 @@ let assistantStageTimer = null;
 let suppressAssistantClick = false;
 
 let salesUsers = [
-  { id: "u1", name: "钱锦健", phone: "13800000001", password: "888888", role: "超级管理员", status: "启用" },
-  { id: "u2", name: "侯俊键", phone: "13800000002", password: "888888", role: "销售人员", status: "启用" },
-  { id: "u3", name: "沈海峰", phone: "13800000003", password: "888888", role: "销售人员", status: "启用" },
-  { id: "u4", name: "管理员", phone: "13800000004", password: "888888", role: "管理员", status: "启用" },
-  { id: "u5", name: "财务", phone: "13800000005", password: "888888", role: "财务", status: "启用" },
+  { id: "u1", name: "钱锦健", phone: "13800000001", role: "超级管理员", status: "启用" },
+  { id: "u2", name: "侯俊键", phone: "13800000002", role: "销售人员", status: "启用" },
+  { id: "u3", name: "沈海峰", phone: "13800000003", role: "销售人员", status: "启用" },
+  { id: "u4", name: "管理员", phone: "13800000004", role: "管理员", status: "启用" },
+  { id: "u5", name: "财务", phone: "13800000005", role: "财务", status: "启用" },
 ];
 
 let customers = [
@@ -369,15 +369,15 @@ function renderLogin() {
   app.innerHTML = `
     <div class="login-shell">
       <section class="login-panel">
-        <div class="login-card">
+        <form class="login-card" onsubmit="event.preventDefault(); login()">
           <div class="brand-row">
             <div class="brand-mark">建</div>
             <div><h1 class="page-title">建材销售开单系统</h1><p class="page-subtitle">手机号登录 · 客户产品订单一体化</p></div>
           </div>
           <div class="field"><label>手机号</label><input id="loginPhone" class="input" value="" placeholder="请输入已授权手机号" /></div>
           <div class="field"><label>密码</label><div class="password-field"><input id="loginPassword" class="input" type="${state.loginPasswordVisible ? "text" : "password"}" value="" placeholder="请输入登录密码" /><button type="button" class="password-toggle ${state.loginPasswordVisible ? "active" : ""}" onclick="toggleLoginPassword()" title="${state.loginPasswordVisible ? "隐藏密码" : "显示密码"}" aria-label="${state.loginPasswordVisible ? "隐藏密码" : "显示密码"}"></button></div></div>
-          <button class="btn primary" style="width:100%" onclick="login()">登录系统</button>
-        </div>
+          <button type="submit" class="btn primary" style="width:100%">登录系统</button>
+        </form>
       </section>
       <section class="login-visual"><div class="visual-board"></div></section>
     </div>
@@ -1470,7 +1470,7 @@ function userModal() {
     <div class="form-grid">
       <div class="field"><label>姓名</label><input id="personName" class="input" value="${user.name || ""}" placeholder="请输入姓名" /></div>
       <div class="field"><label>登录手机号 *</label><input id="personPhone" class="input" value="${user.phone || ""}" placeholder="请输入手机号" /></div>
-      <div class="field"><label>登录密码 *</label><input id="personPassword" class="input" value="${user.password || ""}" placeholder="请输入密码" /></div>
+      <div class="field"><label>${user.id ? "修改密码（选填）" : "登录密码 *"}</label><input id="personPassword" class="input" type="password" value="" autocomplete="new-password" placeholder="${user.id ? "留空表示不修改密码" : "请输入密码"}" /></div>
       <div class="field"><label>角色定位</label><select id="personRole" class="select">${["超级管理员", "管理员", "销售人员", "财务"].map((role) => `<option ${role === (user.role || "销售人员") ? "selected" : ""}>${role}</option>`).join("")}</select></div>
       <div class="field"><label>账号状态</label><select id="personStatus" class="select">${["启用", "停用"].map((status) => `<option ${status === (user.status || "启用") ? "selected" : ""}>${status}</option>`).join("")}</select></div>
     </div>
@@ -1533,15 +1533,17 @@ async function savePerson(id) {
   const password = document.getElementById("personPassword").value.trim();
   const role = document.getElementById("personRole").value;
   const status = document.getElementById("personStatus").value;
-  if (!name || !phone || !password) {
-    alert("请填写姓名、手机号和密码。");
+  if (!name || !phone || (!id && !password)) {
+    alert(id ? "请填写姓名和手机号。" : "请填写姓名、手机号和密码。");
     return;
   }
   try {
+    const payload = { name, phone, role, status };
+    if (password) payload.password = password;
     const response = await fetch(id ? `/api/users/${id}` : "/api/users", {
       method: id ? "PUT" : "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ name, phone, password, role, status }),
+      body: JSON.stringify(payload),
     });
     const data = await response.json();
     if (!response.ok) throw new Error(data.error || "保存人员失败");
@@ -2358,14 +2360,18 @@ const LOGIN_MEMORY_KEY = "caidajia_last_login";
 
 function getRememberedLogin() {
   try {
-    return JSON.parse(localStorage.getItem(LOGIN_MEMORY_KEY) || "{}");
+    const remembered = JSON.parse(localStorage.getItem(LOGIN_MEMORY_KEY) || "{}");
+    if (remembered.password) {
+      localStorage.setItem(LOGIN_MEMORY_KEY, JSON.stringify({ phone: remembered.phone || "" }));
+    }
+    return { phone: remembered.phone || "" };
   } catch {
     return {};
   }
 }
 
-function rememberLogin(phone, password) {
-  localStorage.setItem(LOGIN_MEMORY_KEY, JSON.stringify({ phone, password }));
+function rememberLogin(phone) {
+  localStorage.setItem(LOGIN_MEMORY_KEY, JSON.stringify({ phone }));
 }
 
 function isSalesRole() {
@@ -2411,19 +2417,18 @@ function setRoute(route) {
 function renderLogin() {
   const remembered = getRememberedLogin();
   const phone = html(remembered.phone || "");
-  const password = html(remembered.password || "");
   app.innerHTML = `
     <div class="login-shell">
       <section class="login-panel">
-        <div class="login-card">
+        <form class="login-card" onsubmit="event.preventDefault(); login()">
           <div class="brand-row">
             <div class="brand-mark">建</div>
             <div><h1 class="page-title">建材销售开单系统</h1><p class="page-subtitle">手机号登录 · 客户产品订单一体化</p></div>
           </div>
-          <div class="field"><label>手机号</label><input id="loginPhone" class="input" value="${phone}" placeholder="请输入已授权手机号" /></div>
-          <div class="field"><label>密码</label><div class="password-field"><input id="loginPassword" class="input" type="${state.loginPasswordVisible ? "text" : "password"}" value="${password}" placeholder="请输入登录密码" /><button type="button" class="password-toggle ${state.loginPasswordVisible ? "active" : ""}" onclick="toggleLoginPassword()" title="${state.loginPasswordVisible ? "隐藏密码" : "显示密码"}" aria-label="${state.loginPasswordVisible ? "隐藏密码" : "显示密码"}"></button></div></div>
-          <button class="btn primary" style="width:100%" onclick="login()">登录系统</button>
-        </div>
+          <div class="field"><label>手机号</label><input id="loginPhone" class="input" value="${phone}" autocomplete="username" placeholder="请输入已授权手机号" /></div>
+          <div class="field"><label>密码</label><div class="password-field"><input id="loginPassword" class="input" type="${state.loginPasswordVisible ? "text" : "password"}" value="" autocomplete="current-password" placeholder="请输入登录密码" /><button type="button" class="password-toggle ${state.loginPasswordVisible ? "active" : ""}" onclick="toggleLoginPassword()" title="${state.loginPasswordVisible ? "隐藏密码" : "显示密码"}" aria-label="${state.loginPasswordVisible ? "隐藏密码" : "显示密码"}"></button></div></div>
+          <button type="submit" class="btn primary" style="width:100%">登录系统</button>
+        </form>
       </section>
       <section class="login-visual">
         <div class="visual-board ai-login-hero" aria-hidden="true">
@@ -2470,7 +2475,7 @@ async function login() {
     });
     const data = await response.json();
     if (!response.ok) throw new Error(data.error || "登录失败");
-    rememberLogin(phone, password);
+    rememberLogin(phone);
     state.user = data.user;
     await loadBootstrap();
     showToast("登录成功");
@@ -2480,15 +2485,7 @@ async function login() {
 }
 
 function localLoginFallback(phone, password) {
-  const user = salesUsers.find((item) => item.phone === phone);
-  if (!user || user.password !== password || user.status !== "启用") {
-    alert("手机号或密码错误。");
-    return;
-  }
-  rememberLogin(phone, password);
-  state.user = user;
-  ensureSalesScope();
-  showToast("登录成功");
+  alert("暂时无法连接服务器，请稍后重试。");
 }
 
 async function loadBootstrap() {
