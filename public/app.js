@@ -141,7 +141,7 @@ function clearPersistedCart(type = state.orderType) {
 
 function resetOrderDraft(customer = null) {
   state.orderDraftCustomerId = customer?.id || "";
-  state.orderAddress = customer?.address || "";
+  state.orderAddress = "";
   state.orderPhone = customer?.phone || "";
   state.orderRemark = "";
 }
@@ -161,6 +161,63 @@ function selectOrderCustomer(customerId) {
   state.selectedCustomerId = customerId;
   resetOrderDraft(byId(customers, customerId));
   render();
+}
+
+function customerOrderAddresses(customerId) {
+  const seen = new Set();
+  return orders
+    .filter((order) => order.customerId === customerId && !order.deletedAt)
+    .map((order) => String(order.address || "").trim())
+    .filter((address) => {
+      if (!address || seen.has(address)) return false;
+      seen.add(address);
+      return true;
+    })
+    .slice(0, 10);
+}
+
+function addressHistoryMenuHtml(customerId, mode) {
+  const addresses = customerOrderAddresses(customerId);
+  const menuId = mode === "edit" ? "editOrderAddressHistory" : "orderAddressHistory";
+  return `
+    <div id="${menuId}" class="address-history-menu">
+      ${addresses.length ? addresses.map((address) => `
+        <button type="button" data-address="${html(address)}" onmousedown="event.preventDefault()" onclick="selectAddressHistory(this,${jsArg(mode)})">
+          ${svgIcon("orders")}<span>${html(address)}</span>
+        </button>`).join("") : `<div class="address-history-empty">该客户暂无历史下单地址</div>`}
+    </div>
+  `;
+}
+
+function openAddressHistory(mode) {
+  const menuId = mode === "edit" ? "editOrderAddressHistory" : "orderAddressHistory";
+  document.getElementById(menuId)?.classList.add("open");
+}
+
+function closeAddressHistory(mode) {
+  const menuId = mode === "edit" ? "editOrderAddressHistory" : "orderAddressHistory";
+  setTimeout(() => document.getElementById(menuId)?.classList.remove("open"), 120);
+}
+
+function selectAddressHistory(button, mode) {
+  const address = button?.dataset?.address || "";
+  if (mode === "edit") {
+    updateEditOrderMeta("address", address);
+    const input = document.getElementById("editOrderAddress");
+    if (input) input.value = address;
+  } else {
+    updateOrderDraftField("address", address);
+    const input = document.getElementById("orderAddressInput");
+    if (input) input.value = address;
+  }
+  closeAddressHistory(mode);
+}
+
+function orderAddressForDisplay(order, customer = {}) {
+  if (Object.prototype.hasOwnProperty.call(order || {}, "address")) {
+    return String(order.address || "");
+  }
+  return String(customer.address || "");
 }
 
 function orderItemDetails(item = {}) {
@@ -1069,7 +1126,7 @@ function aiOrderModal() {
   const activeGroup = state.aiGroups.find((group) => group.id === state.aiActiveGroupId) || state.aiGroups[0];
   const cat2Options = activeGroup ? [...new Set(products.filter((product) => product.cat1 === activeGroup.cat1).map((product) => product.cat2).filter(Boolean))] : [];
   return `
-    <div class="modal-backdrop" onclick="if(event.target.className==='modal-backdrop')closeModal()">
+    <div class="modal-backdrop">
       <div class="modal ai-modal">
         <div class="modal-head">
           <div><h3>AI 帮我开单</h3><div class="hint">当前客户：${customer ? `${customer.name} - ${customer.phone}` : "请先选择客户"}。AI 只匹配商品库商品，生成后还需要销售确认保存。</div></div>
@@ -1237,7 +1294,7 @@ async function saveCustomer(id) {
 function productModal(id) {
   const p = byId(products, id) || {};
   return `
-    <div class="modal-backdrop" onclick="if(event.target.className==='modal-backdrop')closeModal()">
+    <div class="modal-backdrop">
       <div class="modal side">
         <div class="modal-head"><h3>${id ? "编辑产品" : "新增产品"}</h3><button class="icon-btn" onclick="closeModal()">×</button></div>
         <div class="modal-body">
@@ -1268,7 +1325,7 @@ function productImageModal(id) {
   const product = byId(products, id);
   if (!product) return "";
   return `
-    <div class="modal-backdrop" onclick="if(event.target.className==='modal-backdrop')closeModal()">
+    <div class="modal-backdrop">
       <div class="modal product-image-modal">
         <div class="modal-head"><div><h3>${html(product.name)}</h3><div class="hint">${html(product.spec || "无规格")}</div></div><button class="icon-btn" onclick="closeModal()">×</button></div>
         <div class="modal-body">
@@ -1341,7 +1398,7 @@ function deliveryModal(id) {
   const sales = byId(salesUsers, order.salesUserId) || {};
   const rows = getDisplayRows(order);
   return `
-    <div class="modal-backdrop" onclick="if(event.target.className==='modal-backdrop')closeModal()">
+    <div class="modal-backdrop">
       <div class="modal">
         <div class="modal-head"><h3>订单详情 - 送货单</h3><div class="document-actions"><button class="btn export-btn" onclick="downloadDeliveryImage('${order.id}')">${svgIcon("image")}<span>下载送货单</span></button><button class="icon-btn" onclick="closeModal()">×</button></div></div>
         <div class="modal-body">
@@ -1353,7 +1410,7 @@ function deliveryModal(id) {
               <div><span>单号：</span>${html(order.no || "-")}</div>
               <div><span>日期：</span>${html(order.date || "-")}</div>
               <div class="right"><span>销售：</span>${html(sales.name || "-")}</div>
-              <div class="doc-address"><span>地址：</span>${html(order.address || customer.address || "-")}</div>
+              <div class="doc-address"><span>地址：</span>${html(orderAddressForDisplay(order, customer) || "-")}</div>
             </div>
             <table><thead><tr><th>编号</th><th>商品名称</th><th>单位</th><th>数量</th></tr></thead><tbody>${rows.map((row) => row.empty ? `<tr><td>${row.index}</td><td></td><td></td><td></td></tr>` : `<tr><td>${row.index}</td><td>${html(row.name)}</td><td>${html(row.unit)}</td><td>${html(row.quantity)}</td></tr>`).join("")}</tbody></table>
             <div class="delivery-bottom"><div><strong>收货电话：</strong>${html(order.phone || customer.phone || "-")}</div><div><strong>备注：</strong>${html(order.remark || "无")}</div></div>
@@ -1372,7 +1429,7 @@ function documentModal(id) {
   const title = order.no.startsWith("TH") || order.status === "已退货" ? "退货单" : "销售订单";
   const rows = getDisplayRows(order);
   return `
-    <div class="modal-backdrop" onclick="if(event.target.className==='modal-backdrop')closeModal()">
+    <div class="modal-backdrop">
       <div class="modal order-document-modal">
         <div class="modal-head"><h3>订单详情 - ${title}</h3><button class="icon-btn modal-close-button" title="关闭" aria-label="关闭" onclick="closeModal()">${svgIcon("close")}</button></div>
         <div class="modal-body">
@@ -1392,13 +1449,14 @@ function documentModal(id) {
               <div><span>单号：</span>${order.no}</div>
               <div><span>日期：</span>${order.date}</div>
               <div class="right"><span>销售：</span>${s?.name || "-"}</div>
-              <div class="doc-address"><span>地址：</span>${html(order.address || c.address || "-")}</div>
+              <div class="doc-address"><span>地址：</span>${html(orderAddressForDisplay(order, c) || "-")}</div>
             </div>
             <table><thead><tr><th>编号</th><th>商品名称</th><th>单位</th><th>数量</th><th>单价</th><th>金额</th></tr></thead><tbody>${rows.map((row) => row.empty ? `<tr><td>${row.index}</td><td></td><td></td><td></td><td></td><td></td></tr>` : `<tr><td>${row.index}</td><td>${html(row.name)}</td><td>${html(row.unit)}</td><td>${row.quantity}</td><td>${money(row.price)}</td><td>${money(row.amount)}</td></tr>`).join("")}</tbody></table>
             <div class="doc-bottom">
-              <div><strong>合计大写：</strong>${amountToChinese(order.amount)}<br /><strong>销售电话：</strong>${maskPhone(s?.phone || c.phone)}</div>
+              <div><strong>合计大写：</strong>${amountToChinese(order.amount)}<br /><strong>销售电话：</strong>${html(s?.phone || "-")}</div>
               <div class="doc-total"><span>此单合计金额：</span><strong>${money(order.amount)}</strong></div>
             </div>
+            <div class="doc-remark"><strong>备注：</strong><span>${html(String(order.remark || "").trim() || "无")}</span></div>
           </div>
         </div>
       </div>
@@ -1421,7 +1479,7 @@ function userModal() {
 
 function modalShell(title, body, actionText, action) {
   return `
-    <div class="modal-backdrop" onclick="if(event.target.className==='modal-backdrop')closeModal()">
+    <div class="modal-backdrop">
       <div class="modal">
         <div class="modal-head"><h3>${title}</h3><button class="icon-btn" onclick="closeModal()">×</button></div>
         <div class="modal-body">${body}</div>
@@ -1572,7 +1630,7 @@ function buildOrderText(orderId) {
   return [
     "【送货信息】",
     `联系电话：${order.phone || customer.phone || ""}`,
-    `送货地址：${order.address || customer.address || ""}`,
+    `送货地址：${orderAddressForDisplay(order, customer)}`,
     "",
     "【产品清单】",
     ...(productLines.length ? productLines : ["暂无产品"]),
@@ -1663,6 +1721,7 @@ function downloadOrderHtml(orderId) {
     .bottom { display: grid; grid-template-columns: 1fr auto; gap: 24px; align-items: end; margin-top: 24px; font-size: 17px; }
     .bottom strong { font-weight: 850; }
     .total { font-weight: 850; white-space: nowrap; }
+    .remark { margin-top: 18px; padding-top: 16px; border-top: 1px solid #d5dbe5; font-size: 17px; line-height: 1.7; white-space: pre-wrap; overflow-wrap: anywhere; }
     @media print { body { background: white; } .sheet { margin: 0; border: 0; width: auto; } }
   </style>
 </head>
@@ -1675,16 +1734,17 @@ function downloadOrderHtml(orderId) {
       <div><span>单号：</span>${order.no}</div>
       <div><span>日期：</span>${order.date}</div>
       <div class="right"><span>销售：</span>${sales?.name || "-"}</div>
-      <div class="address"><span>地址：</span>${html(order.address || customer.address || "-")}</div>
+      <div class="address"><span>地址：</span>${html(orderAddressForDisplay(order, customer) || "-")}</div>
     </section>
     <table>
       <thead><tr><th>编号</th><th>商品名称</th><th>单位</th><th>数量</th><th>单价</th><th>金额</th></tr></thead>
       <tbody>${rowsHtml}</tbody>
     </table>
     <section class="bottom">
-      <div><strong>合计大写：</strong>${amountToChinese(order.amount)}<br /><strong>销售电话：</strong>${maskPhone(sales?.phone || customer.phone)}</div>
+      <div><strong>合计大写：</strong>${amountToChinese(order.amount)}<br /><strong>销售电话：</strong>${html(sales?.phone || "-")}</div>
       <div class="total">此单合计金额：${money(order.amount)}</div>
     </section>
+    <section class="remark"><strong>备注：</strong>${html(String(order.remark || "").trim() || "无")}</section>
   </main>
 </body>
 </html>`;
@@ -1706,7 +1766,11 @@ function downloadOrderImage(orderId, deliveryOnly = false) {
   const canvas = document.createElement("canvas");
   const scale = 2;
   const width = 1588;
-  const height = Math.max(1162, summaryY + 130);
+  const remark = String(order.remark || "").trim() || "无";
+  const remarkLineCount = remark
+    .split(/\r?\n/)
+    .reduce((count, line) => count + Math.max(1, Math.ceil(line.length / 52)), 0);
+  const height = Math.max(1162, summaryY + 145 + remarkLineCount * 32);
   canvas.width = width * scale;
   canvas.height = height * scale;
   const ctx = canvas.getContext("2d");
@@ -1742,7 +1806,7 @@ function downloadOrderImage(orderId, deliveryOnly = false) {
   ctx.fillStyle = "#172033";
   ctx.textAlign = "left";
   ctx.font = "700 24px Microsoft YaHei, Arial";
-  ctx.fillText(`地址：${order.address || customer.address || "-"}`, 72, 350);
+  ctx.fillText(`地址：${orderAddressForDisplay(order, customer) || "-"}`, 72, 350);
 
   const tableX = 57;
   const cols = deliveryOnly ? [84, 1050, 170, 169] : [84, 828, 112, 112, 168, 169];
@@ -1797,7 +1861,11 @@ function downloadOrderImage(orderId, deliveryOnly = false) {
     ctx.fillText(`此单合计金额：${money(order.amount)}`, width - 57, summaryY);
     ctx.textAlign = "left";
     ctx.font = "700 23px Microsoft YaHei, Arial";
-    ctx.fillText(`销售电话：${maskPhone(sales?.phone || customer.phone)}`, 57, summaryY + 50);
+    ctx.fillText(`销售电话：${sales?.phone || "-"}`, 57, summaryY + 50);
+    ctx.font = "700 23px Microsoft YaHei, Arial";
+    ctx.fillText("备注：", 57, summaryY + 100);
+    ctx.font = "400 23px Microsoft YaHei, Arial";
+    drawWrappedText(ctx, remark, 126, summaryY + 100, width - 183, 32);
   }
 
   canvas.toBlob((blob) => {
@@ -1841,6 +1909,25 @@ function drawCellText(ctx, text, x, y, width, height, align = "left") {
     value = `${value.slice(0, -2)}…`;
   }
   ctx.fillText(value, drawX, y + height / 2 + 9);
+}
+
+function drawWrappedText(ctx, text, x, y, maxWidth, lineHeight) {
+  let lineY = y;
+  String(text || "").split(/\r?\n/).forEach((paragraph) => {
+    let line = "";
+    Array.from(paragraph).forEach((char) => {
+      const nextLine = line + char;
+      if (line && ctx.measureText(nextLine).width > maxWidth) {
+        ctx.fillText(line, x, lineY);
+        line = char;
+        lineY += lineHeight;
+      } else {
+        line = nextLine;
+      }
+    });
+    if (line) ctx.fillText(line, x, lineY);
+    lineY += lineHeight;
+  });
 }
 
 function roundRect(ctx, x, y, width, height, radius) {
@@ -1992,7 +2079,7 @@ function productModal(id) {
   const p = byId(products, id) || { cat1: "辅助商品", status: "在售", aliases: [] };
   const aliases = Array.isArray(p.aliases) ? p.aliases.join("，") : (p.aliases || "");
   return `
-    <div class="modal-backdrop" onclick="if(event.target.className==='modal-backdrop')closeModal()">
+    <div class="modal-backdrop">
       <div class="modal side">
         <div class="modal-head"><h3>${id ? "编辑商品" : "新增商品"}</h3><button class="icon-btn" onclick="closeModal()">×</button></div>
         <div class="modal-body">
@@ -2865,7 +2952,7 @@ function productModal(id) {
   const p = byId(products, id) || { cat1: "辅助商品", status: "在售", aliases: [] };
   const aliases = Array.isArray(p.aliases) ? p.aliases.join("，") : (p.aliases || "");
   return `
-    <div class="modal-backdrop" onclick="if(event.target.className==='modal-backdrop')closeModal()">
+    <div class="modal-backdrop">
       <div class="modal side">
         <div class="modal-head"><h3>${id ? "编辑商品" : "新增商品"}</h3><button class="icon-btn" onclick="closeModal()">×</button></div>
         <div class="modal-body">
@@ -3053,7 +3140,7 @@ function renderCreateOrder() {
       <div class="form-grid">
         <div class="field"><label>选择客户 *</label><select class="select" onchange="selectOrderCustomer(this.value)">${customerList.map((c) => `<option value="${html(c.id)}" ${c.id === customer?.id ? "selected" : ""}>${html(c.name)} - ${html(c.phone)}</option>`).join("")}</select></div>
         ${salespersonField}
-        <div class="field"><label>送货地址 *</label><input id="orderAddressInput" class="input" value="${html(state.orderAddress)}" oninput="updateOrderDraftField('address',this.value)" /></div>
+        <div class="field address-history-field"><label>送货地址</label><div class="address-history-combobox"><input id="orderAddressInput" class="input" value="${html(state.orderAddress)}" placeholder="输入新地址，或选择历史下单地址" autocomplete="off" onfocus="openAddressHistory('create')" onclick="openAddressHistory('create')" onblur="closeAddressHistory('create')" oninput="updateOrderDraftField('address',this.value)" />${addressHistoryMenuHtml(customer?.id || "", "create")}</div></div>
         <div class="field"><label>收货人手机号 *</label><input id="orderPhoneInput" class="input" value="${html(state.orderPhone)}" oninput="updateOrderDraftField('phone',this.value)" /></div>
         <div class="field" style="grid-column:1/-1"><label>订单备注</label><textarea id="orderRemarkInput" class="textarea compact-textarea" placeholder="可填写配送说明、客户要求等" oninput="updateOrderDraftField('remark',this.value)">${html(state.orderRemark)}</textarea></div>
       </div>
@@ -3095,7 +3182,7 @@ async function saveOrder() {
     salesUserId: canChooseSalesperson() ? state.salesUserId : state.user.id,
     amount: cartTotal(),
     phone: state.orderPhone.trim() || customer.phone || "",
-    address: state.orderAddress.trim() || customer.address || "",
+    address: state.orderAddress.trim(),
     remark: state.orderRemark.trim(),
     payStatus: "未付款",
     aiLearnPairs: state.aiLearnPairs,
@@ -3319,7 +3406,7 @@ function selectEditOrderCustomer(customerId) {
   if (!customer || !state.editOrderDraft) return;
   state.editOrderDraft.customerId = customer.id;
   state.editOrderDraft.phone = customer.phone || "";
-  state.editOrderDraft.address = customer.address || "";
+  state.editOrderDraft.address = "";
   state.editCustomerQuery = customer.name || "";
   state.editCustomerPickerOpen = false;
   const input = document.getElementById("editCustomerSearch");
@@ -3328,6 +3415,8 @@ function selectEditOrderCustomer(customerId) {
   if (input) input.value = state.editCustomerQuery;
   if (phone) phone.value = state.editOrderDraft.phone;
   if (address) address.value = state.editOrderDraft.address;
+  const history = document.getElementById("editOrderAddressHistory");
+  if (history) history.outerHTML = addressHistoryMenuHtml(customer.id, "edit");
   document.getElementById("editCustomerResults")?.classList.add("hidden");
 }
 
@@ -3362,7 +3451,7 @@ function editOrderModal(id) {
   const draft = state.editOrderDraft;
   const draftTotal = draft.items.reduce((sum, item) => sum + Number(item.quantity || 0) * Number(item.price || 0), 0);
   return `
-    <div class="modal-backdrop" onclick="if(event.target.className==='modal-backdrop')closeModal()">
+    <div class="modal-backdrop">
       <div class="modal large edit-order-modal">
         <div class="modal-head"><h3>编辑订单</h3><button class="icon-btn" onclick="closeModal()">×</button></div>
         <div class="modal-body">
@@ -3370,7 +3459,7 @@ function editOrderModal(id) {
             <div class="field edit-customer-field"><label>客户</label><div class="edit-customer-combobox"><input id="editCustomerSearch" class="input" value="${html(state.editCustomerQuery)}" placeholder="输入客户名称、联系人或手机号" autocomplete="off" role="combobox" onfocus="openEditCustomerPicker();this.select()" onblur="closeEditCustomerPicker()" oninput="updateEditCustomerSearch(this)" /><div id="editCustomerResults" class="edit-customer-results hidden">${renderEditCustomerResults()}</div></div></div>
             <div class="field"><label>订单日期</label><input id="editOrderDate" class="input" value="${html(draft.date)}" oninput="updateEditOrderMeta('date',this.value)" /></div>
             <div class="field" style="grid-column:1/-1"><label>收货人手机号</label><input id="editOrderPhone" class="input" value="${html(draft.phone)}" oninput="updateEditOrderMeta('phone',this.value)" /></div>
-            <div class="field" style="grid-column:1/-1"><label>订单地址</label><input id="editOrderAddress" class="input" value="${html(draft.address)}" oninput="updateEditOrderMeta('address',this.value)" /></div>
+            <div class="field address-history-field" style="grid-column:1/-1"><label>订单地址</label><div class="address-history-combobox"><input id="editOrderAddress" class="input" value="${html(draft.address)}" placeholder="输入新地址，或选择历史下单地址" autocomplete="off" onfocus="openAddressHistory('edit')" onclick="openAddressHistory('edit')" onblur="closeAddressHistory('edit')" oninput="updateEditOrderMeta('address',this.value)" />${addressHistoryMenuHtml(draft.customerId, "edit")}</div></div>
             <div class="field" style="grid-column:1/-1"><label>订单备注</label><textarea id="editOrderRemark" class="textarea" placeholder="可填写客户特殊要求、配送说明等" oninput="updateEditOrderMeta('remark',this.value)">${html(draft.remark)}</textarea></div>
           </div>
           ${editOrderItemsHtml(draft)}
@@ -3993,7 +4082,7 @@ function orderCard(order) {
   const salesperson = byId(salesUsers, order.salesUserId) || {};
   const payStatus = normalizeClientPayStatus(order.payStatus);
   const status = order.status || "待确认";
-  const address = order.address || customer.address || "-";
+  const address = orderAddressForDisplay(order, customer) || "-";
   const isReturn = order.type === "return" || String(order.no || "").startsWith("TH");
   const orderTypeLabel = isReturn ? "退货单" : "销售单";
   return `
@@ -4098,7 +4187,7 @@ function productModal(id) {
   const p = byId(products, id) || { cat1: "辅助商品", status: "在售", aliases: [] };
   const aliases = Array.isArray(p.aliases) ? p.aliases.join("，") : (p.aliases || "");
   return `
-    <div class="modal-backdrop" onclick="if(event.target.className==='modal-backdrop')closeModal()">
+    <div class="modal-backdrop">
       <div class="modal side">
         <div class="modal-head"><h3>${id ? "编辑商品" : "新增商品"}</h3><button class="icon-btn" onclick="closeModal()">×</button></div>
         <div class="modal-body">

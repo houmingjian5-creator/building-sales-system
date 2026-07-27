@@ -1916,6 +1916,77 @@ tbody tr:hover {
   gap: 14px;
 }
 
+.address-history-field {
+  position: relative;
+}
+
+.address-history-combobox {
+  position: relative;
+}
+
+.address-history-menu {
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 0;
+  right: 0;
+  z-index: 45;
+  display: none;
+  max-height: 220px;
+  overflow-y: auto;
+  padding: 6px;
+  border: 1px solid #d8e1ee;
+  border-radius: 8px;
+  background: #fff;
+  box-shadow: 0 16px 38px rgba(15, 23, 42, 0.14);
+}
+
+.address-history-menu.open {
+  display: grid;
+  gap: 3px;
+}
+
+.address-history-menu button {
+  display: grid;
+  grid-template-columns: 18px minmax(0, 1fr);
+  gap: 9px;
+  align-items: start;
+  width: 100%;
+  padding: 10px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: #172033;
+  font: inherit;
+  line-height: 1.45;
+  text-align: left;
+  cursor: pointer;
+}
+
+.address-history-menu button:hover,
+.address-history-menu button:focus-visible {
+  background: #f1f5ff;
+  color: #3158d8;
+  outline: none;
+}
+
+.address-history-menu svg {
+  width: 17px;
+  height: 17px;
+  margin-top: 2px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.7;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.address-history-empty {
+  padding: 12px;
+  color: var(--muted);
+  font-size: 13px;
+  text-align: center;
+}
+
 .modal-backdrop {
   position: fixed;
   inset: 0;
@@ -2530,6 +2601,24 @@ tbody tr:hover {
 }
 
 .doc-bottom strong {
+  font-weight: 850;
+}
+
+.doc-remark {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 8px;
+  margin-top: 18px;
+  padding-top: 16px;
+  border-top: 1px solid #d5dbe5;
+  color: #172033;
+  font-size: 16px;
+  line-height: 1.7;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.doc-remark strong {
   font-weight: 850;
 }
 
