@@ -2418,47 +2418,35 @@ function renderLogin() {
   const remembered = getRememberedLogin();
   const phone = html(remembered.phone || "");
   app.innerHTML = `
-    <div class="login-shell">
+    <div class="login-shell login-city-shell">
+      <section class="login-city-scene" aria-hidden="true">
+        <div class="login-city-shade"></div>
+        <div class="login-city-route login-city-route-a"></div>
+        <div class="login-city-route login-city-route-b"></div>
+        <i class="login-city-node login-city-node-a"></i>
+        <i class="login-city-node login-city-node-b"></i>
+        <i class="login-city-node login-city-node-c"></i>
+        <i class="login-city-node login-city-node-d"></i>
+      </section>
+      <div class="login-city-brand">
+        <div class="brand-mark">建</div>
+        <div>
+          <strong>材达家建材销售系统</strong>
+          <span>客户 · 商品 · 订单一体化管理</span>
+        </div>
+      </div>
       <section class="login-panel">
         <form class="login-card" onsubmit="event.preventDefault(); login()">
-          <div class="brand-row">
-            <div class="brand-mark">建</div>
-            <div><h1 class="page-title">建材销售开单系统</h1><p class="page-subtitle">手机号登录 · 客户产品订单一体化</p></div>
+          <div class="login-card-heading">
+            <span>CAIDAJIA BUSINESS SYSTEM</span>
+            <h1>欢迎回来</h1>
+            <p>登录材达家，继续处理客户订单与配送业务。</p>
           </div>
           <div class="field"><label>手机号</label><input id="loginPhone" class="input" value="${phone}" autocomplete="username" placeholder="请输入已授权手机号" /></div>
           <div class="field"><label>密码</label><div class="password-field"><input id="loginPassword" class="input" type="${state.loginPasswordVisible ? "text" : "password"}" value="" autocomplete="current-password" placeholder="请输入登录密码" /><button type="button" class="password-toggle ${state.loginPasswordVisible ? "active" : ""}" onclick="toggleLoginPassword()" title="${state.loginPasswordVisible ? "隐藏密码" : "显示密码"}" aria-label="${state.loginPasswordVisible ? "隐藏密码" : "显示密码"}"></button></div></div>
           <button type="submit" class="btn primary" style="width:100%">登录系统</button>
+          <div class="login-security-note"><i></i><span>安全连接 · 业务数据加密保护</span></div>
         </form>
-      </section>
-      <section class="login-visual">
-        <div class="visual-board ai-login-hero" aria-hidden="true">
-          <div class="tech-hero-copy">
-            <span>CAIDAJIA INTELLIGENT ORDERING</span>
-            <h2>AI 材料订单引擎</h2>
-            <p>识别需求 · 锁定商品 · 生成订单</p>
-          </div>
-          <div class="tech-grid-floor"></div>
-          <div class="tech-scan-line"></div>
-          <div class="tech-orbit tech-orbit-outer"></div>
-          <div class="tech-orbit tech-orbit-inner"></div>
-          <div class="tech-ai-core">
-            <div class="tech-core-face tech-core-face-back"></div>
-            <div class="tech-core-face tech-core-face-front"></div>
-            <div class="tech-core-label"><strong>AI</strong><span>智能开单引擎</span></div>
-          </div>
-          <div class="tech-category tech-category-water"><strong>水电材料</strong><span>规格识别 · 品牌匹配</span></div>
-          <div class="tech-category tech-category-wood"><strong>木工材料</strong><span>名称纠错 · 系列锁定</span></div>
-          <div class="tech-category tech-category-tile"><strong>瓦工材料</strong><span>数量解析 · 单位校验</span></div>
-          <div class="tech-category tech-category-extra"><strong>辅助商品</strong><span>真实商品 · 实时价格</span></div>
-          <i class="tech-beam tech-beam-water"></i>
-          <i class="tech-beam tech-beam-wood"></i>
-          <i class="tech-beam tech-beam-tile"></i>
-          <i class="tech-beam tech-beam-extra"></i>
-          <i class="tech-particle tech-particle-a"></i>
-          <i class="tech-particle tech-particle-b"></i>
-          <i class="tech-particle tech-particle-c"></i>
-          <div class="tech-confidence">本次订单匹配置信度 <strong>96%</strong></div>
-        </div>
       </section>
     </div>
   `;

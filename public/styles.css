@@ -1422,6 +1422,314 @@ tbody tr:hover {
   }
 }
 
+/* Full-screen login scene: city, warehouse, jobsites and delivery network. */
+.login-city-shell {
+  position: relative;
+  display: block;
+  min-height: 100vh;
+  min-height: 100dvh;
+  overflow: hidden;
+  background: #061321;
+}
+
+.login-city-scene {
+  position: absolute;
+  inset: -2%;
+  background:
+    linear-gradient(90deg, rgba(3, 13, 26, 0.02) 0 55%, rgba(3, 13, 26, 0.34) 72%, rgba(3, 13, 26, 0.66) 100%),
+    url("./assets/login-city-network.png") center center / cover no-repeat;
+  transform: scale(1.035);
+  transform-origin: 48% 52%;
+  animation: login-city-camera 16s ease-in-out infinite alternate;
+  will-change: transform;
+}
+
+.login-city-shade {
+  position: absolute;
+  inset: 0;
+  background:
+    radial-gradient(circle at 37% 48%, transparent 0 23%, rgba(2, 12, 25, 0.08) 48%, rgba(2, 10, 22, 0.28) 100%),
+    linear-gradient(180deg, rgba(0, 8, 20, 0.08), transparent 32%, rgba(0, 8, 20, 0.18));
+}
+
+.login-city-route {
+  position: absolute;
+  height: 2px;
+  border-radius: 999px;
+  opacity: 0;
+  background: linear-gradient(90deg, transparent, rgba(73, 183, 255, 0.2), #b6edff, rgba(44, 157, 255, 0.5), transparent);
+  box-shadow: 0 0 11px rgba(76, 178, 255, 0.88);
+  animation: login-route-flow 6.8s ease-in-out infinite;
+}
+
+.login-city-route-a {
+  left: 11%;
+  top: 53%;
+  width: 39%;
+  transform: rotate(-8deg);
+}
+
+.login-city-route-b {
+  left: 29%;
+  top: 69%;
+  width: 31%;
+  transform: rotate(13deg);
+  animation-delay: -3.4s;
+}
+
+.login-city-node {
+  position: absolute;
+  width: 9px;
+  height: 9px;
+  border: 2px solid rgba(178, 231, 255, 0.9);
+  border-radius: 50%;
+  background: #2e9cff;
+  box-shadow: 0 0 10px #4fb6ff, 0 0 26px rgba(47, 153, 255, 0.78);
+  animation: login-node-pulse 3.4s ease-out infinite;
+}
+
+.login-city-node::after {
+  content: "";
+  position: absolute;
+  inset: -8px;
+  border: 1px solid rgba(89, 187, 255, 0.72);
+  border-radius: inherit;
+  animation: login-node-ring 3.4s ease-out infinite;
+}
+
+.login-city-node-a { left: 31%; top: 39%; }
+.login-city-node-b { left: 47%; top: 32%; animation-delay: -0.8s; }
+.login-city-node-c { left: 52%; top: 61%; animation-delay: -1.7s; }
+.login-city-node-d { left: 18%; top: 57%; animation-delay: -2.5s; }
+
+.login-city-brand {
+  position: absolute;
+  z-index: 3;
+  left: clamp(28px, 4vw, 72px);
+  top: clamp(24px, 4vw, 62px);
+  display: flex;
+  align-items: center;
+  gap: 13px;
+  color: #fff;
+  text-shadow: 0 2px 18px rgba(0, 0, 0, 0.5);
+}
+
+.login-city-brand .brand-mark {
+  width: 46px;
+  height: 46px;
+  border: 1px solid rgba(175, 217, 255, 0.62);
+  border-radius: 8px;
+  background: rgba(42, 97, 218, 0.86);
+  box-shadow: 0 12px 30px rgba(10, 48, 126, 0.34);
+  backdrop-filter: blur(8px);
+}
+
+.login-city-brand strong,
+.login-city-brand span {
+  display: block;
+}
+
+.login-city-brand strong {
+  font-size: clamp(18px, 1.45vw, 26px);
+  line-height: 1.35;
+  font-weight: 800;
+}
+
+.login-city-brand span {
+  margin-top: 3px;
+  color: rgba(224, 239, 255, 0.76);
+  font-size: 12px;
+}
+
+.login-city-shell .login-panel {
+  position: relative;
+  z-index: 4;
+  min-height: 100vh;
+  min-height: 100dvh;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  padding: clamp(28px, 5vw, 84px) clamp(30px, 7vw, 132px);
+  background: transparent;
+  box-shadow: none;
+}
+
+.login-city-shell .login-card {
+  width: min(390px, 100%);
+  max-width: none;
+  padding: 36px 34px 30px;
+  border: 1px solid rgba(218, 231, 246, 0.88);
+  border-radius: 8px;
+  background: rgba(242, 247, 252, 0.94);
+  box-shadow: 0 28px 80px rgba(0, 10, 26, 0.36);
+  backdrop-filter: blur(18px) saturate(112%);
+}
+
+.login-card-heading {
+  margin-bottom: 30px;
+}
+
+.login-card-heading > span {
+  display: block;
+  margin-bottom: 10px;
+  color: #2864df;
+  font-size: 11px;
+  font-weight: 800;
+}
+
+.login-card-heading h1 {
+  margin: 0;
+  color: #132033;
+  font-size: 29px;
+  line-height: 1.25;
+  font-weight: 800;
+  letter-spacing: 0;
+}
+
+.login-card-heading p {
+  margin: 9px 0 0;
+  color: #627189;
+  font-size: 13px;
+  line-height: 1.65;
+}
+
+.login-city-shell .login-card .field {
+  margin-bottom: 20px;
+}
+
+.login-city-shell .login-card .field label {
+  margin-bottom: 8px;
+  color: #25344b;
+  font-weight: 750;
+}
+
+.login-city-shell .login-card .input {
+  min-height: 50px;
+  border-color: #d6e0ee;
+  background: rgba(255, 255, 255, 0.91);
+}
+
+.login-city-shell .login-card .input:focus {
+  border-color: #3b6fe7;
+  box-shadow: 0 0 0 3px rgba(59, 111, 231, 0.12);
+}
+
+.login-city-shell .login-card .btn.primary {
+  min-height: 50px;
+  margin-top: 4px;
+  border-radius: 7px;
+  box-shadow: 0 12px 25px rgba(44, 92, 209, 0.22);
+}
+
+.login-security-note {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  margin-top: 20px;
+  color: #7b899d;
+  font-size: 11px;
+}
+
+.login-security-note i {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: #23b978;
+  box-shadow: 0 0 0 4px rgba(35, 185, 120, 0.12);
+}
+
+@keyframes login-city-camera {
+  0% { transform: scale(1.035) translate3d(0, 0, 0); }
+  100% { transform: scale(1.075) translate3d(-0.65%, -0.35%, 0); }
+}
+
+@keyframes login-route-flow {
+  0%, 15% { opacity: 0; clip-path: inset(0 100% 0 0); }
+  36%, 68% { opacity: 0.95; }
+  72% { clip-path: inset(0 0 0 0); }
+  100% { opacity: 0; clip-path: inset(0 0 0 100%); }
+}
+
+@keyframes login-node-pulse {
+  0%, 100% { transform: scale(0.82); filter: brightness(0.82); }
+  45% { transform: scale(1.12); filter: brightness(1.35); }
+}
+
+@keyframes login-node-ring {
+  0% { opacity: 0.85; transform: scale(0.45); }
+  75%, 100% { opacity: 0; transform: scale(2.2); }
+}
+
+@media (max-width: 980px) {
+  .login-city-shell .login-panel {
+    justify-content: center;
+    padding: 104px 24px 32px;
+  }
+
+  .login-city-scene {
+    display: block;
+    inset: -4%;
+    background-position: 42% center;
+  }
+
+  .login-city-brand {
+    left: 24px;
+    top: 24px;
+  }
+
+  .login-city-brand strong {
+    font-size: 19px;
+  }
+
+  .login-city-brand span {
+    display: none;
+  }
+}
+
+@media (max-width: 560px) {
+  .login-city-shell .login-panel {
+    align-items: flex-end;
+    padding: 94px 16px 18px;
+  }
+
+  .login-city-shell .login-card {
+    width: 100%;
+    padding: 28px 22px 24px;
+    background: rgba(245, 249, 253, 0.96);
+  }
+
+  .login-card-heading {
+    margin-bottom: 24px;
+  }
+
+  .login-card-heading h1 {
+    font-size: 25px;
+  }
+
+  .login-city-brand {
+    left: 18px;
+    top: 18px;
+  }
+
+  .login-city-brand .brand-mark {
+    width: 40px;
+    height: 40px;
+  }
+
+  .login-city-node-d {
+    display: none;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .login-city-scene,
+  .login-city-route,
+  .login-city-node,
+  .login-city-node::after {
+    animation: none !important;
+  }
+}
+
 /* Xiaocai AI business assistant */
 .xiaocai-assistant {
   position: fixed;
