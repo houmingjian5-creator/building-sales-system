@@ -26,6 +26,54 @@ async function run() {
   assert.strictEqual(server.publicProduct(product, { includeCost: true }).cost, 12);
   assert.strictEqual(server.canViewProductCost({ role: "销售人员" }), false);
   assert.strictEqual(server.canViewProductCost({ role: "管理员" }), true);
+  assert.strictEqual(server.canViewProductCost({ role: "超级管理员" }), true);
+  assert.strictEqual(server.canViewProductCost({ role: "财务" }), false);
+
+  const order = {
+    id: "o1",
+    no: "ORD1",
+    type: "sale",
+    customerId: "c1",
+    salesUserId: "u1",
+    date: "2026/7/29",
+    status: "已完成",
+    payStatus: "已回款",
+    phone: "13800000000",
+    address: "测试地址",
+    remark: "测试备注",
+    amount: 20,
+    cost: 12,
+    profit: 8,
+    grossProfit: 8,
+    margin: 0.4,
+    items: [{
+      productId: "p1",
+      name: "测试商品",
+      spec: "20",
+      unit: "个",
+      quantity: 1,
+      price: 20,
+      cost: 12,
+      costPrice: 12,
+      purchasePrice: 12,
+      profit: 8,
+      grossProfit: 8,
+      margin: 0.4,
+    }],
+  };
+  const visibleOrder = server.publicOrder(order);
+  assert.strictEqual(visibleOrder.cost, undefined);
+  assert.strictEqual(visibleOrder.profit, undefined);
+  assert.strictEqual(visibleOrder.grossProfit, undefined);
+  assert.strictEqual(visibleOrder.margin, undefined);
+  assert.deepStrictEqual(visibleOrder.items[0], {
+    productId: "p1",
+    name: "测试商品",
+    spec: "20",
+    unit: "个",
+    quantity: 1,
+    price: 20,
+  });
 
   const workbookBuffer = await server.buildProductWorkbook([product], { includeCost: false });
   const workbook = await XlsxPopulate.fromDataAsync(workbookBuffer);

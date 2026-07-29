@@ -475,12 +475,29 @@ function normalizePayStatus(value) {
   return '未付款';
 }
 
+function publicOrderItem(item) {
+  return {
+    productId: item && item.productId ? String(item.productId) : '',
+    name: item && item.name ? String(item.name) : '',
+    spec: item && item.spec ? String(item.spec) : '',
+    unit: item && item.unit ? String(item.unit) : '',
+    quantity: Number((item && item.quantity) || 0),
+    price: Number((item && item.price) || 0),
+  };
+}
+
 function publicOrder(order) {
   const isReturn = order.type === 'return' || String(order.no || '').startsWith('TH') || order.status === '已退货';
-  const items = isReturn ? normalizeReturnItems(order.items) : Array.isArray(order.items) ? order.items : [];
+  const normalizedItems = isReturn ? normalizeReturnItems(order.items) : Array.isArray(order.items) ? order.items : [];
+  const items = normalizedItems.map(publicOrderItem);
   return {
-    ...order,
+    id: order.id,
     type: isReturn ? 'return' : order.type || 'sale',
+    no: order.no || '',
+    customerId: order.customerId || '',
+    salesUserId: order.salesUserId || '',
+    date: order.date || '',
+    status: order.status || '',
     payStatus: normalizePayStatus(order.payStatus),
     phone: order.phone || '',
     address: order.address || '',
@@ -2133,3 +2150,5 @@ module.exports.verifyPassword = verifyPassword;
 module.exports.setUserPassword = setUserPassword;
 module.exports.publicProduct = publicProduct;
 module.exports.canViewProductCost = canViewProductCost;
+module.exports.publicOrder = publicOrder;
+module.exports.publicOrderItem = publicOrderItem;
