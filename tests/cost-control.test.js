@@ -39,7 +39,9 @@ const normalized = server.normalizeCostControl({
     { name: "Supplier B", materialCost: 10 }
   ],
   deliveryPerson: "  Driver A  ",
-  transportCost: "5.50"
+  transportCost: "5.50",
+  reconciliationStatus: "\u95ee\u9898\u8ba2\u5355",
+  remark: "  Need review  "
 }, {
   updatedAt: "2026-07-30T00:00:00.000Z",
   updatedBy: "user-1"
@@ -51,7 +53,13 @@ assert.deepStrictEqual(normalized.suppliers, [
 ]);
 assert.strictEqual(normalized.deliveryPerson, "Driver A");
 assert.strictEqual(normalized.transportCost, 5.5);
+assert.strictEqual(normalized.reconciliationStatus, "\u95ee\u9898\u8ba2\u5355");
+assert.strictEqual(normalized.remark, "Need review");
 assert.strictEqual(normalized.updatedBy, "user-1");
+
+const defaultControl = server.normalizeCostControl({});
+assert.strictEqual(defaultControl.reconciliationStatus, "\u672a\u5bf9\u8ba2\u5355");
+assert.strictEqual(defaultControl.remark, "");
 
 assert.throws(function () {
   server.normalizeCostControl({
@@ -67,6 +75,18 @@ assert.throws(function () {
     ]
   });
 }, /\u4e0d\u80fd\u91cd\u590d/);
+
+assert.throws(function () {
+  server.normalizeCostControl({
+    reconciliationStatus: "\u4e0d\u5b58\u5728"
+  });
+}, /\u5bf9\u5355\u72b6\u6001\u4e0d\u6b63\u786e/);
+
+assert.throws(function () {
+  server.normalizeCostControl({
+    remark: new Array(502).join("a")
+  });
+}, /\u6210\u672c\u5907\u6ce8\u4e0d\u80fd\u8d85\u8fc7/);
 
 const order = {
   id: "order-1",

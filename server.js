@@ -551,10 +551,20 @@ function normalizeCostControl(input, meta) {
   const deliveryPerson = String(source.deliveryPerson || '').trim();
   if (deliveryPerson.length > 30) throw new Error('送货负责人不能超过 30 个字');
 
+  const reconciliationStatus = String(source.reconciliationStatus || '未对订单').trim();
+  if (['未对订单', '问题订单', '已对订单'].indexOf(reconciliationStatus) < 0) {
+    throw new Error('对单状态不正确');
+  }
+
+  const remark = String(source.remark || '').trim();
+  if (remark.length > 500) throw new Error('成本备注不能超过 500 个字');
+
   const result = {
     suppliers: suppliers,
     deliveryPerson: deliveryPerson,
-    transportCost: normalizeCostMoney(source.transportCost, '运输成本')
+    transportCost: normalizeCostMoney(source.transportCost, '运输成本'),
+    reconciliationStatus: reconciliationStatus,
+    remark: remark
   };
   if (meta) {
     result.updatedAt = meta.updatedAt;
