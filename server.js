@@ -940,6 +940,7 @@ function requestedSpecNumbers(value) {
 function matchProductCandidates(products, rawName, options = {}) {
   const needle = normalizeMatchText(rawName);
   if (!needle) return [];
+  const requestedName = normalizeMatchText(options.itemText || rawName);
   const explicitBrandTerms = requestedBrandTerms(products, needle);
   const contextBrands = options.contextBrandTerms || [];
   const kind = requestedKind(options.itemText || rawName);
@@ -961,6 +962,7 @@ function matchProductCandidates(products, rawName, options = {}) {
       const cat2 = normalizeMatchText(product.cat2);
       const searchable = normalizeMatchText([product.name, product.spec, product.brand, product.cat1, product.cat2, ...aliases].join(' '));
       const pKind = productKind(product);
+      const exactNameMatch = Boolean(name && name === requestedName);
       let score = 0;
 
       if (kind && pKind === kind) score += 150;
@@ -1008,7 +1010,7 @@ function matchProductCandidates(products, rawName, options = {}) {
       const textScore = score;
       const learnedScore = learningScore(options.db, rawName, product.id);
       score += learnedScore;
-      return { product, score, textScore, learnedScore };
+      return { product, score, textScore, learnedScore, exactNameMatch };
     })
     .filter((item) => item.score >= 110);
   const history = candidateHistoryStats(options.recommendationContext, scored.map((item) => item.product.id));
@@ -1028,14 +1030,15 @@ function matchProductCandidates(products, rawName, options = {}) {
   });
   const hasExplicitConstraints = explicitBrandTerms.length > 0 || specNumbers.length > 0;
   scored.sort((a, b) => {
+    if (a.exactNameMatch !== b.exactNameMatch) return a.exactNameMatch ? -1 : 1;
     if (hasExplicitConstraints && b.textScore !== a.textScore) return b.textScore - a.textScore;
     return b.customerRecent3Count - a.customerRecent3Count
       || b.customerOrderCount - a.customerOrderCount
       || a.customerLatestRank - b.customerLatestRank
-      || b.globalOrderCount - a.globalOrderCount
-      || b.globalQuantity - a.globalQuantity
       || b.textScore - a.textScore
       || b.learnedScore - a.learnedScore
+      || b.globalOrderCount - a.globalOrderCount
+      || b.globalQuantity - a.globalQuantity
       || (String(a.product.name || '') + String(a.product.spec || '')).localeCompare(String(b.product.name || '') + String(b.product.spec || ''), 'zh-CN');
   });
   return scored.slice(0, 8);
@@ -1551,9 +1554,10 @@ function validateAiDraft(db, aiResult, content = '', scopes = [], customerId = '
       recommendationContext,
     });
     const uniqueHardMatch = matches.length === 1 && requestedKind(rawName) && requestedSpecNumbers(rawName).length;
+    const exactNameMatch = matches[0] && matches[0].exactNameMatch;
     const highTextMatch = matches[0] && matches[0].textScore >= 260 && (!matches[1] || matches[0].textScore - matches[1].textScore >= 100);
     const stableHistoryMatch = requestedKind(rawName) && matches[0] && matches[0].stableHistory;
-    const selectedMatch = uniqueHardMatch || highTextMatch || stableHistoryMatch ? matches[0] : null;
+    const selectedMatch = exactNameMatch || uniqueHardMatch || highTextMatch || stableHistoryMatch ? matches[0] : null;
     const product = selectedMatch ? selectedMatch.product : null;
     const candidateProducts = matches.map((item) => candidateFor(item.product, item));
     const groupMeta = {

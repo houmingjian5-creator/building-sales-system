@@ -115,6 +115,38 @@ assert.strictEqual(popularityDraft.matched.length, 0, '全局热销只能调整�
 assert.strictEqual(popularityDraft.uncertain[0].candidates[0].productId, 'standard');
 assert.strictEqual(popularityDraft.uncertain[0].orderIndex, 0, 'AI 结果必须保留原始行顺序');
 
+const gypsumProducts = [
+  { id: 'yiju', name: '依居石膏', brand: '嘉施', spec: '20kg', unit: '袋', price: 11, cat1: '油工', cat2: '嘉施', status: '在售', aliases: [] },
+  { id: 'libang', name: '立邦石膏', brand: '立邦', spec: '20kg', unit: '袋', price: 20.5, cat1: '油工', cat2: '立邦', status: '在售', aliases: [] },
+];
+const gypsumDb = {
+  products: gypsumProducts,
+  orders: Array.from({ length: 12 }, (_, index) => ({
+    id: `gypsum-${index}`,
+    customerId: `customer-${index}`,
+    date: `2026/7/${index + 1}`,
+    status: '已完成',
+    items: [{ productId: 'libang', quantity: 100 }],
+  })),
+};
+const gypsumContext = server.buildAiRecommendationContext(gypsumDb, 'new-customer');
+const gypsumMatches = server.matchProductCandidates(gypsumProducts, '依居石膏材料', {
+  itemText: '依居石膏材料',
+  cat1: '油工',
+  recommendationContext: gypsumContext,
+});
+assert.strictEqual(gypsumMatches[0].product.id, 'yiju', '名称匹配度必须排在全站订单数和累计数量之前');
+
+const exactNameDraft = server.validateAiDraft(
+  gypsumDb,
+  { items: [{ groupId: 'paint', rawName: '依居石膏', quantity: 5 }] },
+  '依居石膏5袋',
+  [{ id: 'paint', title: '油工辅材', cat1: '油工' }],
+  'new-customer'
+);
+assert.strictEqual(exactNameDraft.matched.length, 1, '商品名称完全一致时应直接匹配');
+assert.strictEqual(exactNameDraft.matched[0].productId, 'yiju', '完全同名商品不能被全站热销商品挤到后面');
+
 const learningDb = {
   products: [{ id: 'p1', name: '日丰PPR等径弯头', brand: '日丰', spec: '20', aliases: [] }],
   aiLearning: {},
