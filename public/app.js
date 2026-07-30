@@ -1114,6 +1114,7 @@ function renderModal() {
   if (type === "document") return documentModal(id);
   if (type === "delivery") return deliveryModal(id);
   if (type === "editOrder") return editOrderModal(id);
+  if (type === "paymentAmount") return paymentAmountModal(id);
   if (type === "user") return userModal();
   if (type === "aiOrder") return aiOrderModal();
   return "";
@@ -2558,12 +2559,25 @@ function isReturnOrder(order) {
   return order?.type === "return" || String(order?.no || "").startsWith("TH") || order?.status === "已退货";
 }
 
+function actualPaidAmount(order) {
+  if (!order || order.actualPaidAmount === undefined || order.actualPaidAmount === null || order.actualPaidAmount === "") {
+    return null;
+  }
+  const value = Number(order.actualPaidAmount);
+  return Number.isFinite(value) && value >= 0 ? value : null;
+}
+
+function effectiveOrderAmount(order) {
+  const actualAmount = actualPaidAmount(order);
+  return actualAmount === null ? Number(order?.amount || 0) : actualAmount;
+}
+
 function isPerformanceOrder(order) {
   return order && !["待确认", "已取消"].includes(order.status);
 }
 
 function performanceOrderAmount(order) {
-  if (!isReturnOrder(order)) return Number(order.amount || 0);
+  if (!isReturnOrder(order)) return effectiveOrderAmount(order);
   if (!(order.items || []).length) return -Math.abs(Number(order.amount || 0));
   return order.items.reduce((sum, item) => {
     const amount = Math.abs(Number(item.quantity || 0) * Number(item.price || 0));
@@ -2587,7 +2601,7 @@ function dashboardMetric(label, value, iconText, tone, note = "") {
 
 function customerStats(customerId) {
   const list = visibleOrders().filter((order) => order.customerId === customerId && !String(order.no || "").startsWith("TH"));
-  const total = list.reduce((sum, order) => sum + Number(order.amount || 0), 0);
+  const total = list.reduce((sum, order) => sum + effectiveOrderAmount(order), 0);
   const last = list
     .map((order) => order.date)
     .filter(Boolean)
@@ -3284,6 +3298,88 @@ async function patchOrder(id, payload, successText) {
   const index = orders.findIndex((item) => item.id === id);
   if (index >= 0) orders[index] = data.order;
   showToast(successText || "订单已更新");
+  render();
+}
+
+function paymentAmountModal(orderId) {
+  const order = byId(orders, orderId);
+  if (!order || isReturnOrder(order)) return "";
+  const originalAmount = Number(order.amount || 0);
+  const currentAmount = actualPaidAmount(order);
+  return `
+    <div class="modal-backdrop">
+      <div class="modal payment-amount-modal" role="dialog" aria-modal="true" aria-labelledby="paymentAmountTitle">
+        <div class="modal-head">
+          <div>
+            <h3 id="paymentAmountTitle">修改实际收款金额</h3>
+            <div class="hint">订单 ${html(order.no || "")}</div>
+          </div>
+          <button type="button" class="icon-btn" aria-label="关闭" onclick="closeModal()">×</button>
+        </div>
+        <div class="modal-body payment-amount-body">
+          <div class="payment-original-row">
+            <span>商品合计金额</span>
+            <strong>${money(originalAmount)}</strong>
+          </div>
+          <label class="field">
+            <span>实际收款金额</span>
+            <div class="payment-input-wrap">
+              <span>¥</span>
+              <input id="actualPaidAmountInput" class="input" type="number" min="0" step="0.01"
+                value="${html(currentAmount === null ? originalAmount : currentAmount)}"
+                inputmode="decimal" autocomplete="off" />
+            </div>
+          </label>
+          <label class="field">
+            <span>优惠或抹零原因</span>
+            <input id="paymentAdjustmentReasonInput" class="input" maxlength="100"
+              placeholder="金额不一致时必填，例如：客户优惠、抹零"
+              value="${html(order.paymentAdjustmentReason || "")}" />
+          </label>
+          <p class="payment-amount-note">金额与商品合计一致时，将恢复显示原订单金额并清除调整原因。</p>
+        </div>
+        <div class="modal-foot">
+          <button type="button" class="btn" onclick="closeModal()">取消</button>
+          <button type="button" class="btn primary" onclick="saveActualPaymentAmount(${jsArg(order.id)})">保存金额</button>
+        </div>
+      </div>
+    </div>
+  `;
+}
+
+async function saveActualPaymentAmount(orderId) {
+  const order = byId(orders, orderId);
+  const amountInput = document.getElementById("actualPaidAmountInput");
+  const reasonInput = document.getElementById("paymentAdjustmentReasonInput");
+  if (!order || !amountInput) return;
+  const amount = Number(amountInput.value);
+  const reason = String(reasonInput?.value || "").trim();
+  const originalAmount = Number(order.amount || 0);
+  if (!Number.isFinite(amount) || amount < 0 || Math.abs(amount * 100 - Math.round(amount * 100)) > 1e-8) {
+    alert("实际收款金额必须大于等于 0，且最多保留两位小数");
+    amountInput.focus();
+    return;
+  }
+  if (Math.round(amount * 100) !== Math.round(originalAmount * 100) && !reason) {
+    alert("实际收款金额与订单金额不一致时，请填写优惠或抹零原因");
+    reasonInput?.focus();
+    return;
+  }
+
+  const response = await fetch(`/api/orders/${encodeURIComponent(orderId)}`, {
+    method: "PATCH",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ actualPaidAmount: amount, paymentAdjustmentReason: reason }),
+  });
+  const data = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    alert(data.error || "修改实际收款金额失败");
+    return;
+  }
+  const index = orders.findIndex((item) => item.id === orderId);
+  if (index >= 0) orders[index] = data.order;
+  state.modal = null;
+  showToast("实际收款金额已更新");
   render();
 }
 
@@ -4070,6 +4166,12 @@ function orderCard(order) {
   const address = orderAddressForDisplay(order, customer) || "-";
   const isReturn = order.type === "return" || String(order.no || "").startsWith("TH");
   const orderTypeLabel = isReturn ? "退货单" : "销售单";
+  const currentActualAmount = actualPaidAmount(order);
+  const displayedAmount = isReturn ? Number(order.amount || 0) : effectiveOrderAmount(order);
+  const hasAdjustedAmount =
+    !isReturn &&
+    currentActualAmount !== null &&
+    Math.round(currentActualAmount * 100) !== Math.round(Number(order.amount || 0) * 100);
   return `
     <article class="order-card order-card-polished">
       <div class="order-card-accent"></div>
@@ -4080,7 +4182,20 @@ function orderCard(order) {
             <span class="badge ${orderBadgeClass(status)}">${html(status)}</span>
             <span class="badge ${paymentStatusTone(payStatus)}">${html(payStatus)}</span>
           </div>
-          <strong class="order-amount">${money(order.amount)}</strong>
+          ${
+            isReturn
+              ? `<strong class="order-amount">${money(displayedAmount)}</strong>`
+              : `<button
+                  type="button"
+                  class="order-amount order-amount-button${hasAdjustedAmount ? " adjusted" : ""}"
+                  title="修改实际收款金额"
+                  aria-label="修改订单 ${html(order.no)} 的实际收款金额"
+                  onclick="openModal('paymentAmount',${jsArg(order.id)})"
+                >
+                  <strong>${money(displayedAmount)}</strong>
+                  ${hasAdjustedAmount ? `<span class="order-original-amount">${money(order.amount)}</span>` : ""}
+                </button>`
+          }
         </div>
         <div class="order-card-meta order-card-meta-grid">
           <span><b>客户</b>${html(customer.name || "-")}</span>
@@ -4491,6 +4606,7 @@ Object.assign(window, {
   closeModal,
   updateOrderStatus,
   updateOrderPayment,
+  saveActualPaymentAmount,
   downloadOrderImage,
   downloadDeliveryImage,
   copyOrderText,

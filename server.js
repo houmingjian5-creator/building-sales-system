@@ -486,10 +486,25 @@ function publicOrderItem(item) {
   };
 }
 
+function orderActualPaidAmount(order) {
+  if (!order || order.actualPaidAmount === undefined || order.actualPaidAmount === null || order.actualPaidAmount === '') {
+    return null;
+  }
+  const value = Number(order.actualPaidAmount);
+  return Number.isFinite(value) && value >= 0 ? value : null;
+}
+
+function effectiveOrderAmount(order) {
+  const actualAmount = orderActualPaidAmount(order);
+  return actualAmount === null ? Number((order && order.amount) || 0) : actualAmount;
+}
+
 function publicOrder(order) {
   const isReturn = order.type === 'return' || String(order.no || '').startsWith('TH') || order.status === '已退货';
   const normalizedItems = isReturn ? normalizeReturnItems(order.items) : Array.isArray(order.items) ? order.items : [];
   const items = normalizedItems.map(publicOrderItem);
+  const actualPaidAmount = isReturn ? null : orderActualPaidAmount(order);
+  const amount = isReturn ? orderAmount(items) : Number(order.amount || 0);
   return {
     id: order.id,
     type: isReturn ? 'return' : order.type || 'sale',
@@ -503,7 +518,12 @@ function publicOrder(order) {
     address: order.address || '',
     remark: order.remark || '',
     items,
-    amount: isReturn ? orderAmount(items) : Number(order.amount || 0),
+    amount,
+    actualPaidAmount,
+    effectiveAmount: actualPaidAmount === null ? amount : actualPaidAmount,
+    paymentAdjustmentReason: actualPaidAmount === null ? '' : String(order.paymentAdjustmentReason || ''),
+    paymentAmountUpdatedAt: actualPaidAmount === null ? '' : String(order.paymentAmountUpdatedAt || ''),
+    paymentAmountUpdatedBy: actualPaidAmount === null ? '' : String(order.paymentAmountUpdatedBy || ''),
   };
 }
 
@@ -1067,7 +1087,8 @@ function assistantIsPerformanceOrder(order) {
 
 function assistantOrderAmount(order) {
   const normalized = publicOrder(order);
-  return Number(normalized.amount || orderAmount(normalized.items));
+  if (normalized.type === 'return') return Number(normalized.amount || orderAmount(normalized.items));
+  return effectiveOrderAmount(order);
 }
 
 function assistantPeriodMatch(order, period, dateFrom, dateTo) {
@@ -2094,8 +2115,45 @@ async function handleApi(req, res) {
       }
       if (payload.items !== undefined) {
         order.amount = orderAmount(order.items);
-      } else if (payload.amount !== undefined) {
-        order.amount = Number(payload.amount || 0);
+      }
+      if (payload.actualPaidAmount !== undefined) {
+        const isReturn = order.type === "return" || String(order.no || "").startsWith("TH");
+        if (isReturn) return sendError(res, 400, "退货单不能设置实际收款金额");
+        const actualPaidAmount = Number(payload.actualPaidAmount);
+        if (!Number.isFinite(actualPaidAmount) || actualPaidAmount < 0 || Math.abs(actualPaidAmount * 100 - Math.round(actualPaidAmount * 100)) > 1e-8) {
+          return sendError(res, 400, "实际收款金额必须是大于等于 0 且最多保留两位小数的金额");
+        }
+        const originalAmount = Number(order.amount || 0);
+        const differs = Math.round(actualPaidAmount * 100) !== Math.round(originalAmount * 100);
+        const reason = String(payload.paymentAdjustmentReason || "").trim();
+        if (differs && !reason) return sendError(res, 400, "实际收款金额与订单金额不一致时，请填写优惠或抹零原因");
+        if (reason.length > 100) return sendError(res, 400, "金额调整原因不能超过 100 个字");
+
+        const previousAmount = orderActualPaidAmount(order);
+        const previousReason = String(order.paymentAdjustmentReason || "");
+        order.paymentAmountHistory = Array.isArray(order.paymentAmountHistory) ? order.paymentAmountHistory : [];
+        order.paymentAmountHistory.push({
+          originalAmount,
+          previousAmount,
+          actualPaidAmount: differs ? actualPaidAmount : null,
+          previousReason,
+          reason: differs ? reason : "",
+          updatedAt: new Date().toISOString(),
+          updatedBy: user.id || user.name || "",
+        });
+        order.paymentAmountHistory = order.paymentAmountHistory.slice(-20);
+
+        if (differs) {
+          order.actualPaidAmount = actualPaidAmount;
+          order.paymentAdjustmentReason = reason;
+          order.paymentAmountUpdatedAt = new Date().toISOString();
+          order.paymentAmountUpdatedBy = user.id || user.name || "";
+        } else {
+          delete order.actualPaidAmount;
+          delete order.paymentAdjustmentReason;
+          delete order.paymentAmountUpdatedAt;
+          delete order.paymentAmountUpdatedBy;
+        }
       }
       writeDb(db);
       return sendJson(res, 200, { order: publicOrder(order) });
@@ -2152,3 +2210,5 @@ module.exports.publicProduct = publicProduct;
 module.exports.canViewProductCost = canViewProductCost;
 module.exports.publicOrder = publicOrder;
 module.exports.publicOrderItem = publicOrderItem;
+module.exports.orderActualPaidAmount = orderActualPaidAmount;
+module.exports.effectiveOrderAmount = effectiveOrderAmount;

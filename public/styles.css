@@ -4727,3 +4727,145 @@ tbody tr:hover {
   background: #eef3ff;
   color: var(--primary);
 }
+
+.order-amount-button {
+  display: inline-flex;
+  flex-direction: column;
+  align-items: flex-end;
+  justify-content: center;
+  min-width: 88px;
+  padding: 5px 8px;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  line-height: 1.1;
+  cursor: pointer;
+  transition: background-color 160ms ease, border-color 160ms ease, transform 160ms ease;
+}
+
+.order-amount-button strong {
+  color: var(--primary);
+  font: inherit;
+  font-weight: 800;
+}
+
+.order-amount-button:hover,
+.order-amount-button:focus-visible {
+  border-color: #d9e4ff;
+  background: #f2f6ff;
+  outline: none;
+}
+
+.order-amount-button:active {
+  transform: translateY(1px);
+}
+
+.order-amount-button.adjusted {
+  background: #f7f9ff;
+}
+
+.order-original-amount {
+  margin-top: 4px;
+  color: #8b98ad;
+  font-size: 13px;
+  font-weight: 600;
+  text-decoration: line-through;
+  text-decoration-thickness: 1px;
+}
+
+.payment-amount-modal {
+  width: min(480px, calc(100vw - 28px));
+}
+
+.payment-amount-body {
+  display: grid;
+  gap: 18px;
+}
+
+.payment-original-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  min-height: 48px;
+  padding: 0 14px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: #f7f9fc;
+}
+
+.payment-original-row span {
+  color: var(--muted);
+  font-weight: 600;
+}
+
+.payment-original-row strong {
+  font-size: 20px;
+}
+
+.payment-amount-body .field {
+  margin: 0;
+}
+
+.payment-amount-body .field > span {
+  display: block;
+  margin-bottom: 8px;
+  color: var(--text);
+  font-size: 14px;
+  font-weight: 700;
+}
+
+.payment-input-wrap {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+
+.payment-input-wrap > span {
+  position: absolute;
+  left: 14px;
+  z-index: 1;
+  color: #516078;
+  font-size: 17px;
+  font-weight: 800;
+  pointer-events: none;
+}
+
+.payment-input-wrap .input {
+  padding-left: 36px;
+  font-size: 18px;
+  font-weight: 700;
+}
+
+.payment-amount-body .hint {
+  margin-top: 7px;
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1.6;
+}
+
+.payment-amount-note {
+  margin: 0;
+  padding: 10px 12px;
+  border: 1px solid #e4eaf4;
+  border-radius: 8px;
+  background: #f8fafd;
+  color: #68768d;
+  font-size: 13px;
+  line-height: 1.6;
+}
+
+@media (max-width: 720px) {
+  .order-card-polished .order-amount-button {
+    align-items: flex-start;
+    justify-self: start;
+    margin-top: 3px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .order-amount-button {
+    transition: none;
+  }
+}
