@@ -664,6 +664,16 @@ function invalidOrderQuantityIndexes(items) {
   }, []);
 }
 
+function customerBelongsToSalesperson(db, customerId, salesUserId) {
+  const customer = (db.customers || []).find(function (item) {
+    return item.id === customerId;
+  });
+  const salesperson = (db.users || []).find(function (item) {
+    return item.id === salesUserId && item.status !== '停用';
+  });
+  return Boolean(customer && salesperson && customer.ownerId === salesperson.id);
+}
+
 function orderAmount(items) {
   return (Array.isArray(items) ? items : []).reduce((sum, item) => sum + Number(item.quantity || 0) * Number(item.price || 0), 0);
 }
@@ -2162,7 +2172,10 @@ async function handleApi(req, res) {
       const payload = await readBody(req);
       const customer = db.customers.find((item) => item.id === payload.customerId);
       if (!customer) return sendError(res, 400, "客户不存在");
-      if (user.role === "销售人员" && customer.ownerId !== user.id) return sendError(res, 403, "无权为该客户开单");
+      const salesUserId = user.role === "销售人员" ? user.id : payload.salesUserId || user.id;
+      if (!customerBelongsToSalesperson(db, customer.id, salesUserId)) {
+        return sendError(res, 403, "只能选择该销售人员名下的客户开单");
+      }
       if (invalidOrderProductIds(payload.items, db.products).length) {
         return sendError(res, 400, "订单包含产品库中不存在的商品，请重新选择");
       }
@@ -2174,7 +2187,7 @@ async function handleApi(req, res) {
         type: payload.type === "return" ? "return" : "sale",
         no: `${payload.type === "return" ? "TH" : "ORD"}${Date.now()}`,
         customerId: payload.customerId,
-        salesUserId: user.role === "销售人员" ? user.id : payload.salesUserId || user.id,
+        salesUserId: salesUserId,
         date: payload.date || new Date().toLocaleDateString("zh-CN"),
         phone: payload.phone || "",
         address: payload.address || "",
@@ -2242,6 +2255,15 @@ async function handleApi(req, res) {
     }
     if (method === "PUT" || method === "PATCH") {
       const payload = await readBody(req);
+      if (payload.customerId !== undefined || payload.salesUserId !== undefined) {
+        const nextCustomerId = payload.customerId !== undefined ? payload.customerId : order.customerId;
+        const nextSalesUserId = user.role === "销售人员"
+          ? user.id
+          : (payload.salesUserId !== undefined ? payload.salesUserId : order.salesUserId);
+        if (!customerBelongsToSalesperson(db, nextCustomerId, nextSalesUserId)) {
+          return sendError(res, 403, "只能选择该销售人员名下的客户");
+        }
+      }
       if (payload.items !== undefined && invalidOrderProductIds(payload.items, db.products).length) {
         return sendError(res, 400, "订单包含产品库中不存在的商品，请重新选择");
       }
@@ -2338,6 +2360,7 @@ module.exports.buildAiRecommendationContext = buildAiRecommendationContext;
 module.exports.validateAiDraft = validateAiDraft;
 module.exports.recordAiLearning = recordAiLearning;
 module.exports.invalidOrderQuantityIndexes = invalidOrderQuantityIndexes;
+module.exports.customerBelongsToSalesperson = customerBelongsToSalesperson;
 module.exports.buildProductWorkbook = buildProductWorkbook;
 module.exports.parseProductWorkbook = parseProductWorkbook;
 module.exports.assistantVisibleCustomers = assistantVisibleCustomers;

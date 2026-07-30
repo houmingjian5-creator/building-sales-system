@@ -29,6 +29,8 @@ const state = {
   editProductSubcategory: "全部",
   editProductPickerOpen: false,
   orderDraftCustomerId: "",
+  createCustomerQuery: "",
+  createCustomerPickerOpen: false,
   orderAddress: "",
   orderPhone: "",
   orderRemark: "",
@@ -53,6 +55,9 @@ const state = {
   costSalesMenuOpen: false,
   costExpandedOrderId: "",
   costSavingId: "",
+  dashboardSalesFilters: [],
+  dashboardSalesMenuOpen: false,
+  dashboardCustomerDetail: "",
   assistantSide: (() => {
     try {
       return localStorage.getItem("xiaocai-side") === "left" ? "left" : "right";
@@ -170,8 +175,68 @@ function updateOrderDraftField(field, value) {
 }
 
 function selectOrderCustomer(customerId) {
+  const customer = byId(orderCustomerChoices(), customerId);
+  if (!customer) return;
   state.selectedCustomerId = customerId;
-  resetOrderDraft(byId(customers, customerId));
+  state.createCustomerQuery = orderCustomerLabel(customer);
+  state.createCustomerPickerOpen = false;
+  resetOrderDraft(customer);
+  render();
+}
+
+function matchingCreateCustomers() {
+  const query = state.createCustomerQuery.trim().toLowerCase();
+  return orderCustomerChoices().filter((customer) => !query || [customer.name, customer.contact, customer.phone]
+    .some((value) => String(value || "").toLowerCase().includes(query))).slice(0, 30);
+}
+
+function renderCreateCustomerResults() {
+  const matches = matchingCreateCustomers();
+  return matches.length ? matches.map((customer) => `
+    <button type="button" class="edit-customer-option ${customer.id === state.selectedCustomerId ? "selected" : ""}" onmousedown="event.preventDefault()" onclick="selectOrderCustomer(${jsArg(customer.id)})">
+      <strong>${html(customer.name)}</strong><span>${html(customer.phone || "-")} · ${html(customer.address || "未填写地址")}</span>
+    </button>`).join("") : `<div class="empty">没有匹配的客户</div>`;
+}
+
+function refreshCreateCustomerResults() {
+  const results = document.getElementById("createCustomerResults");
+  if (!results) return;
+  results.innerHTML = renderCreateCustomerResults();
+  results.classList.toggle("hidden", !state.createCustomerPickerOpen);
+}
+
+function openCreateCustomerPicker() {
+  state.createCustomerPickerOpen = true;
+  refreshCreateCustomerResults();
+}
+
+function closeCreateCustomerPicker() {
+  setTimeout(() => {
+    state.createCustomerPickerOpen = false;
+    const customer = byId(orderCustomerChoices(), state.selectedCustomerId);
+    state.createCustomerQuery = orderCustomerLabel(customer);
+    const input = document.getElementById("createCustomerSearch");
+    if (input) input.value = state.createCustomerQuery;
+    document.getElementById("createCustomerResults")?.classList.add("hidden");
+  }, 150);
+}
+
+function updateCreateCustomerSearch(input) {
+  state.createCustomerQuery = input.value;
+  state.createCustomerPickerOpen = true;
+  if (input.dataset.composing === "true") return;
+  clearTimeout(inputRenderTimer);
+  inputRenderTimer = setTimeout(refreshCreateCustomerResults, 100);
+}
+
+function setOrderSalesperson(userId) {
+  if (!canChooseSalesperson() || !activeSalesUsers().some((user) => user.id === userId)) return;
+  state.salesUserId = userId;
+  const customer = orderCustomerChoices()[0] || null;
+  state.selectedCustomerId = customer?.id || "";
+  state.createCustomerQuery = orderCustomerLabel(customer);
+  state.createCustomerPickerOpen = false;
+  resetOrderDraft(customer);
   render();
 }
 
@@ -2417,16 +2482,31 @@ function visibleCustomers() {
   return customers.filter((customer) => customer.ownerId === state.user.id);
 }
 
+function orderCustomerChoices() {
+  const salesUserId = isSalesRole() ? state.user?.id : state.salesUserId;
+  return visibleCustomers().filter((customer) => customer.ownerId === salesUserId);
+}
+
+function orderCustomerLabel(customer) {
+  return customer ? `${customer.name || ""} - ${customer.phone || ""}` : "";
+}
+
 function ensureSalesScope() {
   if (isSalesRole()) {
     state.salesUserId = state.user.id;
     state.customerOwnerFilter = "全部";
     state.orderSalesFilter = "全部";
   }
-  const allowedCustomers = visibleCustomers();
+  if (!isSalesRole() && !activeSalesUsers().some((user) => user.id === state.salesUserId)) {
+    state.salesUserId = state.user?.id || activeSalesUsers()[0]?.id || "";
+  }
+  const allowedCustomers = orderCustomerChoices();
   if (!allowedCustomers.some((customer) => customer.id === state.selectedCustomerId)) {
     state.selectedCustomerId = allowedCustomers[0]?.id || "";
+    resetOrderDraft(allowedCustomers[0] || null);
   }
+  const selectedCustomer = byId(allowedCustomers, state.selectedCustomerId);
+  if (!state.createCustomerPickerOpen) state.createCustomerQuery = orderCustomerLabel(selectedCustomer);
 }
 
 function setRoute(route) {
@@ -2511,12 +2591,15 @@ async function loadBootstrap() {
   products = data.products;
   orders = data.orders;
   state.salesUserId = isSalesRole() ? state.user.id : state.user?.id || activeSalesUsers()[0]?.id || "";
+  state.dashboardSalesFilters = [];
+  state.dashboardSalesMenuOpen = false;
+  state.dashboardCustomerDetail = "";
   ensureSalesScope();
 }
 
 function renderDashboard() {
-  const scopedOrders = visibleOrders();
-  const scopedCustomers = visibleCustomers();
+  const allVisibleOrders = visibleOrders();
+  const scopedOrders = dashboardFilteredOrders();
   const now = new Date();
   const validOrders = scopedOrders.filter(isPerformanceOrder);
   const validSalesOrders = validOrders.filter((order) => !isReturnOrder(order));
@@ -2526,26 +2609,29 @@ function renderDashboard() {
   const todayOrders = validSalesOrders.filter((order) => isSameBusinessDay(order.date, now));
   const monthCustomers = new Set(monthOrders.map((order) => order.customerId).filter(Boolean));
   const todayCustomers = new Set(todayOrders.map((order) => order.customerId).filter(Boolean));
-  const monthNewCustomers = scopedCustomers.filter((customer) => {
-    const openedAt = customerOpenedDate(customer, validSalesOrders);
-    return openedAt && openedAt.getFullYear() === now.getFullYear() && openedAt.getMonth() === now.getMonth();
-  }).length;
+  const allValidSalesOrders = allVisibleOrders.filter((order) => isPerformanceOrder(order) && !isReturnOrder(order));
+  const monthNewCustomerIds = new Set(Array.from(monthCustomers).filter((customerId) => {
+    const firstOrderAt = firstValidCustomerOrderDate(customerId, allValidSalesOrders);
+    return firstOrderAt && firstOrderAt.getFullYear() === now.getFullYear() && firstOrderAt.getMonth() === now.getMonth();
+  }));
   const monthSales = monthPerformanceOrders.reduce((sum, order) => sum + performanceOrderAmount(order), 0);
   const todaySales = todayPerformanceOrders.reduce((sum, order) => sum + performanceOrderAmount(order), 0);
   return `
     <section class="dashboard-metrics">
+      ${dashboardSalesFilterHtml()}
       <div class="dashboard-section-head"><strong>本月经营</strong><span>${now.getFullYear()} 年 ${now.getMonth() + 1} 月</span></div>
       <div class="dashboard-metric-grid month-metrics">
-        ${dashboardMetric("本月销售额", money(monthSales), "¥", "blue", "有效订单销售合计")}
-        ${dashboardMetric("本月下单客户数", monthCustomers.size, "客", "violet", "按客户去重")}
-        ${dashboardMetric("本月新开客户数", monthNewCustomers, "新", "orange", "按首次建档或有效下单时间")}
-        ${dashboardMetric("本月订单数量", monthOrders.length, "单", "cyan", "不含待确认和已取消")}
+        ${dashboardMetric("本月销售额", money(monthSales), "¥", "blue", "除待确认、已取消外，按实际订单金额汇总")}
+        ${dashboardMetric("本月下单客户数", monthCustomers.size, "客", "violet", "本月有效销售单客户去重 · 点击查看", "month")}
+        ${dashboardMetric("本月新开客户数", monthNewCustomerIds.size, "新", "orange", "首次有效下单发生在本月 · 点击查看", "new")}
+        ${dashboardMetric("本月订单数量", monthPerformanceOrders.length, "单", "cyan", "除待确认和已取消外的全部订单")}
       </div>
+      ${dashboardCustomerDetailHtml(state.dashboardCustomerDetail, monthCustomers, monthNewCustomerIds, monthOrders, allValidSalesOrders)}
       <div class="dashboard-section-head today-head"><strong>今日动态</strong><span>${now.getMonth() + 1} 月 ${now.getDate()} 日</span></div>
       <div class="dashboard-metric-grid today-metrics">
-        ${dashboardMetric("今日销售额", money(todaySales), "¥", "green")}
-        ${dashboardMetric("今日下单客户数", todayCustomers.size, "客", "gold")}
-        ${dashboardMetric("今日订单数量", todayOrders.length, "单", "red")}
+        ${dashboardMetric("今日销售额", money(todaySales), "¥", "green", "按今日有效订单实际金额汇总")}
+        ${dashboardMetric("今日下单客户数", todayCustomers.size, "客", "gold", "今日有效销售单客户去重")}
+        ${dashboardMetric("今日订单数量", todayPerformanceOrders.length, "单", "red", "除待确认和已取消外的全部订单")}
       </div>
     </section>
     <div class="grid two-col" style="margin-top:16px">
@@ -2560,6 +2646,99 @@ function renderDashboard() {
       </div>
     </div>
   `;
+}
+
+function dashboardFilteredOrders() {
+  const scoped = visibleOrders();
+  if (isSalesRole() || !state.dashboardSalesFilters.length) return scoped;
+  return scoped.filter((order) => state.dashboardSalesFilters.includes(order.salesUserId));
+}
+
+function dashboardSalesFilterHtml() {
+  if (!canChooseSalesperson()) return "";
+  const users = activeSalesUsers();
+  const selectedNames = users.filter((user) => state.dashboardSalesFilters.includes(user.id)).map((user) => user.name);
+  const label = selectedNames.length ? `已选 ${selectedNames.length} 人` : "全部销售人员";
+  return `
+    <div class="dashboard-filter-row">
+      <span>销售人员筛选</span>
+      <div class="cost-sales-filter dashboard-sales-filter">
+        <button type="button" class="select cost-sales-trigger" onclick="toggleDashboardSalesMenu()">
+          <span>${html(label)}</span><span class="cost-chevron">⌄</span>
+        </button>
+        ${state.dashboardSalesMenuOpen ? `
+          <div class="cost-sales-menu">
+            <button type="button" class="cost-sales-all ${!state.dashboardSalesFilters.length ? "selected" : ""}" onclick="clearDashboardSalespeople()">全部销售人员</button>
+            ${users.map((user) => `
+              <label class="cost-sales-option">
+                <input type="checkbox" ${state.dashboardSalesFilters.includes(user.id) ? "checked" : ""} onchange="toggleDashboardSalesperson(${jsArg(user.id)})" />
+                <span>${html(user.name)}</span>
+              </label>`).join("")}
+          </div>` : ""}
+      </div>
+    </div>`;
+}
+
+function toggleDashboardSalesMenu() {
+  state.dashboardSalesMenuOpen = !state.dashboardSalesMenuOpen;
+  render();
+}
+
+function toggleDashboardSalesperson(userId) {
+  const selected = new Set(state.dashboardSalesFilters);
+  if (selected.has(userId)) selected.delete(userId);
+  else selected.add(userId);
+  state.dashboardSalesFilters = Array.from(selected);
+  state.dashboardCustomerDetail = "";
+  render();
+}
+
+function clearDashboardSalespeople() {
+  state.dashboardSalesFilters = [];
+  state.dashboardCustomerDetail = "";
+  render();
+}
+
+function toggleDashboardCustomerDetail(type) {
+  state.dashboardCustomerDetail = state.dashboardCustomerDetail === type ? "" : type;
+  render();
+}
+
+function firstValidCustomerOrderDate(customerId, validSalesOrders) {
+  return validSalesOrders
+    .filter((order) => order.customerId === customerId)
+    .map((order) => businessDate(order.date))
+    .filter(Boolean)
+    .sort((a, b) => a - b)[0] || null;
+}
+
+function dashboardCustomerDetailHtml(type, monthCustomerIds, monthNewCustomerIds, monthOrders, allValidSalesOrders) {
+  if (!type) return "";
+  const ids = type === "new" ? monthNewCustomerIds : monthCustomerIds;
+  const title = type === "new" ? "本月新开客户明细" : "本月下单客户明细";
+  const rows = Array.from(ids).map((customerId) => {
+    const customer = byId(customers, customerId) || {};
+    const customerOrders = monthOrders.filter((order) => order.customerId === customerId);
+    const salesNames = Array.from(new Set(customerOrders.map((order) => byId(salesUsers, order.salesUserId)?.name).filter(Boolean)));
+    const amount = customerOrders.reduce((sum, order) => sum + effectiveOrderAmount(order), 0);
+    const firstOrderAt = firstValidCustomerOrderDate(customerId, allValidSalesOrders);
+    return { customer, customerOrders, salesNames, amount, firstOrderAt };
+  }).sort((a, b) => String(a.customer.name || "").localeCompare(String(b.customer.name || ""), "zh-CN"));
+  return `
+    <section class="dashboard-customer-detail">
+      <div class="dashboard-customer-detail-head"><strong>${title}</strong><button type="button" onclick="toggleDashboardCustomerDetail(${jsArg(type)})">收起</button></div>
+      ${rows.length ? `<div class="dashboard-customer-table">
+        <div class="dashboard-customer-row dashboard-customer-row-head"><span>客户</span><span>电话</span><span>销售人员</span><span>本月订单</span><span>本月金额</span><span>首次下单</span></div>
+        ${rows.map((item) => `<div class="dashboard-customer-row">
+          <strong>${html(item.customer.name || "未知客户")}</strong>
+          <span>${html(item.customer.phone || "-")}</span>
+          <span>${html(item.salesNames.join("、") || "-")}</span>
+          <span>${item.customerOrders.length} 单</span>
+          <span>${money(item.amount)}</span>
+          <span>${html(item.firstOrderAt ? `${item.firstOrderAt.getFullYear()}/${item.firstOrderAt.getMonth() + 1}/${item.firstOrderAt.getDate()}` : "-")}</span>
+        </div>`).join("")}
+      </div>` : `<div class="empty">暂无符合条件的客户</div>`}
+    </section>`;
 }
 
 function businessDate(value) {
@@ -2609,18 +2788,10 @@ function performanceOrderAmount(order) {
   }, 0);
 }
 
-function customerOpenedDate(customer, validOrders) {
-  const createdAt = businessDate(customer.createdAt);
-  if (createdAt) return createdAt;
-  return validOrders
-    .filter((order) => order.customerId === customer.id && !isReturnOrder(order))
-    .map((order) => businessDate(order.date))
-    .filter(Boolean)
-    .sort((a, b) => a - b)[0] || null;
-}
-
-function dashboardMetric(label, value, iconText, tone, note = "") {
-  return `<div class="dashboard-metric ${tone}"><div><div class="dashboard-metric-label">${html(label)}</div><div class="dashboard-metric-value">${html(value)}</div>${note ? `<div class="dashboard-metric-note">${html(note)}</div>` : ""}</div><div class="dashboard-metric-icon">${html(iconText)}</div></div>`;
+function dashboardMetric(label, value, iconText, tone, note = "", detailType = "") {
+  const tag = detailType ? "button" : "div";
+  const action = detailType ? ` type="button" onclick="toggleDashboardCustomerDetail(${jsArg(detailType)})"` : "";
+  return `<${tag}${action} class="dashboard-metric ${tone} ${detailType ? "clickable" : ""}"><div><div class="dashboard-metric-label">${html(label)}</div><div class="dashboard-metric-value">${html(value)}</div>${note ? `<div class="dashboard-metric-note">${html(note)}</div>` : ""}</div><div class="dashboard-metric-icon">${html(iconText)}</div></${tag}>`;
 }
 
 function customerStats(customerId) {
@@ -2652,13 +2823,13 @@ function renderCustomers() {
 
 function renderCreateOrder() {
   ensureSalesScope();
-  const customerList = visibleCustomers();
+  const customerList = orderCustomerChoices();
   const customer = byId(customerList, state.selectedCustomerId) || customerList[0];
   ensureOrderDraft(customer);
   const productList = filteredProducts();
   const visible = productList.slice(0, 120);
   const salespersonField = canChooseSalesperson()
-    ? `<div class="field"><label>代下单销售人员</label><select class="select" onchange="state.salesUserId=this.value">${activeSalesUsers().map((u) => `<option value="${html(u.id)}" ${u.id === state.salesUserId ? "selected" : ""}>${html(u.name)}</option>`).join("")}</select></div>`
+    ? `<div class="field"><label>代下单销售人员</label><select class="select" onchange="setOrderSalesperson(this.value)">${activeSalesUsers().map((u) => `<option value="${html(u.id)}" ${u.id === state.salesUserId ? "selected" : ""}>${html(u.name)}</option>`).join("")}</select></div>`
     : "";
   return `
     <div class="card card-pad" style="margin-bottom:16px">
@@ -3150,18 +3321,18 @@ function renderCreateProductResults() {
 
 function renderCreateOrder() {
   ensureSalesScope();
-  const customerList = visibleCustomers();
+  const customerList = orderCustomerChoices();
   const customer = byId(customerList, state.selectedCustomerId) || customerList[0];
   ensureOrderDraft(customer);
   const productList = filteredProducts().filter(isProductActive);
   const pageData = paginateList(productList, "createProducts", EDIT_PAGE_SIZES.createProducts);
   const salespersonField = canChooseSalesperson()
-    ? `<div class="field"><label>代下单销售人员</label><select class="select" onchange="state.salesUserId=this.value">${activeSalesUsers().map((u) => `<option value="${html(u.id)}" ${u.id === state.salesUserId ? "selected" : ""}>${html(u.name)}</option>`).join("")}</select></div>`
+    ? `<div class="field"><label>代下单销售人员</label><select class="select" onchange="setOrderSalesperson(this.value)">${activeSalesUsers().map((u) => `<option value="${html(u.id)}" ${u.id === state.salesUserId ? "selected" : ""}>${html(u.name)}</option>`).join("")}</select></div>`
     : "";
   return `
     <div class="card card-pad" style="margin-bottom:16px">
       <div class="form-grid">
-        <div class="field"><label>选择客户 *</label><select class="select" onchange="selectOrderCustomer(this.value)">${customerList.map((c) => `<option value="${html(c.id)}" ${c.id === customer?.id ? "selected" : ""}>${html(c.name)} - ${html(c.phone)}</option>`).join("")}</select></div>
+        <div class="field edit-customer-field"><label>选择客户 *</label><div class="edit-customer-combobox"><input id="createCustomerSearch" class="input" value="${html(state.createCustomerQuery)}" placeholder="${customerList.length ? "输入客户姓名或电话搜索" : "该销售人员暂无客户"}" autocomplete="off" role="combobox" onfocus="openCreateCustomerPicker();this.select()" onblur="closeCreateCustomerPicker()" oncompositionstart="this.dataset.composing='true'" oncompositionend="this.dataset.composing='false';updateCreateCustomerSearch(this)" oninput="updateCreateCustomerSearch(this)" /><div id="createCustomerResults" class="edit-customer-results hidden">${renderCreateCustomerResults()}</div></div></div>
         ${salespersonField}
         <div class="field address-history-field"><label>送货地址</label><div class="address-history-combobox"><input id="orderAddressInput" class="input" value="${html(state.orderAddress)}" placeholder="输入新地址，或选择历史下单地址" autocomplete="off" onfocus="openAddressHistory('create')" onclick="openAddressHistory('create')" onblur="closeAddressHistory('create')" oninput="updateOrderDraftField('address',this.value)" />${addressHistoryMenuHtml(customer?.id || "", "create")}</div></div>
         <div class="field"><label>收货人手机号 *</label><input id="orderPhoneInput" class="input" value="${html(state.orderPhone)}" oninput="updateOrderDraftField('phone',this.value)" /></div>
@@ -3190,7 +3361,7 @@ function renderCreateOrder() {
 }
 
 async function saveOrder() {
-  const customer = byId(customers, state.selectedCustomerId);
+  const customer = byId(orderCustomerChoices(), state.selectedCustomerId);
   if (!customer || !state.cart.length) {
     alert("请选择客户和商品。");
     return;
@@ -3465,9 +3636,15 @@ function closeModal() {
   render();
 }
 
+function editOrderCustomerChoices() {
+  const order = byId(orders, state.editOrderDraft?.orderId);
+  const salesUserId = isSalesRole() ? state.user?.id : order?.salesUserId;
+  return visibleCustomers().filter((customer) => customer.ownerId === salesUserId);
+}
+
 function matchingEditCustomers() {
   const query = state.editCustomerQuery.trim().toLowerCase();
-  return visibleCustomers().filter((customer) => !query || [customer.name, customer.contact, customer.phone]
+  return editOrderCustomerChoices().filter((customer) => !query || [customer.name, customer.contact, customer.phone]
     .some((value) => String(value || "").toLowerCase().includes(query))).slice(0, 20);
 }
 
@@ -3507,7 +3684,7 @@ function updateEditCustomerSearch(input) {
 }
 
 function selectEditOrderCustomer(customerId) {
-  const customer = byId(visibleCustomers(), customerId);
+  const customer = byId(editOrderCustomerChoices(), customerId);
   if (!customer || !state.editOrderDraft) return;
   state.editOrderDraft.customerId = customer.id;
   state.editOrderDraft.phone = customer.phone || "";
@@ -5017,6 +5194,14 @@ Object.assign(window, {
   deleteOrder,
   saveCustomer,
   selectOrderCustomer,
+  openCreateCustomerPicker,
+  closeCreateCustomerPicker,
+  updateCreateCustomerSearch,
+  setOrderSalesperson,
+  toggleDashboardSalesMenu,
+  toggleDashboardSalesperson,
+  clearDashboardSalespeople,
+  toggleDashboardCustomerDetail,
   updateOrderDraftField,
   updateEditOrderMeta,
   updateEditOrderLine,
