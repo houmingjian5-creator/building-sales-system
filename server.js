@@ -499,6 +499,100 @@ function effectiveOrderAmount(order) {
   return actualAmount === null ? Number((order && order.amount) || 0) : actualAmount;
 }
 
+function isCostControlOrder(order) {
+  const isReturn = Boolean(
+    order &&
+    (
+      order.type === 'return' ||
+      String(order.no || '').startsWith('TH') ||
+      order.status === '已退货'
+    )
+  );
+  return Boolean(
+    order &&
+    !order.deletedAt &&
+    !isReturn &&
+    order.status !== '已取消'
+  );
+}
+
+function normalizeCostMoney(value, field) {
+  const amount = Number(value || 0);
+  if (!Number.isFinite(amount) || amount < 0) {
+    throw new Error((field || '金额') + '必须是大于或等于 0 的数字');
+  }
+  if (Math.abs(amount * 100 - Math.round(amount * 100)) > 0.000001) {
+    throw new Error((field || '金额') + '最多保留两位小数');
+  }
+  return Math.round(amount * 100) / 100;
+}
+
+function normalizeCostControl(input, meta) {
+  const source = input || {};
+  const rawSuppliers = Array.isArray(source.suppliers) ? source.suppliers : [];
+  if (rawSuppliers.length > 20) throw new Error('供应商最多选择 20 个');
+
+  const names = new Set();
+  const suppliers = rawSuppliers.map(function (supplier) {
+    const name = String((supplier && supplier.name) || '').trim();
+    if (!name) throw new Error('供应商名称不能为空');
+    if (name.length > 30) throw new Error('供应商名称不能超过 30 个字');
+    if (names.has(name)) throw new Error('同一个供应商不能重复添加');
+    names.add(name);
+    return {
+      name: name,
+      materialCost: normalizeCostMoney(
+        supplier && supplier.materialCost,
+        name + '的材料成本'
+      )
+    };
+  });
+
+  const deliveryPerson = String(source.deliveryPerson || '').trim();
+  if (deliveryPerson.length > 30) throw new Error('送货负责人不能超过 30 个字');
+
+  const result = {
+    suppliers: suppliers,
+    deliveryPerson: deliveryPerson,
+    transportCost: normalizeCostMoney(source.transportCost, '运输成本')
+  };
+  if (meta) {
+    result.updatedAt = meta.updatedAt;
+    result.updatedBy = meta.updatedBy;
+  }
+  return result;
+}
+
+function costControlTotals(order) {
+  const control = normalizeCostControl(order && order.costControl);
+  const materialCost = control.suppliers.reduce(function (sum, supplier) {
+    return sum + supplier.materialCost;
+  }, 0);
+  const totalCost = Math.round((materialCost + control.transportCost) * 100) / 100;
+  return {
+    materialCost: Math.round(materialCost * 100) / 100,
+    transportCost: control.transportCost,
+    totalCost: totalCost,
+    profit: Math.round((effectiveOrderAmount(order || {}) - totalCost) * 100) / 100
+  };
+}
+
+function publicCostControlOrder(order, db) {
+  const customer = (db.customers || []).find(function (item) {
+    return item.id === order.customerId;
+  }) || {};
+  const salesperson = (db.users || []).find(function (item) {
+    return item.id === order.salesUserId;
+  }) || {};
+  return Object.assign({}, publicOrder(order), {
+    customerName: order.customerName || customer.name || '',
+    customerPhone: order.phone || customer.phone || '',
+    salesName: order.salesName || salesperson.name || '',
+    costControl: normalizeCostControl(order.costControl),
+    costTotals: costControlTotals(order)
+  });
+}
+
 function publicOrder(order) {
   const isReturn = order.type === 'return' || String(order.no || '').startsWith('TH') || order.status === '已退货';
   const normalizedItems = isReturn ? normalizeReturnItems(order.items) : Array.isArray(order.items) ? order.items : [];
@@ -2004,6 +2098,45 @@ async function handleApi(req, res) {
     }
   }
 
+  if (url.pathname === "/api/cost-control" && method === "GET") {
+    const user = requireAdmin(req, res);
+    if (!user) return;
+    const db = readDb();
+    const orders = db.orders
+      .filter(isCostControlOrder)
+      .sort(function (a, b) {
+        return String(b.date || b.createdAt || "").localeCompare(String(a.date || a.createdAt || ""));
+      })
+      .map(function (order) {
+        return publicCostControlOrder(order, db);
+      });
+    return sendJson(res, 200, { orders: orders });
+  }
+
+  if (url.pathname.startsWith("/api/cost-control/") && method === "PATCH") {
+    const user = requireAdmin(req, res);
+    if (!user) return;
+    const id = decodeURIComponent(url.pathname.split("/").pop());
+    const payload = await readBody(req);
+    const db = readDb();
+    const order = db.orders.find(function (item) {
+      return item.id === id;
+    });
+    if (!order || !isCostControlOrder(order)) {
+      return sendError(res, 404, "订单不存在或不在成本控制范围内");
+    }
+    try {
+      order.costControl = normalizeCostControl(payload, {
+        updatedAt: new Date().toISOString(),
+        updatedBy: user.id
+      });
+      writeDb(db);
+      return sendJson(res, 200, { order: publicCostControlOrder(order, db) });
+    } catch (error) {
+      return sendError(res, 400, error.message || "成本信息保存失败");
+    }
+  }
+
   if (url.pathname === "/api/orders") {
     const user = requireUser(req, res);
     if (!user) return;
@@ -2212,3 +2345,7 @@ module.exports.publicOrder = publicOrder;
 module.exports.publicOrderItem = publicOrderItem;
 module.exports.orderActualPaidAmount = orderActualPaidAmount;
 module.exports.effectiveOrderAmount = effectiveOrderAmount;
+module.exports.isCostControlOrder = isCostControlOrder;
+module.exports.normalizeCostControl = normalizeCostControl;
+module.exports.costControlTotals = costControlTotals;
+module.exports.publicCostControlOrder = publicCostControlOrder;

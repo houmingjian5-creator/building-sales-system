@@ -41,6 +41,13 @@ const state = {
   assistantLoading: false,
   assistantError: "",
   assistantLastQuestion: "",
+  costOrders: [],
+  costLoading: false,
+  costLoaded: false,
+  costError: "",
+  costQuery: "",
+  costStatusFilter: "全部",
+  costSavingId: "",
   assistantSide: (() => {
     try {
       return localStorage.getItem("xiaocai-side") === "left" ? "left" : "right";
@@ -340,6 +347,7 @@ function render() {
           ${navButton("orders", "订单管理")}
           ${navButton("returns", "退货单")}
           ${isAdmin() ? navButton("users", "人员管理") : ""}
+          ${isAdmin() ? navButton("costs", "成本控制") : ""}
         </nav>
         <div class="side-user">
           <strong>${state.user.name}</strong>
@@ -445,6 +453,11 @@ async function logout() {
     state.assistantLoaded = false;
     state.assistantLoading = false;
     state.assistantError = "";
+    state.costOrders = [];
+    state.costLoaded = false;
+    state.costLoading = false;
+    state.costError = "";
+    state.costSavingId = "";
     render();
   }
 }
@@ -464,11 +477,11 @@ function navButton(route, label) {
 }
 
 function titleForRoute() {
-  return ({ dashboard: "销售概览", customers: "客户管理", products: "产品管理", create: "销售开单", orders: "订单管理", returns: "退货单", users: "人员管理" }[state.route]);
+  return ({ dashboard: "销售概览", customers: "客户管理", products: "产品管理", create: "销售开单", orders: "订单管理", returns: "退货单", users: "人员管理", costs: "成本控制" }[state.route]);
 }
 
 function subtitleForRoute() {
-  return ({ dashboard: "查看本月与今日销售、客户和订单数据", customers: "管理客户信息和成交记录", products: "管理建材商品信息与价格", create: "选择客户和商品生成销售单", orders: "管理订单状态、打印和导出", returns: "从销售流程中创建退货单", users: "添加登录人员，维护手机号、密码和角色定位" }[state.route]);
+  return ({ dashboard: "查看本月与今日销售、客户和订单数据", customers: "管理客户信息和成交记录", products: "管理建材商品信息与价格", create: "选择客户和商品生成销售单", orders: "管理订单状态、打印和导出", returns: "从销售流程中创建退货单", users: "添加登录人员，维护手机号、密码和角色定位", costs: "核算订单材料成本、运输成本与实际盈利" }[state.route]);
 }
 
 function renderPage() {
@@ -478,6 +491,7 @@ function renderPage() {
   if (state.route === "create" || state.route === "returns") return renderCreateOrder();
   if (state.route === "orders") return renderOrders();
   if (state.route === "users" && isAdmin()) return renderUsers();
+  if (state.route === "costs" && isAdmin()) return renderCostControl();
   return "";
 }
 
@@ -3996,6 +4010,299 @@ async function deleteProduct(id) {
   }
 }
 
+const COST_SUPPLIER_OPTIONS = ["许斌", "小郑", "帅小霞", "杨姐", "欧姐", "漆海军"];
+const COST_DELIVERY_OPTIONS = ["许斌", "潘师", "李师", "老宛", "小郑", "杨姐"];
+
+function costNumber(value) {
+  const number = Number(value || 0);
+  return Number.isFinite(number) && number >= 0 ? number : 0;
+}
+
+function calculateCostDraft(order) {
+  const control = order.costControl || { suppliers: [], deliveryPerson: "", transportCost: 0 };
+  const materialCost = (control.suppliers || []).reduce((sum, supplier) => {
+    return sum + costNumber(supplier.materialCost);
+  }, 0);
+  const transportCost = costNumber(control.transportCost);
+  const totalCost = Math.round((materialCost + transportCost) * 100) / 100;
+  const actualAmount = costNumber(order.effectiveAmount);
+  return {
+    materialCost: Math.round(materialCost * 100) / 100,
+    transportCost,
+    totalCost,
+    profit: Math.round((actualAmount - totalCost) * 100) / 100,
+  };
+}
+
+function costOrderById(orderId) {
+  return state.costOrders.find((order) => order.id === orderId);
+}
+
+function refreshCostCard(orderId) {
+  const order = costOrderById(orderId);
+  const card = document.querySelector(`[data-cost-order="${orderId}"]`);
+  if (!order || !card) return;
+  const totals = calculateCostDraft(order);
+  const material = card.querySelector("[data-cost-material]");
+  const total = card.querySelector("[data-cost-total]");
+  const profit = card.querySelector("[data-cost-profit]");
+  if (material) material.textContent = money(totals.materialCost);
+  if (total) total.textContent = money(totals.totalCost);
+  if (profit) {
+    profit.textContent = money(totals.profit);
+    profit.classList.toggle("is-negative", totals.profit < 0);
+  }
+}
+
+function rerenderCostControl() {
+  const scrollTop = window.scrollY;
+  render();
+  requestAnimationFrame(() => window.scrollTo(0, scrollTop));
+}
+
+function toggleCostSupplier(orderId, name) {
+  const order = costOrderById(orderId);
+  if (!order) return;
+  order.costControl = order.costControl || { suppliers: [], deliveryPerson: "", transportCost: 0 };
+  const index = order.costControl.suppliers.findIndex((supplier) => supplier.name === name);
+  if (index >= 0) order.costControl.suppliers.splice(index, 1);
+  else order.costControl.suppliers.push({ name, materialCost: 0 });
+  rerenderCostControl();
+}
+
+function addCustomCostSupplier(orderId) {
+  const order = costOrderById(orderId);
+  const input = document.querySelector(`[data-cost-custom-supplier="${orderId}"]`);
+  const name = input ? input.value.trim() : "";
+  if (!order || !name) return;
+  order.costControl = order.costControl || { suppliers: [], deliveryPerson: "", transportCost: 0 };
+  if (order.costControl.suppliers.some((supplier) => supplier.name === name)) {
+    alert("该供应商已经添加");
+    return;
+  }
+  order.costControl.suppliers.push({ name, materialCost: 0 });
+  rerenderCostControl();
+}
+
+function updateSupplierCost(orderId, index, value) {
+  const order = costOrderById(orderId);
+  if (!order || !order.costControl.suppliers[index]) return;
+  order.costControl.suppliers[index].materialCost = value;
+  refreshCostCard(orderId);
+}
+
+function changeCostDelivery(orderId, value) {
+  const order = costOrderById(orderId);
+  if (!order) return;
+  order.costControl = order.costControl || { suppliers: [], deliveryPerson: "", transportCost: 0 };
+  order.costControl.deliveryPerson = value === "__custom__" ? "" : value;
+  order.costCustomDelivery = value === "__custom__";
+  rerenderCostControl();
+}
+
+function updateCustomDelivery(orderId, value) {
+  const order = costOrderById(orderId);
+  if (!order) return;
+  order.costControl.deliveryPerson = value;
+}
+
+function updateTransportCost(orderId, value) {
+  const order = costOrderById(orderId);
+  if (!order) return;
+  order.costControl.transportCost = value;
+  refreshCostCard(orderId);
+}
+
+async function loadCostControl(force = false) {
+  if (!isAdmin() || state.costLoading || (state.costLoaded && !force)) return;
+  state.costLoading = true;
+  state.costError = "";
+  if (state.route === "costs") render();
+  try {
+    const response = await fetch("/api/cost-control");
+    const data = await response.json();
+    if (!response.ok) throw new Error(data.error || "成本数据加载失败");
+    state.costOrders = (data.orders || []).map((order) => ({
+      ...order,
+      costControl: {
+        suppliers: (order.costControl?.suppliers || []).map((supplier) => ({ ...supplier })),
+        deliveryPerson: order.costControl?.deliveryPerson || "",
+        transportCost: order.costControl?.transportCost || 0,
+      },
+    }));
+    state.costLoaded = true;
+  } catch (error) {
+    state.costError = error.message || "成本数据加载失败";
+  } finally {
+    state.costLoading = false;
+    if (state.route === "costs") render();
+  }
+}
+
+async function saveCostControl(orderId) {
+  const order = costOrderById(orderId);
+  if (!order || state.costSavingId) return;
+  state.costSavingId = orderId;
+  render();
+  try {
+    const response = await fetch(`/api/cost-control/${encodeURIComponent(orderId)}`, {
+      method: "PATCH",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(order.costControl),
+    });
+    const data = await response.json();
+    if (!response.ok) throw new Error(data.error || "成本信息保存失败");
+    const index = state.costOrders.findIndex((item) => item.id === orderId);
+    state.costOrders[index] = {
+      ...data.order,
+      costControl: {
+        suppliers: (data.order.costControl?.suppliers || []).map((supplier) => ({ ...supplier })),
+        deliveryPerson: data.order.costControl?.deliveryPerson || "",
+        transportCost: data.order.costControl?.transportCost || 0,
+      },
+    };
+    showToast("成本信息已保存");
+  } catch (error) {
+    alert(error.message || "成本信息保存失败");
+  } finally {
+    state.costSavingId = "";
+    if (state.route === "costs") render();
+  }
+}
+
+function setCostQuery(input) {
+  state.costQuery = input.value;
+  scheduleInputValue(input, "costQuery", "costSearchInput");
+}
+
+function setCostStatusFilter(value) {
+  state.costStatusFilter = value;
+  render();
+}
+
+function renderCostControl() {
+  if (!isAdmin()) return "";
+  if (state.costLoading && !state.costLoaded) {
+    return `<div class="card card-pad cost-empty">正在加载成本数据...</div>`;
+  }
+  if (state.costError && !state.costLoaded) {
+    return `<div class="card card-pad cost-empty"><p>${html(state.costError)}</p><button class="btn primary" onclick="loadCostControl(true)">重新加载</button></div>`;
+  }
+
+  const query = state.costQuery.trim().toLowerCase();
+  const visibleOrders = state.costOrders.filter((order) => {
+    const matchesQuery = !query || [
+      order.no,
+      order.customerName,
+      order.customerPhone,
+      order.salesName,
+      order.address,
+    ].some((value) => String(value || "").toLowerCase().includes(query));
+    const matchesStatus = state.costStatusFilter === "全部"
+      || (state.costStatusFilter === "已完成" ? order.status === "已完成" : order.status !== "已完成");
+    return matchesQuery && matchesStatus;
+  });
+  const summary = visibleOrders.reduce((result, order) => {
+    const totals = calculateCostDraft(order);
+    result.revenue += costNumber(order.effectiveAmount);
+    result.cost += totals.totalCost;
+    result.profit += totals.profit;
+    if (!order.costControl?.suppliers?.length || !order.costControl?.deliveryPerson) result.incomplete += 1;
+    return result;
+  }, { revenue: 0, cost: 0, profit: 0, incomplete: 0 });
+
+  return `
+    <div class="cost-toolbar">
+      <div class="cost-search-wrap">
+        <input id="costSearchInput" class="input" value="${html(state.costQuery)}" placeholder="搜索订单号、客户、电话、销售或地址" oninput="setCostQuery(this)" />
+      </div>
+      <select class="select" onchange="setCostStatusFilter(this.value)">
+        ${["全部", "进行中", "已完成"].map((status) => `<option value="${status}" ${state.costStatusFilter === status ? "selected" : ""}>${status}</option>`).join("")}
+      </select>
+      <button class="btn" onclick="loadCostControl(true)">刷新</button>
+    </div>
+    <div class="cost-summary-grid">
+      <div class="cost-summary-item"><span>实际付款合计</span><strong>${money(summary.revenue)}</strong></div>
+      <div class="cost-summary-item"><span>总成本</span><strong>${money(summary.cost)}</strong></div>
+      <div class="cost-summary-item"><span>预计盈利</span><strong class="${summary.profit < 0 ? "is-negative" : ""}">${money(summary.profit)}</strong></div>
+      <div class="cost-summary-item"><span>待完善订单</span><strong>${summary.incomplete}</strong></div>
+    </div>
+    ${state.costError ? `<div class="cost-inline-error">${html(state.costError)}</div>` : ""}
+    <div class="cost-order-list">
+      ${visibleOrders.length ? visibleOrders.map(renderCostOrderCard).join("") : `<div class="card card-pad cost-empty">没有符合条件的订单</div>`}
+    </div>
+  `;
+}
+
+function renderCostOrderCard(order) {
+  const control = order.costControl || { suppliers: [], deliveryPerson: "", transportCost: 0 };
+  const totals = calculateCostDraft(order);
+  const customDelivery = order.costCustomDelivery
+    || (control.deliveryPerson && !COST_DELIVERY_OPTIONS.includes(control.deliveryPerson));
+  return `
+    <article class="cost-order-card" data-cost-order="${html(order.id)}">
+      <div class="cost-order-head">
+        <div class="cost-order-title">
+          <strong>${html(order.no)}</strong>
+          ${statusBadge(order.status)}
+        </div>
+        <div class="cost-paid-amount"><span>实际付款</span><strong>${money(order.effectiveAmount)}</strong></div>
+      </div>
+      <div class="cost-order-meta">
+        <span><b>销售</b>${html(order.salesName || "-")}</span>
+        <span><b>客户</b>${html(order.customerName || "-")}</span>
+        <span><b>电话</b>${html(order.customerPhone || "-")}</span>
+        <span><b>日期</b>${html(order.date || "-")}</span>
+      </div>
+      <div class="cost-order-address"><b>地址：</b>${html(order.address || "-")}</div>
+      <div class="cost-editor-grid">
+        <section class="cost-editor-section">
+          <div class="cost-section-heading"><div><strong>材料供应商</strong><span>可多选，每位供应商分别填写成本</span></div></div>
+          <div class="cost-option-row">
+            ${COST_SUPPLIER_OPTIONS.map((name) => {
+              const selected = control.suppliers.some((supplier) => supplier.name === name);
+              return `<button type="button" class="cost-option ${selected ? "selected" : ""}" onclick="toggleCostSupplier(${jsArg(order.id)}, ${jsArg(name)})">${html(name)}</button>`;
+            }).join("")}
+          </div>
+          <div class="cost-custom-row">
+            <input class="input" data-cost-custom-supplier="${html(order.id)}" placeholder="自行填写供应商" />
+            <button type="button" class="btn" onclick="addCustomCostSupplier(${jsArg(order.id)})">添加</button>
+          </div>
+          <div class="cost-supplier-list">
+            ${control.suppliers.length ? control.suppliers.map((supplier, index) => `
+              <div class="cost-supplier-row">
+                <span>${html(supplier.name)}</span>
+                <label><span>材料成本</span><div class="cost-money-input"><i>¥</i><input type="number" min="0" step="0.01" value="${html(supplier.materialCost)}" oninput="updateSupplierCost(${jsArg(order.id)}, ${index}, this.value)" /></div></label>
+                <button type="button" class="cost-remove" title="移除供应商" onclick="toggleCostSupplier(${jsArg(order.id)}, ${jsArg(supplier.name)})">×</button>
+              </div>
+            `).join("") : `<div class="cost-placeholder">暂未选择供应商</div>`}
+          </div>
+        </section>
+        <section class="cost-editor-section">
+          <div class="cost-section-heading"><div><strong>送货与运输</strong><span>选择一位送货负责人并填写运输成本</span></div></div>
+          <label class="cost-field"><span>送货负责人</span>
+            <select class="select" onchange="changeCostDelivery(${jsArg(order.id)}, this.value)">
+              <option value="">请选择</option>
+              ${COST_DELIVERY_OPTIONS.map((name) => `<option value="${name}" ${control.deliveryPerson === name ? "selected" : ""}>${name}</option>`).join("")}
+              <option value="__custom__" ${customDelivery ? "selected" : ""}>自行填写</option>
+            </select>
+          </label>
+          ${customDelivery ? `<label class="cost-field"><span>自定义送货人</span><input class="input" value="${html(control.deliveryPerson)}" placeholder="请输入姓名" oninput="updateCustomDelivery(${jsArg(order.id)}, this.value)" /></label>` : ""}
+          <label class="cost-field"><span>运输成本</span><div class="cost-money-input"><i>¥</i><input type="number" min="0" step="0.01" value="${html(control.transportCost)}" oninput="updateTransportCost(${jsArg(order.id)}, this.value)" /></div></label>
+        </section>
+      </div>
+      <footer class="cost-order-footer">
+        <div class="cost-totals">
+          <span>材料成本 <b data-cost-material>${money(totals.materialCost)}</b></span>
+          <span>总成本 <b data-cost-total>${money(totals.totalCost)}</b></span>
+          <span class="cost-profit">盈利 <b data-cost-profit class="${totals.profit < 0 ? "is-negative" : ""}">${money(totals.profit)}</b></span>
+        </div>
+        <button type="button" class="btn primary" ${state.costSavingId === order.id ? "disabled" : ""} onclick="saveCostControl(${jsArg(order.id)})">${state.costSavingId === order.id ? "保存中..." : "保存成本"}</button>
+      </footer>
+    </article>
+  `;
+}
+
 function openOrderRoute(type = "sale") {
   const nextType = type === "return" ? "return" : "sale";
   persistCart(state.orderType);
@@ -4010,6 +4317,7 @@ function openOrderRoute(type = "sale") {
 }
 
 function setRoute(route) {
+  if (route === "costs" && !isAdmin()) return;
   const previousType = state.orderType;
   persistCart(previousType);
   state.route = route;
@@ -4020,6 +4328,7 @@ function setRoute(route) {
   if (state.orderType !== previousType) restoreCart(state.orderType);
   ensureSalesScope();
   render();
+  if (route === "costs") loadCostControl();
 }
 
 function handleRouteClick(route) {
