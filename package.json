@@ -6,7 +6,7 @@
   "scripts": {
     "start": "node server.js",
     "dev": "node server.js",
-    "test": "node tests/ai-match.test.js && node tests/order-quantity.test.js && node tests/order-document.test.js && node tests/product-workbook.test.js && node tests/assistant.test.js && node tests/security.test.js && node tests/payment-amount.test.js && node tests/cost-control.test.js && node tests/dashboard-order-scope.test.js",
+    "test": "node tests/ai-match.test.js && node tests/order-quantity.test.js && node tests/order-document.test.js && node tests/product-workbook.test.js && node tests/assistant.test.js && node tests/security.test.js && node tests/payment-amount.test.js && node tests/cost-control.test.js && node tests/dashboard-order-scope.test.js && node tests/mobile-layout.test.js",
     "backup": "node scripts/backup-db.js",
     "migrate-passwords": "node scripts/migrate-passwords.js",
     "restore": "node scripts/restore-db.js"

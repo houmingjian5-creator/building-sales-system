@@ -60,6 +60,8 @@ const state = {
   dashboardSalesFilters: [],
   dashboardSalesMenuOpen: false,
   dashboardCustomerDetail: "",
+  mobileMoreOpen: false,
+  mobileCartOpen: false,
   assistantSide: (() => {
     try {
       return localStorage.getItem("xiaocai-side") === "left" ? "left" : "right";
@@ -417,7 +419,7 @@ function render() {
   }
 
   app.innerHTML = `
-    <div class="app-shell">
+    <div class="app-shell ${["create", "returns"].includes(state.route) ? "has-mobile-cart" : ""}">
       ${state.toast ? `<div class="toast">✓ ${state.toast}</div>` : ""}
       <aside class="sidebar">
         <div class="side-brand"><div class="brand-mark">建</div><strong>建材订单管理</strong></div>
@@ -449,6 +451,9 @@ function render() {
         </header>
         <section class="content">${renderPage()}</section>
       </main>
+      ${renderMobileNavigation()}
+      ${renderMobileMoreSheet()}
+      ${renderMobileCart()}
       ${renderXiaocai()}
       ${renderModal()}
     </div>
@@ -547,6 +552,8 @@ async function logout() {
     state.costSalesInitialized = false;
     state.costSalesMenuOpen = false;
     state.costExpandedOrderId = "";
+    state.mobileMoreOpen = false;
+    state.mobileCartOpen = false;
     render();
   }
 }
@@ -563,6 +570,99 @@ function localLoginFallback(phone, password) {
 
 function navButton(route, label) {
   return `<button class="${state.route === route ? "active" : ""}" onclick="setRoute('${route}')"><span class="nav-icon">${icon(route)}</span><span>${label}</span></button>`;
+}
+
+function mobilePrimaryRouteButton(route, label) {
+  return `<button type="button" class="${state.route === route ? "active" : ""}" onclick="setRoute(${jsArg(route)})"><span class="nav-icon">${icon(route)}</span><span>${html(label)}</span></button>`;
+}
+
+function renderMobileNavigation() {
+  const moreActive = ["products", "returns", "users", "costs"].includes(state.route) || state.mobileMoreOpen;
+  return `
+    <nav class="mobile-bottom-nav" aria-label="手机端主导航">
+      ${mobilePrimaryRouteButton("dashboard", "概览")}
+      ${mobilePrimaryRouteButton("customers", "客户")}
+      ${mobilePrimaryRouteButton("create", "开单")}
+      ${mobilePrimaryRouteButton("orders", "订单")}
+      <button type="button" class="${moreActive ? "active" : ""}" onclick="toggleMobileMore()"><span class="nav-icon">•••</span><span>更多</span></button>
+    </nav>
+  `;
+}
+
+function mobileMoreRouteButton(route, label) {
+  return `<button type="button" class="${state.route === route ? "active" : ""}" onclick="setRoute(${jsArg(route)})"><span class="nav-icon">${icon(route)}</span><span>${html(label)}</span></button>`;
+}
+
+function renderMobileMoreSheet() {
+  if (!state.mobileMoreOpen) return "";
+  return `
+    <div class="mobile-sheet-layer mobile-more-layer" onclick="closeMobileMore()">
+      <section class="mobile-sheet mobile-more-sheet" role="dialog" aria-modal="true" aria-label="更多功能" onclick="event.stopPropagation()">
+        <div class="mobile-sheet-handle"></div>
+        <div class="mobile-sheet-head"><div><strong>更多功能</strong><span>${html(state.user?.name || "")} · ${html(state.user?.role || "")}</span></div><button type="button" class="icon-btn" onclick="closeMobileMore()" aria-label="关闭">×</button></div>
+        <div class="mobile-more-grid">
+          ${mobileMoreRouteButton("products", "产品管理")}
+          ${mobileMoreRouteButton("returns", "退货开单")}
+          ${isAdmin() ? mobileMoreRouteButton("users", "人员管理") : ""}
+          ${isAdmin() ? mobileMoreRouteButton("costs", "成本控制") : ""}
+        </div>
+        <button type="button" class="mobile-logout-button" onclick="closeMobileMore();logout()"><span class="nav-icon">退</span><span>退出登录</span></button>
+      </section>
+    </div>
+  `;
+}
+
+function toggleMobileMore() {
+  state.mobileMoreOpen = !state.mobileMoreOpen;
+  state.mobileCartOpen = false;
+  render();
+}
+
+function closeMobileMore() {
+  state.mobileMoreOpen = false;
+  render();
+}
+
+function mobileCartItemCount() {
+  return state.cart.reduce((sum, item) => sum + normalizeQuantity(item.quantity), 0);
+}
+
+function renderMobileCart() {
+  if (!["create", "returns"].includes(state.route)) return "";
+  const itemCount = mobileCartItemCount();
+  return `
+    <div class="mobile-cart-bar">
+      <button type="button" class="mobile-cart-summary" onclick="toggleMobileCart()" aria-label="查看购物车，共 ${itemCount} 件商品">
+        <span class="mobile-cart-icon">${svgIcon("orders")}${itemCount ? `<i>${itemCount}</i>` : ""}</span>
+        <span><small>${state.orderType === "return" ? "退货清单" : "购物车"}</small><strong>${money(cartTotal())}</strong></span>
+      </button>
+      <button type="button" class="mobile-cart-open" onclick="toggleMobileCart()">查看并结算</button>
+    </div>
+    ${state.mobileCartOpen ? `
+      <div class="mobile-sheet-layer mobile-cart-layer" onclick="closeMobileCart()">
+        <section class="mobile-sheet mobile-cart-sheet" role="dialog" aria-modal="true" aria-label="${state.orderType === "return" ? "退货清单" : "购物车"}" onclick="event.stopPropagation()">
+          <div class="mobile-sheet-handle"></div>
+          <div class="mobile-sheet-head"><div><strong>${state.orderType === "return" ? "退货清单" : "购物车"}</strong><span>共 ${itemCount} 件商品</span></div><button type="button" class="icon-btn" onclick="closeMobileCart()" aria-label="关闭">×</button></div>
+          <div class="mobile-cart-lines">${state.cart.length ? state.cart.map(cartLine).join("") : `<div class="empty">还没有选择商品</div>`}</div>
+          <div class="mobile-cart-checkout">
+            <div><span>合计</span><strong>${money(cartTotal())}</strong></div>
+            <button type="button" class="btn primary" onclick="saveOrder()">${state.orderType === "return" ? "生成退货单" : "提交订单"}</button>
+          </div>
+        </section>
+      </div>
+    ` : ""}
+  `;
+}
+
+function toggleMobileCart() {
+  state.mobileCartOpen = !state.mobileCartOpen;
+  state.mobileMoreOpen = false;
+  render();
+}
+
+function closeMobileCart() {
+  state.mobileCartOpen = false;
+  render();
 }
 
 function titleForRoute() {
@@ -3603,14 +3703,16 @@ function renderCreateOrder() {
         <div class="field" style="grid-column:1/-1"><label>订单备注</label><textarea id="orderRemarkInput" class="textarea compact-textarea" placeholder="可填写配送说明、客户要求等" oninput="updateOrderDraftField('remark',this.value)">${html(state.orderRemark)}</textarea></div>
       </div>
     </div>
-    <div class="product-layout">
-      <div>
-        <div class="toolbar filter-toolbar">
-          <input id="orderProductSearchInput" class="input" placeholder="搜索商品名称、规格、编码、别名..." value="${html(state.productQuery)}" oncompositionstart="this.dataset.composing='true'" oncompositionend="this.dataset.composing='false';updateProductQuery(this)" oninput="updateProductQuery(this)" />
-          <button class="btn primary" onclick="openAiOrderModal()">AI 帮我开单</button>
+    <div class="product-layout create-product-layout">
+      <div class="create-product-column">
+        <div class="mobile-product-filters">
+          <div class="toolbar filter-toolbar">
+            <input id="orderProductSearchInput" class="input" placeholder="搜索商品名称、规格、编码、别名..." value="${html(state.productQuery)}" oncompositionstart="this.dataset.composing='true'" oncompositionend="this.dataset.composing='false';updateProductQuery(this)" oninput="updateProductQuery(this)" />
+            <button class="btn primary" onclick="openAiOrderModal()">AI 帮我开单</button>
+          </div>
+          ${categoryTabs()}
+          ${subcategoryTabs()}
         </div>
-        ${categoryTabs()}
-        ${subcategoryTabs()}
         <div id="createProductResults">${createProductResultsHtml(productList, pageData)}</div>
       </div>
       <aside class="card card-pad cart">
@@ -4884,6 +4986,8 @@ function openOrderRoute(type = "sale") {
   restoreCart(nextType);
   state.route = state.orderType === "return" ? "returns" : "create";
   state.modal = null;
+  state.mobileMoreOpen = false;
+  state.mobileCartOpen = false;
   state.query = "";
   if (typeof resetPage === "function") resetPage("createProducts");
   ensureSalesScope();
@@ -4897,6 +5001,8 @@ function setRoute(route) {
   state.route = route;
   state.query = "";
   state.modal = null;
+  state.mobileMoreOpen = false;
+  state.mobileCartOpen = false;
   if (route === "returns") state.orderType = "return";
   if (route === "create") state.orderType = "sale";
   if (state.orderType !== previousType) restoreCart(state.orderType);
@@ -4923,13 +5029,14 @@ function orderBadgeClass(status) {
 }
 
 function orderActionButton(title, type, action, orderId) {
-  return `<button type="button" class="icon-btn order-tool-button" title="${html(title)}" aria-label="${html(title)}" onclick="handleOrderAction(${jsArg(action)}, ${jsArg(orderId)})">${svgIcon(type)}</button>`;
+  return `<button type="button" class="icon-btn order-tool-button order-action-${html(action)}" title="${html(title)}" aria-label="${html(title)}" onclick="handleOrderAction(${jsArg(action)}, ${jsArg(orderId)})">${svgIcon(type)}</button>`;
 }
 
 function orderMoreMenu(orderId) {
   return `<div class="order-more-menu order-popover-menu">
     <button type="button" class="icon-btn order-tool-button order-more-trigger" title="更多操作" aria-label="更多操作" onpointerdown="event.stopPropagation();this.parentElement.toggleAttribute('open')">${svgIcon("more")}</button>
     <div class="order-more-dropdown">
+      <button type="button" class="mobile-only-order-action" onclick="handleOrderAction('edit',${jsArg(orderId)})"><span>${svgIcon("edit")}</span>编辑订单</button>
       <button type="button" onclick="repeatOrder(${jsArg(orderId)})"><span>${svgIcon("copy")}</span>再来一单</button>
       <button type="button" onclick="openModal('delivery',${jsArg(orderId)})"><span>${svgIcon("truck")}</span>开送货单</button>
       ${isAdmin() ? `<button type="button" class="danger" onclick="deleteOrder(${jsArg(orderId)})"><span>${svgIcon("delete")}</span>删除订单</button>` : ""}
@@ -5358,8 +5465,9 @@ function assistantMessageHtml(message, index) {
 function renderXiaocai() {
   if (!state.user) return "";
   const sideClass = state.assistantSide === "left" ? "is-left" : "is-right";
+  const cartClass = ["create", "returns"].includes(state.route) ? "has-mobile-cart" : "";
   return `
-    <div class="xiaocai-assistant ${sideClass} ${state.assistantOpen ? "is-open" : ""}">
+    <div class="xiaocai-assistant ${sideClass} ${cartClass} ${state.assistantOpen ? "is-open" : ""}">
       ${state.assistantOpen ? `
         <section class="xiaocai-panel" aria-label="小材 AI 业务助手">
           <header class="xiaocai-head">
