@@ -2394,8 +2394,8 @@ tbody tr:hover {
   bottom: 88px;
   display: grid;
   grid-template-rows: auto minmax(0, 1fr) auto;
-  width: min(408px, calc(100vw - 32px));
-  height: min(640px, 72vh);
+  width: min(480px, calc(100vw - 32px));
+  height: min(700px, 78vh);
   overflow: hidden;
   border: 1px solid #d7e1f1;
   border-radius: 8px;
@@ -2454,6 +2454,23 @@ tbody tr:hover {
 
 .xiaocai-head-actions { display: flex; gap: 6px; }
 .xiaocai-head-actions .icon-btn { width: 36px; height: 36px; }
+
+.xiaocai-new-chat {
+  min-height: 36px;
+  padding: 0 10px;
+  border: 1px solid #cfdaeb;
+  border-radius: 6px;
+  background: #fff;
+  color: #34537f;
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.xiaocai-new-chat:hover {
+  border-color: #7ca0ea;
+  background: #eef4ff;
+}
 
 .xiaocai-messages {
   min-height: 0;
@@ -2574,6 +2591,79 @@ tbody tr:hover {
   background: #2f61d5;
   color: #fff;
 }
+
+.xiaocai-markdown {
+  width: 100%;
+}
+
+.xiaocai-markdown p,
+.xiaocai-markdown h3,
+.xiaocai-markdown h4,
+.xiaocai-markdown ul,
+.xiaocai-markdown ol,
+.xiaocai-markdown pre {
+  margin: 0 0 8px;
+}
+
+.xiaocai-markdown > :last-child { margin-bottom: 0; }
+.xiaocai-markdown h3 { color: #182b49; font-size: 16px; line-height: 1.4; }
+.xiaocai-markdown h4 { color: #213858; font-size: 14px; line-height: 1.4; }
+.xiaocai-markdown ul,
+.xiaocai-markdown ol { padding-left: 20px; }
+.xiaocai-markdown li + li { margin-top: 4px; }
+.xiaocai-markdown a { color: #245dca; text-decoration: underline; text-underline-offset: 2px; }
+.xiaocai-markdown code {
+  padding: 2px 5px;
+  border-radius: 4px;
+  background: #edf1f7;
+  color: #9b2c4b;
+  font-family: Consolas, "Courier New", monospace;
+  font-size: .9em;
+}
+
+.xiaocai-markdown pre {
+  max-width: 100%;
+  padding: 10px;
+  overflow-x: auto;
+  border-radius: 6px;
+  background: #172033;
+}
+
+.xiaocai-markdown pre code {
+  padding: 0;
+  background: transparent;
+  color: #edf3ff;
+}
+
+.xiaocai-markdown-gap { height: 4px; }
+
+.xiaocai-sources {
+  display: grid;
+  gap: 6px;
+  padding: 10px;
+  border: 1px solid #dce5f2;
+  border-radius: 6px;
+  background: #fff;
+}
+
+.xiaocai-sources > b {
+  color: #455a79;
+  font-size: 11px;
+}
+
+.xiaocai-sources a {
+  display: grid;
+  gap: 2px;
+  padding: 7px 8px;
+  border-radius: 5px;
+  background: #f5f8fd;
+  color: #294f93;
+  text-decoration: none;
+}
+
+.xiaocai-sources a:hover { background: #edf3ff; }
+.xiaocai-sources strong { font-size: 12px; line-height: 1.4; }
+.xiaocai-sources span { color: #78869b; font-size: 10px; }
 
 .xiaocai-metrics {
   display: grid;

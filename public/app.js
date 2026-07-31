@@ -44,6 +44,7 @@ const state = {
   assistantLoading: false,
   assistantError: "",
   assistantLastQuestion: "",
+  assistantStage: "正在理解问题",
   costOrders: [],
   costLoading: false,
   costLoaded: false,
@@ -5164,16 +5165,15 @@ function assistantScopeText() {
 
 function assistantWelcomeHtml() {
   const prompts = [
-    "查询今日销售情况",
     "查询本月销售情况",
-    "查看待回款订单",
-    "查看本月热销商品",
-    "查询客户最近购买",
+    "分析本月热销商品和客户",
+    "解释乳胶漆施工的注意事项",
+    "搜索最新建材行业政策",
   ];
   return `
     <div class="xiaocai-welcome">
       <img src="./assets/xiaocai.png" alt="" />
-      <div><strong>你好，我是小材</strong><p>我可以帮你查询客户、商品、订单、回款和销售情况。</p></div>
+      <div><strong>你好，我是小材</strong><p>我可以和你自然对话，也能结合权限内的业务数据与公开网络资料回答问题。</p></div>
     </div>
     <div class="xiaocai-scope">${svgIcon("view")}<span>${html(assistantScopeText())}</span></div>
     <div class="xiaocai-quick-grid">${prompts.map((prompt) => `<button type="button" onclick="sendXiaocai(${jsArg(prompt)})">${html(prompt)}</button>`).join("")}</div>
@@ -5199,14 +5199,107 @@ function assistantBlockHtml(block) {
   return "";
 }
 
+function assistantSafeExternalUrl(value) {
+  try {
+    const url = new URL(String(value || ""));
+    return url.protocol === "https:" || url.protocol === "http:" ? url.href : "";
+  } catch (_) {
+    return "";
+  }
+}
+
+function assistantInlineMarkdown(value) {
+  const links = [];
+  const withTokens = String(value || "").replace(/\[([^\]]{1,120})\]\((https?:\/\/[^)\s]+)\)/g, (_, label, url) => {
+    const safeUrl = assistantSafeExternalUrl(url);
+    if (!safeUrl) return label;
+    const token = `ASSISTANTLINK${links.length}TOKEN`;
+    links.push(`<a href="${html(safeUrl)}" target="_blank" rel="noopener noreferrer">${html(label)}</a>`);
+    return token;
+  });
+  let output = html(withTokens)
+    .replace(/`([^`\n]+)`/g, "<code>$1</code>")
+    .replace(/\*\*([^*\n]+)\*\*/g, "<strong>$1</strong>");
+  links.forEach((link, index) => {
+    output = output.replace(`ASSISTANTLINK${index}TOKEN`, link);
+  });
+  return output;
+}
+
+function assistantMarkdownHtml(value) {
+  const lines = String(value || "").replace(/\r/g, "").split("\n");
+  const output = [];
+  let listType = "";
+  let inCode = false;
+  const codeLines = [];
+  const closeList = () => {
+    if (!listType) return;
+    output.push(`</${listType}>`);
+    listType = "";
+  };
+  lines.forEach((line) => {
+    if (/^```/.test(line.trim())) {
+      closeList();
+      if (inCode) {
+        output.push(`<pre><code>${html(codeLines.join("\n"))}</code></pre>`);
+        codeLines.length = 0;
+      }
+      inCode = !inCode;
+      return;
+    }
+    if (inCode) {
+      codeLines.push(line);
+      return;
+    }
+    const heading = line.match(/^(#{1,3})\s+(.+)$/);
+    if (heading) {
+      closeList();
+      output.push(`<h${Math.min(4, heading[1].length + 2)}>${assistantInlineMarkdown(heading[2])}</h${Math.min(4, heading[1].length + 2)}>`);
+      return;
+    }
+    const bullet = line.match(/^\s*[-*]\s+(.+)$/);
+    const ordered = line.match(/^\s*\d+[.)]\s+(.+)$/);
+    if (bullet || ordered) {
+      const nextType = ordered ? "ol" : "ul";
+      if (listType !== nextType) {
+        closeList();
+        listType = nextType;
+        output.push(`<${listType}>`);
+      }
+      output.push(`<li>${assistantInlineMarkdown((bullet || ordered)[1])}</li>`);
+      return;
+    }
+    closeList();
+    if (!line.trim()) {
+      output.push('<div class="xiaocai-markdown-gap"></div>');
+      return;
+    }
+    output.push(`<p>${assistantInlineMarkdown(line)}</p>`);
+  });
+  closeList();
+  if (inCode) output.push(`<pre><code>${html(codeLines.join("\n"))}</code></pre>`);
+  return output.join("");
+}
+
+function assistantSourcesHtml(sources) {
+  const safeSources = (sources || []).map((source) => {
+    const url = assistantSafeExternalUrl(source.url);
+    if (!url) return "";
+    return `<a href="${html(url)}" target="_blank" rel="noopener noreferrer"><strong>${html(source.title || source.source || "网页来源")}</strong><span>${html(source.source || "")}${source.publishedAt ? ` · ${html(source.publishedAt)}` : ""}</span></a>`;
+  }).filter(Boolean);
+  if (!safeSources.length) return "";
+  return `<div class="xiaocai-sources"><b>公开网络来源</b>${safeSources.join("")}</div>`;
+}
+
 function assistantMessageHtml(message, index) {
   const isUser = message.role === "user";
   return `
     <div class="xiaocai-message ${isUser ? "is-user" : "is-assistant"}">
       ${isUser ? "" : `<img class="xiaocai-message-avatar" src="./assets/xiaocai.png" alt="小材" />`}
       <div class="xiaocai-message-content">
-        <div class="xiaocai-bubble">${html(message.content || "").replace(/\n/g, "<br />")}</div>
+        <div class="xiaocai-bubble ${isUser ? "" : "xiaocai-markdown"}">${isUser ? html(message.content || "").replace(/\n/g, "<br />") : assistantMarkdownHtml(message.content || "")}</div>
         ${isUser ? "" : (message.blocks || []).map(assistantBlockHtml).join("")}
+        ${isUser ? "" : assistantSourcesHtml(message.sources)}
         ${isUser ? "" : `<div class="xiaocai-message-actions">
           ${(message.links || []).map((link) => `<button type="button" onclick="openXiaocaiRoute(${jsArg(link.route)})">${html(link.label)}</button>`).join("")}
           ${(message.followUps || []).map((prompt) => `<button type="button" onclick="sendXiaocai(${jsArg(prompt)})">${html(prompt)}</button>`).join("")}
@@ -5226,18 +5319,19 @@ function renderXiaocai() {
           <header class="xiaocai-head">
             <div class="xiaocai-identity"><img src="./assets/xiaocai.png" alt="" /><div><strong>小材</strong><span><i></i>AI 业务助手</span></div></div>
             <div class="xiaocai-head-actions">
+              <button type="button" class="xiaocai-new-chat" title="开始新对话" onclick="newXiaocaiConversation()">新对话</button>
               <button type="button" class="icon-btn" title="清空聊天记录" aria-label="清空聊天记录" onclick="clearXiaocaiHistory()">${svgIcon("delete")}</button>
               <button type="button" class="icon-btn" title="收起小材" aria-label="收起小材" onclick="toggleXiaocai()">${svgIcon("close")}</button>
             </div>
           </header>
           <div id="xiaocaiMessages" class="xiaocai-messages">
             ${state.assistantMessages.length ? state.assistantMessages.map(assistantMessageHtml).join("") : assistantWelcomeHtml()}
-            ${state.assistantLoading ? `<div class="xiaocai-message is-assistant"><img class="xiaocai-message-avatar" src="./assets/xiaocai.png" alt="" /><div class="xiaocai-thinking"><span></span><span></span><span></span><em id="xiaocaiStage">正在理解问题</em></div></div>` : ""}
+            ${state.assistantLoading && !state.assistantMessages.some((item) => item.streaming && item.content) ? `<div class="xiaocai-message is-assistant"><img class="xiaocai-message-avatar" src="./assets/xiaocai.png" alt="" /><div class="xiaocai-thinking"><span></span><span></span><span></span><em id="xiaocaiStage">${html(state.assistantStage)}</em></div></div>` : ""}
             ${state.assistantError ? `<div class="xiaocai-error"><span>${html(state.assistantError)}</span><button type="button" onclick="retryXiaocai()">重试</button></div>` : ""}
           </div>
           <footer class="xiaocai-compose">
-            <textarea id="xiaocaiInput" maxlength="500" placeholder="问小材：钱勇最近买过什么？" oncompositionstart="this.dataset.composing='true'" oncompositionend="this.dataset.composing='false'" onkeydown="handleXiaocaiKey(event)"></textarea>
-            <div><span>小材只读取你有权限的数据</span>${state.assistantLoading ? `<button type="button" class="xiaocai-stop" onclick="stopXiaocai()">停止</button>` : `<button type="button" class="xiaocai-send" title="发送" aria-label="发送" onclick="sendXiaocai()">${svgIcon("arrowRight")}</button>`}</div>
+            <textarea id="xiaocaiInput" maxlength="2000" placeholder="问小材：可以聊通用知识，也可以查询系统数据或最新公开信息" oncompositionstart="this.dataset.composing='true'" oncompositionend="this.dataset.composing='false'" onkeydown="handleXiaocaiKey(event)"></textarea>
+            <div><span>只读访问权限内数据 · 联网内容会显示来源</span>${state.assistantLoading ? `<button type="button" class="xiaocai-stop" onclick="stopXiaocai()">停止</button>` : `<button type="button" class="xiaocai-send" title="发送" aria-label="发送" onclick="sendXiaocai()">${svgIcon("arrowRight")}</button>`}</div>
           </footer>
         </section>
       ` : ""}
@@ -5291,13 +5385,59 @@ function handleXiaocaiKey(event) {
 
 function startAssistantStages() {
   clearInterval(assistantStageTimer);
-  const stages = ["正在理解问题", "正在查询业务数据", "正在整理答案"];
-  let index = 0;
-  assistantStageTimer = setInterval(() => {
-    index = Math.min(index + 1, stages.length - 1);
+  state.assistantStage = "正在理解问题";
+}
+
+function handleXiaocaiStreamEvent(eventName, payload, streamingMessage) {
+  if (eventName === "stage") {
+    state.assistantStage = String(payload.label || "正在处理");
     const stage = document.getElementById("xiaocaiStage");
-    if (stage) stage.textContent = stages[index];
-  }, 1800);
+    if (stage) stage.textContent = state.assistantStage;
+    return;
+  }
+  if (eventName === "delta") {
+    streamingMessage.content += String(payload.content || "");
+    render();
+    scrollXiaocaiToBottom();
+    return;
+  }
+  if (eventName === "block") {
+    streamingMessage.blocks.push(payload);
+    render();
+    scrollXiaocaiToBottom();
+    return;
+  }
+  if (eventName === "sources") {
+    streamingMessage.sources = Array.isArray(payload.items) ? payload.items : [];
+    render();
+    scrollXiaocaiToBottom();
+    return;
+  }
+  if (eventName === "done" && payload.message) {
+    Object.assign(streamingMessage, payload.message, { streaming: false });
+    render();
+    scrollXiaocaiToBottom();
+    return;
+  }
+  if (eventName === "error") throw new Error(payload.message || "小材暂时无法回答");
+}
+
+function parseXiaocaiEventPacket(packet, streamingMessage) {
+  const lines = String(packet || "").split(/\r?\n/);
+  let eventName = "message";
+  const dataLines = [];
+  lines.forEach((line) => {
+    if (line.startsWith("event:")) eventName = line.slice(6).trim();
+    if (line.startsWith("data:")) dataLines.push(line.slice(5).trim());
+  });
+  if (!dataLines.length) return;
+  let payload;
+  try {
+    payload = JSON.parse(dataLines.join("\n"));
+  } catch (_) {
+    return;
+  }
+  handleXiaocaiStreamEvent(eventName, payload, streamingMessage);
 }
 
 async function sendXiaocai(prompt = "") {
@@ -5310,23 +5450,52 @@ async function sendXiaocai(prompt = "") {
   state.assistantError = "";
   state.assistantLoading = true;
   state.assistantMessages.push({ id: `local-${Date.now()}`, role: "user", content: message, createdAt: new Date().toISOString() });
+  const streamingMessage = {
+    id: `stream-${Date.now()}`,
+    role: "assistant",
+    content: "",
+    blocks: [],
+    sources: [],
+    streaming: true,
+    createdAt: new Date().toISOString(),
+  };
+  state.assistantMessages.push(streamingMessage);
   render();
   scrollXiaocaiToBottom();
   startAssistantStages();
   assistantAbortController = new AbortController();
   try {
-    const response = await fetch("/api/assistant/chat", {
+    const response = await fetch("/api/assistant/chat/stream", {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ message }),
       signal: assistantAbortController.signal,
     });
-    const data = await response.json();
-    if (!response.ok) throw new Error(data.error || "小材暂时无法回答");
-    state.assistantMessages.push(data);
+    if (!response.ok) {
+      const data = await response.json().catch(() => ({}));
+      throw new Error(data.error || "小材暂时无法回答");
+    }
+    if (!response.body || !response.body.getReader) throw new Error("当前浏览器不支持流式对话");
+    const reader = response.body.getReader();
+    const decoder = new TextDecoder("utf-8");
+    let buffer = "";
+    while (true) {
+      const result = await reader.read();
+      buffer += decoder.decode(result.value || new Uint8Array(), { stream: !result.done });
+      const packets = buffer.split(/\r?\n\r?\n/);
+      buffer = packets.pop() || "";
+      packets.forEach((packet) => parseXiaocaiEventPacket(packet, streamingMessage));
+      if (result.done) break;
+    }
+    if (buffer.trim()) parseXiaocaiEventPacket(buffer, streamingMessage);
+    streamingMessage.streaming = false;
     state.assistantLoaded = true;
   } catch (error) {
-    state.assistantError = error.name === "AbortError" ? "已停止本次查询" : error.message;
+    streamingMessage.streaming = false;
+    if (!streamingMessage.content && !(streamingMessage.blocks || []).length) {
+      state.assistantMessages = state.assistantMessages.filter((item) => item !== streamingMessage);
+    }
+    state.assistantError = error.name === "AbortError" ? "已停止本次回答" : error.message;
   } finally {
     clearInterval(assistantStageTimer);
     assistantAbortController = null;
@@ -5343,25 +5512,38 @@ function stopXiaocai() {
 function retryXiaocai() {
   const question = state.assistantLastQuestion;
   const last = state.assistantMessages[state.assistantMessages.length - 1];
-  if (last?.role === "user" && last.content === question) state.assistantMessages.pop();
+  if (last?.role === "assistant" && String(last.id || "").startsWith("stream-")) state.assistantMessages.pop();
+  const previous = state.assistantMessages[state.assistantMessages.length - 1];
+  if (previous?.role === "user" && previous.content === question) state.assistantMessages.pop();
   state.assistantError = "";
   sendXiaocai(question);
 }
 
-async function clearXiaocaiHistory() {
-  if (!confirm("确定清空当前账号最近 30 天的小材聊天记录吗？")) return;
+async function resetXiaocaiConversation(confirmMessage) {
+  if (state.assistantLoading) return;
+  if (confirmMessage && !confirm(confirmMessage)) return;
   try {
     const response = await fetch("/api/assistant/history", { method: "DELETE" });
     const data = await response.json();
-    if (!response.ok) throw new Error(data.error || "清空失败");
+    if (!response.ok) throw new Error(data.error || "新对话创建失败");
     state.assistantMessages = [];
     state.assistantError = "";
+    state.assistantLastQuestion = "";
     state.assistantLoaded = true;
     render();
+    requestAnimationFrame(() => document.getElementById("xiaocaiInput")?.focus());
   } catch (error) {
     state.assistantError = error.message;
     render();
   }
+}
+
+function newXiaocaiConversation() {
+  resetXiaocaiConversation(state.assistantMessages.length ? "开始新对话后，当前对话内容将被清空。确定继续吗？" : "");
+}
+
+async function clearXiaocaiHistory() {
+  resetXiaocaiConversation("确定清空当前账号最近 30 天的小材聊天记录吗？");
 }
 
 function openXiaocaiRoute(route) {

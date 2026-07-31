@@ -44,3 +44,41 @@ sudo systemctl restart building-sales-system
 
 Do not commit API keys to GitHub.
 
+## Xiaocai Conversational Assistant
+
+The "小材" panel uses the same DeepSeek API key and supports:
+
+- General-knowledge conversation.
+- Read-only business tools with server-enforced user permissions.
+- Multi-turn conversation history.
+- Optional public web search with visible sources.
+- `deepseek-v4-flash` for normal questions and `deepseek-v4-pro` for complex analysis or web research.
+
+Recommended server environment:
+
+```ini
+[Service]
+Environment=DEEPSEEK_API_KEY=your_deepseek_api_key
+Environment=DEEPSEEK_FAST_MODEL=deepseek-v4-flash
+Environment=DEEPSEEK_SMART_MODEL=deepseek-v4-pro
+```
+
+Web search is optional. Without these variables, Xiaocai still provides general knowledge and business-data answers, but explicitly reports that current web information cannot be verified.
+
+Supported adapters:
+
+```ini
+Environment=WEB_SEARCH_PROVIDER=bocha
+Environment=WEB_SEARCH_API_KEY=your_search_api_key
+Environment=WEB_SEARCH_TIMEOUT_MS=12000
+```
+
+or:
+
+```ini
+Environment=WEB_SEARCH_PROVIDER=tavily
+Environment=WEB_SEARCH_API_KEY=your_search_api_key
+Environment=WEB_SEARCH_TIMEOUT_MS=12000
+```
+
+`WEB_SEARCH_ENDPOINT` can override the provider endpoint when necessary. It must be a public HTTPS URL. Never put any API key in source code or Git.
