@@ -23,6 +23,11 @@ const state = {
   aiGroups: [],
   aiActiveGroupId: "",
   aiActiveResultKey: "",
+  aiDraftDirty: false,
+  aiSourceDirty: false,
+  aiSourceEditorOpen: false,
+  aiDraftCustomerId: "",
+  aiDraftOrderType: "",
   aiLearnPairs: [],
   loginPasswordVisible: false,
   editProductQuery: "",
@@ -554,6 +559,15 @@ async function logout() {
     state.costExpandedOrderId = "";
     state.mobileMoreOpen = false;
     state.mobileCartOpen = false;
+    state.aiDraft = null;
+    state.aiGroups = [];
+    state.aiActiveGroupId = "";
+    state.aiActiveResultKey = "";
+    state.aiDraftDirty = false;
+    state.aiSourceDirty = false;
+    state.aiSourceEditorOpen = false;
+    state.aiDraftCustomerId = "";
+    state.aiDraftOrderType = "";
     render();
   }
 }
@@ -878,13 +892,21 @@ function signedOrderPrice(item, price) {
 }
 
 function openAiOrderModal() {
-  state.aiDraft = null;
   state.aiLoading = false;
-  state.aiError = "";
-  state.aiText = "";
-  state.aiGroups = [{ id: `ai-${Date.now()}`, cat1: "", cat2: "", content: "" }];
-  state.aiActiveGroupId = state.aiGroups[0].id;
-  state.aiActiveResultKey = "";
+  const aiSessionChanged = state.aiDraftCustomerId !== state.selectedCustomerId || state.aiDraftOrderType !== state.orderType;
+  if (!state.aiGroups.length || aiSessionChanged) {
+    state.aiDraft = null;
+    state.aiDraftDirty = false;
+    state.aiSourceDirty = false;
+    state.aiSourceEditorOpen = false;
+    state.aiError = "";
+    state.aiText = "";
+    state.aiGroups = [{ id: `ai-${Date.now()}`, cat1: "", cat2: "", content: "" }];
+    state.aiActiveGroupId = state.aiGroups[0].id;
+    state.aiActiveResultKey = "";
+    state.aiDraftCustomerId = state.selectedCustomerId;
+    state.aiDraftOrderType = state.orderType;
+  }
   state.modal = { type: "aiOrder" };
   render();
 }
@@ -893,7 +915,7 @@ function addAiGroup() {
   const group = { id: `ai-${Date.now()}`, cat1: "", cat2: "", content: "" };
   state.aiGroups.push(group);
   state.aiActiveGroupId = group.id;
-  state.aiDraft = null;
+  state.aiSourceDirty = true;
   render();
 }
 
@@ -901,7 +923,7 @@ function removeAiGroup(groupId) {
   if (state.aiGroups.length === 1) return;
   state.aiGroups = state.aiGroups.filter((group) => group.id !== groupId);
   if (!state.aiGroups.some((group) => group.id === state.aiActiveGroupId)) state.aiActiveGroupId = state.aiGroups[0].id;
-  state.aiDraft = null;
+  state.aiSourceDirty = true;
   render();
 }
 
@@ -910,7 +932,7 @@ function setAiGroupCategory(groupId, cat1) {
   if (!group) return;
   group.cat1 = cat1;
   group.cat2 = "";
-  state.aiDraft = null;
+  state.aiSourceDirty = true;
   render();
 }
 
@@ -918,15 +940,25 @@ function setAiGroupSubcategory(groupId, cat2) {
   const group = state.aiGroups.find((item) => item.id === groupId);
   if (!group) return;
   group.cat2 = cat2;
-  state.aiDraft = null;
+  state.aiSourceDirty = true;
   render();
 }
 
 function updateAiGroupText(groupId, value) {
   const group = state.aiGroups.find((item) => item.id === groupId);
   if (group) group.content = value;
-  state.aiDraft = null;
+  state.aiSourceDirty = true;
   state.aiError = "";
+}
+
+function setAiActiveGroup(groupId) {
+  if (!state.aiGroups.some((group) => group.id === groupId)) return;
+  state.aiActiveGroupId = groupId;
+  render();
+}
+
+function setAiSourceEditorOpen(open) {
+  state.aiSourceEditorOpen = Boolean(open);
 }
 
 async function analyzeAiOrder() {
@@ -934,6 +966,9 @@ async function analyzeAiOrder() {
   if (!validGroups.length || validGroups.length !== state.aiGroups.length) {
     state.aiError = "每个材料窗口都需要选择一级分类并填写材料内容。请逐个检查上方标签。";
     render();
+    return;
+  }
+  if (state.aiDraft && state.aiDraftDirty && !confirm("重新识别会重新生成全部匹配结果，并清除你刚才更换商品、修改数量或删除商品等人工调整。确定继续吗？")) {
     return;
   }
   state.aiLoading = true;
@@ -960,6 +995,10 @@ async function analyzeAiOrder() {
       .reduce((sum, list) => sum + (Array.isArray(list) ? list.length : 0), 0);
     if (!resultCount) throw new Error("AI没有返回任何材料，请检查输入内容后重试");
     state.aiDraft = data;
+    state.aiDraftDirty = false;
+    state.aiSourceDirty = false;
+    state.aiDraftCustomerId = state.selectedCustomerId;
+    state.aiDraftOrderType = state.orderType;
     const draftItems = aiDraftItems(data);
     const firstIssue = draftItems.find((item) => item.status !== "confirmed");
     state.aiActiveResultKey = (firstIssue || draftItems[0] || {}).key || "";
@@ -996,6 +1035,65 @@ function rememberAiChoice(rawName, productId, learnAlias = false) {
   state.aiLearnPairs.push({ rawName, productId, learnAlias: Boolean(learnAlias) });
 }
 
+function aiDraftEntryKey(item, type, index) {
+  return String(item.lineKey || `${item.groupId || type}-${type}-${index}`);
+}
+
+function findAiDraftEntry(key, draft = state.aiDraft) {
+  if (!draft) return null;
+  const lists = [
+    ["matched", "matched"],
+    ["needsQuantity", "needsQuantity"],
+    ["uncertain", "uncertain"],
+    ["unmatched", "unmatched"],
+  ];
+  for (const [listName, type] of lists) {
+    const list = Array.isArray(draft[listName]) ? draft[listName] : [];
+    for (let index = 0; index < list.length; index += 1) {
+      if (aiDraftEntryKey(list[index], type, index) === String(key)) {
+        return { item: list[index], list, listName, type, index };
+      }
+    }
+  }
+  return null;
+}
+
+function markAiDraftModified() {
+  state.aiDraftDirty = true;
+}
+
+function updateAiDraftQuantity(key, value) {
+  const entry = findAiDraftEntry(key);
+  if (!entry) return;
+  entry.item.quantity = value;
+  markAiDraftModified();
+}
+
+function persistAiDraftProductSelection(key, productId) {
+  const entry = findAiDraftEntry(key);
+  const product = byId(products, productId);
+  if (!entry || !product) return null;
+  entry.item.selectedProductId = product.id;
+  entry.item.productId = product.id;
+  entry.item.name = product.name;
+  entry.item.spec = product.spec;
+  entry.item.unit = product.unit;
+  entry.item.price = product.price;
+  entry.item.cat1 = product.cat1;
+  entry.item.cat2 = product.cat2;
+  entry.item.imageUrl = product.imageUrl || "";
+  entry.item.recommendation = "销售已人工选择";
+  markAiDraftModified();
+  return entry.item;
+}
+
+function setAiAliasConsent(input) {
+  const entry = findAiDraftEntry(input?.dataset?.aiLearnAlias || "");
+  if (!entry) return;
+  entry.item.learnAlias = Boolean(input.checked);
+  markAiDraftModified();
+}
+
 function normalizeAiAliasText(value) {
   return String(value || "").toLowerCase().replace(/[\s，,。；;、（）()\[\]【】_-]+/g, "");
 }
@@ -1016,22 +1114,29 @@ function aiAliasCheckbox(key) {
 
 function renderAiAliasConsent(key, rawName, productId = "") {
   if (!isAdmin()) return "";
-  const visible = productId && shouldOfferAiAlias(rawName, productId);
+  const entry = findAiDraftEntry(key);
+  const selectedProductId = productId || entry?.item?.selectedProductId || entry?.item?.productId || "";
+  const visible = selectedProductId && shouldOfferAiAlias(rawName, selectedProductId);
   return `<label class="ai-alias-consent ${visible ? "" : "is-hidden"}" data-ai-alias-wrap="${html(key)}">
-    <input type="checkbox" data-ai-learn-alias="${html(key)}" />
+    <input type="checkbox" data-ai-learn-alias="${html(key)}" ${entry?.item?.learnAlias ? "checked" : ""} onchange="setAiAliasConsent(this)" />
     <span>将“${html(rawName || "该叫法")}”加入所选商品的别名 / 关键词库</span>
   </label>`;
 }
 
 function selectAiCandidateChoice(input) {
   const key = input.dataset.aiCandidateGroup || "";
+  persistAiDraftProductSelection(key, input.value);
   const wrap = [...document.querySelectorAll("[data-ai-alias-wrap]")]
     .find((element) => element.dataset.aiAliasWrap === key);
   const checkbox = aiAliasCheckbox(key);
   if (wrap && checkbox) {
     const visible = shouldOfferAiAlias(input.dataset.aiRawName, input.value);
     wrap.classList.toggle("is-hidden", !visible);
-    if (!visible) checkbox.checked = false;
+    if (!visible) {
+      checkbox.checked = false;
+      const entry = findAiDraftEntry(key);
+      if (entry) entry.item.learnAlias = false;
+    }
   }
   const matchedPicker = input.closest("[data-ai-matched-line]")?.querySelector(".ai-matched-picker");
   const summary = matchedPicker?.querySelector(":scope > summary");
@@ -1086,6 +1191,7 @@ function refreshAiStatusCounts() {
 function updateAiNavQuantity(input) {
   setQuantityInputValidity(input);
   const key = input.dataset.aiNavQuantity || input.dataset.aiLineKey || input.dataset.aiCandidateQuantity || "";
+  updateAiDraftQuantity(key, input.value);
   const navItem = [...document.querySelectorAll("[data-ai-nav-key]")]
     .find((element) => element.dataset.aiNavKey === String(key));
   const quantity = navItem?.querySelector("[data-ai-nav-quantity-value]");
@@ -1125,10 +1231,10 @@ function aiCandidateFromProduct(product) {
   };
 }
 
-function aiCandidateOption(product, key, rawName, orderIndex = "") {
+function aiCandidateOption(product, key, rawName, orderIndex = "", selectedProductId = "") {
   const reason = product.recommendation ? `<small class="ai-recommendation">${html(product.recommendation)}</small>` : "";
   return `<label class="ai-candidate-option">
-    <input type="radio" name="ai-candidate-${html(key)}" value="${html(product.productId)}" data-ai-candidate-product data-ai-candidate-group="${html(key)}" data-ai-order-index="${html(orderIndex)}" data-ai-raw-name="${html(rawName || "")}" data-ai-product-name="${html(product.name || "")}" onchange="selectAiCandidateChoice(this)" />
+    <input type="radio" name="ai-candidate-${html(key)}" value="${html(product.productId)}" ${String(selectedProductId || "") === String(product.productId || "") ? "checked" : ""} data-ai-candidate-product data-ai-candidate-group="${html(key)}" data-ai-order-index="${html(orderIndex)}" data-ai-raw-name="${html(rawName || "")}" data-ai-product-name="${html(product.name || "")}" onchange="selectAiCandidateChoice(this)" />
     ${product.imageUrl ? `<img class="ai-candidate-thumb" src="${html(product.imageUrl)}" alt="" loading="lazy" />` : ""}
     <span><strong>${html(product.name)}</strong><small>${html(product.spec || "无规格")} · ${html(product.unit || "-")} · ${html(product.cat1 || "-")}${product.cat2 ? " / " + html(product.cat2) : ""}</small>${reason}</span>
     <b>${money(product.price)}</b>
@@ -1195,36 +1301,25 @@ function updateAiManualSearch(input, key, rawName, cat1, cat2, orderIndex = "") 
   const results = [...document.querySelectorAll("[data-ai-manual-results]")]
     .find((element) => element.dataset.aiManualResults === String(key));
   if (results) {
+    const selectedProductId = findAiDraftEntry(key)?.item?.selectedProductId || "";
     results.innerHTML = candidates.length
-      ? candidates.map((product) => aiCandidateOption(product, key, rawName, orderIndex)).join("")
+      ? candidates.map((product) => aiCandidateOption(product, key, rawName, orderIndex, selectedProductId)).join("")
       : `<div class="ai-manual-empty">当前搜索范围没有找到商品，请更换关键词、分类或选择“全部商品”。</div>`;
   }
 }
 
 function applyAiDraft() {
   if (!state.aiDraft) return;
-  const entries = [];
-  document.querySelectorAll("[data-ai-matched-line]").forEach((line) => {
-    const replacement = line.querySelector("[data-ai-candidate-product]:checked");
-    const quantityInput = line.querySelector("[data-ai-matched-quantity]");
-    entries.push({
-      orderIndex: Number(line.dataset.aiOrderIndex || 0),
-      productId: replacement?.value || line.dataset.aiProductId,
-      quantity: quantityInput?.value || "",
-      rawName: line.dataset.aiRawName || "",
-      lineKey: line.dataset.aiLineKey || "",
-    });
-  });
-  document.querySelectorAll("[data-ai-quantity-product]").forEach((input) => {
-    entries.push({ orderIndex: Number(input.dataset.aiOrderIndex || 0), productId: input.dataset.aiQuantityProduct, quantity: input.value, rawName: input.dataset.aiRawName, lineKey: input.dataset.aiLineKey });
-  });
-  document.querySelectorAll("[data-ai-candidate-product]:checked").forEach((input) => {
-    if (input.closest("[data-ai-matched-line]")) return;
-    const key = input.dataset.aiCandidateGroup;
-    const quantityInput = [...document.querySelectorAll("[data-ai-candidate-quantity]")]
-      .find((element) => element.dataset.aiCandidateQuantity === key);
-    entries.push({ orderIndex: Number(input.dataset.aiOrderIndex || 0), productId: input.value, quantity: quantityInput ? quantityInput.value : "", rawName: input.dataset.aiRawName, lineKey: key });
-  });
+  const entries = aiDraftItems(state.aiDraft)
+    .map((item) => ({
+      orderIndex: Number(item.orderIndex || 0),
+      productId: item.selectedProductId || ((item.aiType === "matched" || item.aiType === "needsQuantity") ? item.productId : ""),
+      quantity: item.quantity || "",
+      rawName: item.rawName || "",
+      lineKey: item.key,
+      learnAlias: Boolean(item.learnAlias),
+    }))
+    .filter((entry) => entry.productId);
   const invalidEntries = entries.filter((entry) => !isPositiveInteger(entry.quantity));
   if (invalidEntries.length) {
     document.querySelectorAll("[data-ai-matched-quantity], [data-ai-quantity-product], [data-ai-candidate-quantity]").forEach((input) => {
@@ -1240,8 +1335,7 @@ function applyAiDraft() {
     return;
   }
   entries.sort((a, b) => a.orderIndex - b.orderIndex).forEach((entry) => {
-    const learnAlias = Boolean(aiAliasCheckbox(entry.lineKey)?.checked);
-    if (addDraftLine(entry.productId, entry.quantity)) rememberAiChoice(entry.rawName, entry.productId, learnAlias);
+    if (addDraftLine(entry.productId, entry.quantity)) rememberAiChoice(entry.rawName, entry.productId, entry.learnAlias);
   });
   persistCart();
   const count = state.cart.reduce((sum, item) => sum + item.quantity, 0);
@@ -1405,11 +1499,11 @@ function aiOrderModal() {
   const activeGroup = state.aiGroups.find((group) => group.id === state.aiActiveGroupId) || state.aiGroups[0];
   const cat2Options = activeGroup ? [...new Set(products.filter((product) => product.cat1 === activeGroup.cat1).map((product) => product.cat2).filter(Boolean))] : [];
   const sourceEditor = `
-    <div class="ai-group-tabs">${state.aiGroups.map((group, index) => `<button class="ai-group-tab ${group.id === state.aiActiveGroupId ? "active" : ""}" onclick="state.aiActiveGroupId='${html(group.id)}';render()"><span>${html(group.cat2 || group.cat1 || `分类 ${index + 1}`)}</span>${state.aiGroups.length > 1 ? `<i onclick="event.stopPropagation();removeAiGroup('${html(group.id)}')">×</i>` : ""}</button>`).join("")}<button class="ai-group-add" onclick="addAiGroup()">＋ 添加分类窗口</button></div>
+    <div class="ai-group-tabs">${state.aiGroups.map((group, index) => `<button class="ai-group-tab ${group.id === state.aiActiveGroupId ? "active" : ""}" onclick="setAiActiveGroup(${jsArg(group.id)})"><span>${html(group.cat2 || group.cat1 || `分类 ${index + 1}`)}</span>${state.aiGroups.length > 1 ? `<i onclick="event.stopPropagation();removeAiGroup(${jsArg(group.id)})">×</i>` : ""}</button>`).join("")}<button class="ai-group-add" onclick="addAiGroup()">＋ 添加分类窗口</button></div>
     ${activeGroup ? `<section class="ai-group-panel"><div class="ai-group-filters"><div class="field"><label>一级分类 *</label><select class="select" onchange="setAiGroupCategory('${html(activeGroup.id)}',this.value)"><option value="">请选择一级分类</option>${cat1Options.map((cat1) => `<option value="${html(cat1)}" ${activeGroup.cat1 === cat1 ? "selected" : ""}>${html(cat1)}</option>`).join("")}</select></div><div class="field"><label>二级分类（选填）</label><select class="select" ${activeGroup.cat1 ? "" : "disabled"} onchange="setAiGroupSubcategory('${html(activeGroup.id)}',this.value)"><option value="">全部二级分类</option>${cat2Options.map((cat2) => `<option value="${html(cat2)}" ${activeGroup.cat2 === cat2 ? "selected" : ""}>${html(cat2)}</option>`).join("")}</select></div></div><div class="field"><label>该分类下的材料清单</label><textarea class="textarea ai-textarea" oninput="updateAiGroupText('${html(activeGroup.id)}',this.value)" placeholder="只填写属于当前分类的材料，例如：20管6根，20弯头30个...">${html(activeGroup.content)}</textarea></div><div class="hint">匹配范围：${activeGroup.cat1 ? html(activeGroup.cat1) : "尚未选择"}${activeGroup.cat2 ? ` / ${html(activeGroup.cat2)}` : activeGroup.cat1 ? " / 全部二级分类" : ""}。系统不会跨出这个范围推荐商品。</div></section>` : ""}
     <div class="ai-actions">
       <button class="btn primary" onclick="analyzeAiOrder()" ${state.aiLoading ? "disabled" : ""}>${state.aiLoading ? "识别中..." : draft ? "重新识别" : "开始识别"}</button>
-      <span class="hint">${state.aiLoading ? "正在提交分类材料并等待AI解析，请不要关闭窗口。" : "唯一可靠商品自动匹配；不确定就留给你确认或进入未匹配。"}</span>
+      <span class="hint">${state.aiLoading ? "正在提交分类材料并等待AI解析，请不要关闭窗口。" : state.aiSourceDirty && draft ? "原始材料已修改；下方人工调整仍会保留，只有点击重新识别才会生成新结果。" : "唯一可靠商品自动匹配；不确定就留给你确认或进入未匹配。"}</span>
     </div>`;
   return `
     <div class="modal-backdrop">
@@ -1419,7 +1513,7 @@ function aiOrderModal() {
           <button class="icon-btn" onclick="closeModal()">×</button>
         </div>
         <div class="modal-body">
-          ${draft ? `<details class="ai-source-editor"><summary>查看或修改原始材料并重新识别</summary><div class="ai-source-editor-body">${sourceEditor}</div></details>` : sourceEditor}
+          ${draft ? `<details class="ai-source-editor" ${state.aiSourceEditorOpen ? "open" : ""} ontoggle="setAiSourceEditorOpen(this.open)"><summary>查看或修改原始材料并重新识别</summary><div class="ai-source-editor-body">${sourceEditor}</div></details>` : sourceEditor}
           ${state.aiError ? `<div class="ai-error">${html(state.aiError)}</div>` : ""}
           ${draft ? renderAiDraft(draft) : ""}
         </div>
@@ -1468,11 +1562,18 @@ function aiDraftItems(draft) {
   const entries = [];
   const append = (list, type, status) => {
     (list || []).forEach((item, index) => {
+      if (item.userDeleted) return;
+      let currentStatus = status;
+      if (type === "matched" || type === "needsQuantity") {
+        currentStatus = isPositiveInteger(item.quantity) ? "confirmed" : "pending";
+      } else if (item.selectedProductId) {
+        currentStatus = isPositiveInteger(item.quantity) ? "confirmed" : "pending";
+      }
       entries.push({
         ...item,
         aiType: type,
-        status,
-        key: String(item.lineKey || `${item.groupId || type}-${type}-${index}`),
+        status: currentStatus,
+        key: aiDraftEntryKey(item, type, index),
       });
     });
   };
@@ -1492,6 +1593,7 @@ function aiStatusLabel(status) {
 }
 
 function aiNavMatchText(item) {
+  if (item.selectedProductId) return item.name || "销售已选择商品";
   if (item.aiType === "matched" || item.aiType === "needsQuantity") return item.name || "已匹配商品";
   if (item.aiType === "uncertain" && item.candidates?.[0]) return `首选候选：${item.candidates[0].name}`;
   return "尚未选择商品";
@@ -1500,7 +1602,7 @@ function aiNavMatchText(item) {
 function renderAiNavItem(item, index) {
   const active = item.key === state.aiActiveResultKey;
   const matchText = aiNavMatchText(item);
-  const empty = item.aiType === "unmatched";
+  const empty = item.aiType === "unmatched" && !item.selectedProductId;
   return `
     <button type="button" class="ai-nav-item is-${item.status} ${active ? "active" : ""}" data-ai-nav-key="${html(item.key)}" data-ai-nav-status-value data-ai-nav-status="${html(item.status)}" onclick="setAiResultActive(${jsArg(item.key)})">
       <span class="ai-nav-index">${index + 1}</span>
@@ -1548,15 +1650,19 @@ function aiDetailQuantity(item) {
 }
 
 function aiCandidateWorkspace(item) {
-  const candidates = item.aiType === "uncertain" ? (item.candidates || []) : item.aiType === "unmatched" ? (item.suggestions || []) : [];
+  const originalCandidates = item.aiType === "uncertain" ? (item.candidates || []) : item.aiType === "unmatched" ? (item.suggestions || []) : [];
+  const selectedCandidate = item.selectedProductId ? aiDraftProduct(item) : null;
+  const candidates = [selectedCandidate, ...originalCandidates]
+    .filter(Boolean)
+    .filter((candidate, index, list) => list.findIndex((entry) => entry.productId === candidate.productId) === index);
   const current = item.aiType === "matched" || item.aiType === "needsQuantity";
   return `
     <section class="ai-detail-section">
       <div class="ai-detail-section-head"><div><strong>${current ? "当前匹配商品" : "推荐商品"}</strong><span>${current ? "如匹配有误，可在下方搜索并替换" : "候选按客户习惯、出单频率和数量排序"}</span></div>${candidates.length ? `<span>共 ${candidates.length} 个候选</span>` : ""}</div>
       ${current ? aiCurrentProductCard(item) : candidates.length ? `
         <div class="ai-candidate-list">
-          ${candidates[0] ? aiCandidateOption(candidates[0], item.key, item.rawName, item.orderIndex) : ""}
-          ${candidates.length > 1 ? `<details class="ai-more-candidates" open><summary>展开更多推荐（共 ${candidates.length} 个）</summary>${candidates.slice(1).map((product) => aiCandidateOption(product, item.key, item.rawName, item.orderIndex)).join("")}</details>` : ""}
+          ${candidates[0] ? aiCandidateOption(candidates[0], item.key, item.rawName, item.orderIndex, item.selectedProductId) : ""}
+          ${candidates.length > 1 ? `<details class="ai-more-candidates" open><summary>展开更多推荐（共 ${candidates.length} 个）</summary>${candidates.slice(1).map((product) => aiCandidateOption(product, item.key, item.rawName, item.orderIndex, item.selectedProductId)).join("")}</details>` : ""}
         </div>` : `<div class="ai-manual-empty">暂时没有可靠候选，请在下方搜索商品。</div>`}
     </section>
     <section class="ai-detail-section ai-search-other-section">
@@ -1621,16 +1727,13 @@ function removeAiMatchedLine(button) {
   const line = button.closest("[data-ai-matched-line]");
   if (!line) return;
   const key = line.dataset.aiLineKey || line.dataset.aiDetailKey || "";
-  const navItem = [...document.querySelectorAll("[data-ai-nav-key]")]
-    .find((element) => element.dataset.aiNavKey === key);
-  line.classList.add("is-removing");
-  setTimeout(() => {
-    line.remove();
-    navItem?.remove();
-    const next = document.querySelector("[data-ai-nav-key]");
-    if (next) setAiResultActive(next.dataset.aiNavKey);
-    refreshAiStatusCounts();
-  }, 160);
+  const entry = findAiDraftEntry(key);
+  if (!entry) return;
+  entry.item.userDeleted = true;
+  markAiDraftModified();
+  const remaining = aiDraftItems(state.aiDraft);
+  if (state.aiActiveResultKey === key) state.aiActiveResultKey = remaining[0]?.key || "";
+  render();
 }
 
 function renderAiNeedsQuantity(list) {
@@ -3778,6 +3881,15 @@ async function saveOrder() {
   clearPersistedCart(state.orderType);
   state.cart = [];
   state.aiLearnPairs = [];
+  state.aiDraft = null;
+  state.aiGroups = [];
+  state.aiActiveGroupId = "";
+  state.aiActiveResultKey = "";
+  state.aiDraftDirty = false;
+  state.aiSourceDirty = false;
+  state.aiSourceEditorOpen = false;
+  state.aiDraftCustomerId = "";
+  state.aiDraftOrderType = "";
   state.selectedCustomerId = "";
   state.createCustomerQuery = "";
   state.createCustomerPickerOpen = false;
@@ -5783,6 +5895,9 @@ Object.assign(window, {
   refreshAiManualSearch,
   selectAiCandidateChoice,
   updateAiNavQuantity,
+  setAiActiveGroup,
+  setAiSourceEditorOpen,
+  setAiAliasConsent,
   setAiResultActive,
   removeAiMatchedLine,
   openModal,
