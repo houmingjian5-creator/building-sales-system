@@ -517,6 +517,7 @@ function isCostControlOrder(order) {
     order &&
     !order.deletedAt &&
     !isReturn &&
+    order.status !== '待确认' &&
     order.status !== '已取消'
   );
 }

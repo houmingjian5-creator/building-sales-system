@@ -1,3 +1,5 @@
+const initialCostDateRange = costDatePresetRange("month");
+
 const state = {
   route: "dashboard",
   user: null,
@@ -58,8 +60,13 @@ const state = {
   costStatusFilter: "全部",
   costReconcileFilter: "全部",
   costSalesFilters: [],
+  costDateFrom: initialCostDateRange.from,
+  costDateTo: initialCostDateRange.to,
+  costSupplierFilters: [],
   costSalesInitialized: false,
   costSalesMenuOpen: false,
+  costSupplierMenuOpen: false,
+  costMobileFiltersOpen: false,
   costExpandedOrderId: "",
   costSavingId: "",
   dashboardSalesFilters: [],
@@ -554,8 +561,14 @@ async function logout() {
     state.costSavingId = "";
     state.costReconcileFilter = "全部";
     state.costSalesFilters = [];
+    const costDateRange = costDatePresetRange("month");
+    state.costDateFrom = costDateRange.from;
+    state.costDateTo = costDateRange.to;
+    state.costSupplierFilters = [];
     state.costSalesInitialized = false;
     state.costSalesMenuOpen = false;
+    state.costSupplierMenuOpen = false;
+    state.costMobileFiltersOpen = false;
     state.costExpandedOrderId = "";
     state.mobileMoreOpen = false;
     state.mobileCartOpen = false;
@@ -4681,6 +4694,80 @@ async function deleteProduct(id) {
 const COST_SUPPLIER_OPTIONS = ["许斌", "小郑", "帅小霞", "杨姐", "欧姐", "漆海军"];
 const COST_DELIVERY_OPTIONS = ["许斌", "潘师", "李师", "老宛", "小郑", "杨姐"];
 const COST_RECONCILIATION_OPTIONS = ["未对订单", "问题订单", "已对订单"];
+const COST_UNASSIGNED_SUPPLIER = "__unassigned_supplier__";
+
+function costDateInputValue(date) {
+  const value = date instanceof Date ? date : new Date(date);
+  const year = value.getFullYear();
+  const month = String(value.getMonth() + 1).padStart(2, "0");
+  const day = String(value.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
+
+function costDatePresetRange(preset, referenceDate = new Date()) {
+  const today = new Date(referenceDate.getFullYear(), referenceDate.getMonth(), referenceDate.getDate());
+  let from = new Date(today);
+  let to = new Date(today);
+  if (preset === "month") {
+    from = new Date(today.getFullYear(), today.getMonth(), 1);
+  } else if (preset === "previousMonth") {
+    from = new Date(today.getFullYear(), today.getMonth() - 1, 1);
+    to = new Date(today.getFullYear(), today.getMonth(), 0);
+  } else if (preset === "last7") {
+    from.setDate(from.getDate() - 6);
+  } else if (preset === "last30") {
+    from.setDate(from.getDate() - 29);
+  }
+  return {
+    from: costDateInputValue(from),
+    to: costDateInputValue(to),
+  };
+}
+
+function normalizeCostOrderDate(value) {
+  const match = String(value || "").trim().match(/^(\d{4})[-/](\d{1,2})[-/](\d{1,2})/);
+  if (!match) return "";
+  const year = Number(match[1]);
+  const month = Number(match[2]);
+  const day = Number(match[3]);
+  const parsed = new Date(year, month - 1, day);
+  if (parsed.getFullYear() !== year || parsed.getMonth() !== month - 1 || parsed.getDate() !== day) return "";
+  return `${String(year).padStart(4, "0")}-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
+}
+
+function costOrderDateInRange(orderDate, from, to) {
+  const normalized = normalizeCostOrderDate(orderDate);
+  if (!normalized) return false;
+  return (!from || normalized >= from) && (!to || normalized <= to);
+}
+
+function costOrderMatchesSuppliers(order, selectedSuppliers) {
+  if (!selectedSuppliers.length) return true;
+  const names = (order.costControl && order.costControl.suppliers || [])
+    .map((supplier) => String(supplier.name || "").trim())
+    .filter(Boolean);
+  return selectedSuppliers.some((supplier) => {
+    if (supplier === COST_UNASSIGNED_SUPPLIER) return names.length === 0;
+    return names.includes(supplier);
+  });
+}
+
+function summarizeCostOrders(orders) {
+  const summary = orders.reduce((result, order) => {
+    const totals = calculateCostDraft(order);
+    result.revenue += costNumber(order.effectiveAmount);
+    result.cost += totals.totalCost;
+    result.profit += totals.profit;
+    if (!order.costControl?.suppliers?.length || !order.costControl?.deliveryPerson || (order.costControl?.reconciliationStatus || "未对订单") === "未对订单") {
+      result.incomplete += 1;
+    }
+    return result;
+  }, { revenue: 0, cost: 0, profit: 0, incomplete: 0, grossMargin: null });
+  summary.grossMargin = summary.revenue > 0
+    ? Math.round((summary.profit / summary.revenue) * 10000) / 100
+    : null;
+  return summary;
+}
 
 function cloneCostControl(source = {}) {
   return {
@@ -4811,6 +4898,7 @@ function toggleCostOrder(orderId) {
 
 function toggleCostSalesMenu() {
   state.costSalesMenuOpen = !state.costSalesMenuOpen;
+  state.costSupplierMenuOpen = false;
   rerenderCostControl();
 }
 
@@ -4833,6 +4921,68 @@ function clearCostSalespeople() {
   rerenderCostControl();
 }
 
+function defaultCostSalesFilters() {
+  const availableNames = new Set(state.costOrders.map((order) => order.salesName).filter(Boolean));
+  return ["谢天天", "陈诚"].filter((name) => availableNames.has(name));
+}
+
+function toggleCostSupplierMenu() {
+  state.costSupplierMenuOpen = !state.costSupplierMenuOpen;
+  state.costSalesMenuOpen = false;
+  rerenderCostControl();
+}
+
+function toggleCostSupplierFilter(name) {
+  const selected = new Set(state.costSupplierFilters);
+  if (selected.has(name)) selected.delete(name);
+  else selected.add(name);
+  state.costSupplierFilters = Array.from(selected);
+  rerenderCostControl();
+}
+
+function clearCostSupplierFilters() {
+  state.costSupplierFilters = [];
+  rerenderCostControl();
+}
+
+function setCostDateFilter(field, value) {
+  if (field === "from") state.costDateFrom = value;
+  if (field === "to") state.costDateTo = value;
+  render();
+}
+
+function setCostDatePreset(preset) {
+  const range = costDatePresetRange(preset);
+  state.costDateFrom = range.from;
+  state.costDateTo = range.to;
+  render();
+}
+
+function costDatePresetActive(preset) {
+  const range = costDatePresetRange(preset);
+  return state.costDateFrom === range.from && state.costDateTo === range.to;
+}
+
+function toggleCostMobileFilters() {
+  state.costMobileFiltersOpen = !state.costMobileFiltersOpen;
+  rerenderCostControl();
+}
+
+function resetCostFilters() {
+  const range = costDatePresetRange("month");
+  state.costQuery = "";
+  state.costStatusFilter = "全部";
+  state.costReconcileFilter = "全部";
+  state.costSalesFilters = defaultCostSalesFilters();
+  state.costDateFrom = range.from;
+  state.costDateTo = range.to;
+  state.costSupplierFilters = [];
+  state.costSalesMenuOpen = false;
+  state.costSupplierMenuOpen = false;
+  state.costExpandedOrderId = "";
+  rerenderCostControl();
+}
+
 function setCostReconcileFilter(value) {
   state.costReconcileFilter = value;
   render();
@@ -4852,8 +5002,7 @@ async function loadCostControl(force = false) {
       costControl: cloneCostControl(order.costControl),
     }));
     if (!state.costSalesInitialized) {
-      const availableNames = new Set(state.costOrders.map((order) => order.salesName).filter(Boolean));
-      state.costSalesFilters = ["谢天天", "陈诚"].filter((name) => availableNames.has(name));
+      state.costSalesFilters = defaultCostSalesFilters();
       state.costSalesInitialized = true;
     }
     state.costLoaded = true;
@@ -4913,7 +5062,18 @@ function renderCostControl() {
 
   const query = state.costQuery.trim().toLowerCase();
   const salesNames = Array.from(new Set(state.costOrders.map((order) => order.salesName).filter(Boolean))).sort((a, b) => a.localeCompare(b, "zh-CN"));
-  const visibleOrders = state.costOrders.filter((order) => {
+  const supplierNameSet = new Set();
+  state.costOrders.forEach((order) => {
+    (order.costControl?.suppliers || []).forEach((supplier) => {
+      const name = String(supplier.name || "").trim();
+      if (name) supplierNameSet.add(name);
+    });
+  });
+  const supplierNames = Array.from(supplierNameSet).sort((a, b) => a.localeCompare(b, "zh-CN"));
+  const dateError = state.costDateFrom && state.costDateTo && state.costDateFrom > state.costDateTo
+    ? "开始日期不能晚于结束日期，请调整日期范围。"
+    : "";
+  const visibleOrders = dateError ? [] : state.costOrders.filter((order) => {
     const matchesQuery = !query || [
       order.no,
       order.customerName,
@@ -4926,56 +5086,103 @@ function renderCostControl() {
     const matchesSales = !state.costSalesFilters.length || state.costSalesFilters.includes(order.salesName);
     const reconcileStatus = order.costControl?.reconciliationStatus || "未对订单";
     const matchesReconcile = state.costReconcileFilter === "全部" || reconcileStatus === state.costReconcileFilter;
-    return matchesQuery && matchesStatus && matchesSales && matchesReconcile;
+    const matchesDate = costOrderDateInRange(order.date, state.costDateFrom, state.costDateTo);
+    const matchesSupplier = costOrderMatchesSuppliers(order, state.costSupplierFilters);
+    return matchesQuery && matchesStatus && matchesSales && matchesReconcile && matchesDate && matchesSupplier;
   });
-  const summary = visibleOrders.reduce((result, order) => {
-    const totals = calculateCostDraft(order);
-    result.revenue += costNumber(order.effectiveAmount);
-    result.cost += totals.totalCost;
-    result.profit += totals.profit;
-    if (!order.costControl?.suppliers?.length || !order.costControl?.deliveryPerson || (order.costControl?.reconciliationStatus || "未对订单") === "未对订单") result.incomplete += 1;
-    return result;
-  }, { revenue: 0, cost: 0, profit: 0, incomplete: 0 });
+  const summary = summarizeCostOrders(visibleOrders);
+  const grossMarginText = summary.grossMargin === null ? "—" : `${summary.grossMargin}%`;
+  const supplierFilterLabel = state.costSupplierFilters.length
+    ? `已选 ${state.costSupplierFilters.length} 项`
+    : "全部供应商";
+  const mobileFilterLabel = `${state.costDateFrom || "不限"} 至 ${state.costDateTo || "不限"} · ${supplierFilterLabel}`;
 
   return `
-    <div class="cost-toolbar">
-      <div class="cost-search-wrap">
-        <input id="costSearchInput" class="input" value="${html(state.costQuery)}" placeholder="搜索订单号、客户、电话、销售或地址" oninput="setCostQuery(this)" />
-      </div>
-      <div class="cost-sales-filter">
-        <button type="button" class="select cost-sales-trigger" onclick="toggleCostSalesMenu()">
-          <span>${state.costSalesFilters.length ? `已选 ${state.costSalesFilters.length} 人` : "全部销售"}</span>
-          <span class="cost-chevron">⌄</span>
-        </button>
-        ${state.costSalesMenuOpen ? `
-          <div class="cost-sales-menu">
-            <button type="button" class="cost-sales-all ${!state.costSalesFilters.length ? "selected" : ""}" onclick="clearCostSalespeople()">全部销售</button>
-            ${salesNames.map((name) => `
-              <label class="cost-sales-option">
-                <input type="checkbox" ${state.costSalesFilters.includes(name) ? "checked" : ""} onchange="toggleCostSalesperson(${jsArg(name)})" />
-                <span>${html(name)}</span>
-              </label>
-            `).join("")}
+    <section class="cost-filter-shell">
+      <button type="button" class="cost-filter-toggle" aria-expanded="${state.costMobileFiltersOpen}" onclick="toggleCostMobileFilters()">
+        <span><strong>筛选条件</strong><small>${html(mobileFilterLabel)}</small></span>
+        <span class="cost-chevron">⌄</span>
+      </button>
+      <div class="cost-filter-content ${state.costMobileFiltersOpen ? "is-open" : ""}">
+        <div class="cost-toolbar">
+          <div class="cost-search-wrap">
+            <input id="costSearchInput" class="input" value="${html(state.costQuery)}" placeholder="搜索订单号、客户、电话、销售或地址" oninput="setCostQuery(this)" />
           </div>
-        ` : ""}
+          <div class="cost-sales-filter">
+            <button type="button" class="select cost-sales-trigger" onclick="toggleCostSalesMenu()">
+              <span>${state.costSalesFilters.length ? `已选 ${state.costSalesFilters.length} 人` : "全部销售"}</span>
+              <span class="cost-chevron">⌄</span>
+            </button>
+            ${state.costSalesMenuOpen ? `
+              <div class="cost-sales-menu">
+                <button type="button" class="cost-sales-all ${!state.costSalesFilters.length ? "selected" : ""}" onclick="clearCostSalespeople()">全部销售</button>
+                ${salesNames.map((name) => `
+                  <label class="cost-sales-option">
+                    <input type="checkbox" ${state.costSalesFilters.includes(name) ? "checked" : ""} onchange="toggleCostSalesperson(${jsArg(name)})" />
+                    <span>${html(name)}</span>
+                  </label>
+                `).join("")}
+              </div>
+            ` : ""}
+          </div>
+          <select class="select" aria-label="订单状态" onchange="setCostStatusFilter(this.value)">
+            ${["全部", "进行中", "已完成"].map((status) => `<option value="${status}" ${state.costStatusFilter === status ? "selected" : ""}>${status}</option>`).join("")}
+          </select>
+          <select class="select" aria-label="对单状态" onchange="setCostReconcileFilter(this.value)">
+            ${["全部", ...COST_RECONCILIATION_OPTIONS].map((status) => `<option value="${status}" ${state.costReconcileFilter === status ? "selected" : ""}>${status === "全部" ? "全部对单状态" : status}</option>`).join("")}
+          </select>
+          <button class="btn" onclick="loadCostControl(true)">刷新</button>
+        </div>
+        <div class="cost-advanced-filters">
+          <div class="cost-date-range">
+            <label><span>开始日期</span><input class="input" type="date" value="${html(state.costDateFrom)}" onchange="setCostDateFilter('from', this.value)" /></label>
+            <i>至</i>
+            <label><span>结束日期</span><input class="input" type="date" value="${html(state.costDateTo)}" onchange="setCostDateFilter('to', this.value)" /></label>
+          </div>
+          <div class="cost-date-presets" aria-label="快捷日期">
+            ${[
+              ["month", "本月"],
+              ["previousMonth", "上月"],
+              ["last7", "近7天"],
+              ["last30", "近30天"],
+            ].map(([preset, label]) => `<button type="button" class="${costDatePresetActive(preset) ? "selected" : ""}" onclick="setCostDatePreset(${jsArg(preset)})">${label}</button>`).join("")}
+          </div>
+          <div class="cost-sales-filter cost-supplier-filter">
+            <button type="button" class="select cost-sales-trigger" onclick="toggleCostSupplierMenu()">
+              <span>${html(supplierFilterLabel)}</span>
+              <span class="cost-chevron">⌄</span>
+            </button>
+            ${state.costSupplierMenuOpen ? `
+              <div class="cost-sales-menu cost-supplier-menu">
+                <button type="button" class="cost-sales-all ${!state.costSupplierFilters.length ? "selected" : ""}" onclick="clearCostSupplierFilters()">全部供应商</button>
+                <label class="cost-sales-option">
+                  <input type="checkbox" ${state.costSupplierFilters.includes(COST_UNASSIGNED_SUPPLIER) ? "checked" : ""} onchange="toggleCostSupplierFilter(${jsArg(COST_UNASSIGNED_SUPPLIER)})" />
+                  <span>未填写供应商</span>
+                </label>
+                ${supplierNames.map((name) => `
+                  <label class="cost-sales-option">
+                    <input type="checkbox" ${state.costSupplierFilters.includes(name) ? "checked" : ""} onchange="toggleCostSupplierFilter(${jsArg(name)})" />
+                    <span>${html(name)}</span>
+                  </label>
+                `).join("")}
+              </div>
+            ` : ""}
+          </div>
+          <button type="button" class="btn cost-reset-filter" onclick="resetCostFilters()">重置筛选</button>
+        </div>
       </div>
-      <select class="select" aria-label="订单状态" onchange="setCostStatusFilter(this.value)">
-        ${["全部", "进行中", "已完成"].map((status) => `<option value="${status}" ${state.costStatusFilter === status ? "selected" : ""}>${status}</option>`).join("")}
-      </select>
-      <select class="select" aria-label="对单状态" onchange="setCostReconcileFilter(this.value)">
-        ${["全部", ...COST_RECONCILIATION_OPTIONS].map((status) => `<option value="${status}" ${state.costReconcileFilter === status ? "selected" : ""}>${status === "全部" ? "全部对单状态" : status}</option>`).join("")}
-      </select>
-      <button class="btn" onclick="loadCostControl(true)">刷新</button>
-    </div>
+    </section>
+    ${dateError ? `<div class="cost-inline-error">${html(dateError)}</div>` : ""}
     <div class="cost-summary-grid">
-      <div class="cost-summary-item"><span>实际付款合计</span><strong>${money(summary.revenue)}</strong></div>
-      <div class="cost-summary-item"><span>总成本</span><strong>${money(summary.cost)}</strong></div>
-      <div class="cost-summary-item"><span>预计盈利</span><strong class="${summary.profit < 0 ? "is-negative" : ""}">${money(summary.profit)}</strong></div>
-      <div class="cost-summary-item"><span>待完善订单</span><strong>${summary.incomplete}</strong></div>
+      <div class="cost-summary-item"><span>实际付款合计</span><strong>${dateError ? "—" : money(summary.revenue)}</strong></div>
+      <div class="cost-summary-item"><span>总成本</span><strong>${dateError ? "—" : money(summary.cost)}</strong></div>
+      <div class="cost-summary-item"><span>预计盈利</span><strong class="${summary.profit < 0 ? "is-negative" : ""}">${dateError ? "—" : money(summary.profit)}</strong></div>
+      <div class="cost-summary-item"><span>整体毛利率</span><strong class="${summary.grossMargin !== null && summary.grossMargin < 0 ? "is-negative" : ""}">${dateError ? "—" : grossMarginText}</strong></div>
+      <div class="cost-summary-item"><span>待完善订单</span><strong>${dateError ? "—" : summary.incomplete}</strong></div>
     </div>
     ${state.costError ? `<div class="cost-inline-error">${html(state.costError)}</div>` : ""}
     <div class="cost-order-list">
-      ${visibleOrders.length ? visibleOrders.map(renderCostOrderCard).join("") : `<div class="card card-pad cost-empty">没有符合条件的订单</div>`}
+      ${dateError ? `<div class="card card-pad cost-empty">请先修正日期范围</div>` : visibleOrders.length ? visibleOrders.map(renderCostOrderCard).join("") : `<div class="card card-pad cost-empty">没有符合条件的订单</div>`}
     </div>
   `;
 }

@@ -6442,6 +6442,215 @@ tbody tr:hover {
   }
 }
 
+/* Cost control filters and linked metrics */
+.cost-filter-shell {
+  margin-bottom: 14px;
+}
+
+.cost-filter-toggle {
+  display: none;
+}
+
+.cost-filter-content .cost-toolbar {
+  margin-bottom: 10px;
+}
+
+.cost-advanced-filters {
+  display: grid;
+  grid-template-columns: minmax(390px, 1.2fr) minmax(260px, auto) minmax(210px, 0.65fr) auto;
+  gap: 10px;
+  align-items: end;
+  padding: 12px;
+  border: 1px solid #dfe7f3;
+  border-radius: 8px;
+  background: #fff;
+}
+
+.cost-date-range {
+  display: grid;
+  grid-template-columns: minmax(150px, 1fr) auto minmax(150px, 1fr);
+  gap: 8px;
+  align-items: end;
+  min-width: 0;
+}
+
+.cost-date-range label {
+  min-width: 0;
+}
+
+.cost-date-range label > span {
+  display: block;
+  margin: 0 0 5px 2px;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.cost-date-range i {
+  align-self: center;
+  margin-top: 18px;
+  color: #77859b;
+  font-style: normal;
+}
+
+.cost-date-range .input {
+  width: 100%;
+  min-width: 0;
+}
+
+.cost-date-presets {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.cost-date-presets button {
+  min-height: 40px;
+  padding: 0 11px;
+  border: 1px solid #d9e2ee;
+  border-radius: 7px;
+  background: #fff;
+  color: #526078;
+  font: inherit;
+  font-size: 13px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.cost-date-presets button:hover,
+.cost-date-presets button.selected {
+  border-color: #6e91ee;
+  background: #edf2ff;
+  color: #315bd6;
+}
+
+.cost-supplier-filter {
+  width: 100%;
+}
+
+.cost-supplier-menu {
+  min-width: 230px;
+}
+
+.cost-reset-filter {
+  white-space: nowrap;
+}
+
+.cost-summary-grid {
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+}
+
+@media (max-width: 1120px) {
+  .cost-advanced-filters {
+    grid-template-columns: minmax(360px, 1fr) minmax(240px, auto) minmax(210px, 0.65fr);
+  }
+
+  .cost-reset-filter {
+    width: 100%;
+  }
+
+  .cost-summary-grid {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 760px) {
+  .cost-filter-toggle {
+    display: flex;
+    width: 100%;
+    min-height: 52px;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 9px 12px;
+    border: 1px solid #dfe7f3;
+    border-radius: 8px;
+    background: #fff;
+    color: var(--text);
+    font: inherit;
+    text-align: left;
+  }
+
+  .cost-filter-toggle > span:first-child {
+    min-width: 0;
+  }
+
+  .cost-filter-toggle strong,
+  .cost-filter-toggle small {
+    display: block;
+  }
+
+  .cost-filter-toggle small {
+    overflow: hidden;
+    margin-top: 2px;
+    color: var(--muted);
+    font-size: 11px;
+    font-weight: 500;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .cost-filter-toggle[aria-expanded="true"] .cost-chevron {
+    transform: rotate(180deg);
+  }
+
+  .cost-filter-content {
+    display: none;
+    padding-top: 10px;
+  }
+
+  .cost-filter-content.is-open {
+    display: block;
+  }
+
+  .cost-advanced-filters {
+    grid-template-columns: 1fr 1fr;
+  }
+
+  .cost-date-range,
+  .cost-date-presets {
+    grid-column: 1 / -1;
+  }
+
+  .cost-date-presets button {
+    flex: 1 1 calc(25% - 6px);
+    min-width: 64px;
+  }
+
+  .cost-summary-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 520px) {
+  .cost-advanced-filters {
+    grid-template-columns: 1fr;
+    padding: 10px;
+  }
+
+  .cost-date-range {
+    grid-template-columns: 1fr;
+  }
+
+  .cost-date-range i {
+    display: none;
+  }
+
+  .cost-date-presets,
+  .cost-supplier-filter,
+  .cost-reset-filter {
+    grid-column: 1;
+  }
+
+  .cost-date-presets button {
+    flex-basis: calc(50% - 4px);
+  }
+
+  .cost-summary-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
 /* Mobile sales workflow */
 .mobile-bottom-nav,
 .mobile-sheet-layer,

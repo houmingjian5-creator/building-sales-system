@@ -1,4 +1,6 @@
 const assert = require("assert");
+const fs = require("fs");
+const path = require("path");
 const server = require("../server");
 
 assert.strictEqual(server.isCostControlOrder({
@@ -11,6 +13,11 @@ assert.strictEqual(server.isCostControlOrder({
   type: "sale",
   status: "\u5f85\u786e\u8ba4",
   deletedAt: "2026-07-30T00:00:00.000Z"
+}), false);
+assert.strictEqual(server.isCostControlOrder({
+  no: "ORD1002-PENDING",
+  type: "sale",
+  status: "\u5f85\u786e\u8ba4"
 }), false);
 assert.strictEqual(server.isCostControlOrder({
   no: "TH1003",
@@ -124,5 +131,52 @@ assert.strictEqual(costOrder.costTotals.profit, 54.25);
 const normalOrder = server.publicOrder(order);
 assert.strictEqual(normalOrder.costControl, undefined);
 assert.strictEqual(normalOrder.costTotals, undefined);
+
+const appSource = fs.readFileSync(path.join(__dirname, "../public/app.js"), "utf8");
+const stylesSource = fs.readFileSync(path.join(__dirname, "../public/styles.css"), "utf8");
+function frontendFunctionSource(name, nextName) {
+  const start = appSource.indexOf("function " + name);
+  const end = appSource.indexOf("function " + nextName, start);
+  assert(start >= 0 && end > start, "找不到前端函数：" + name);
+  return appSource.slice(start, end).trim();
+}
+
+const normalizeDateSource = frontendFunctionSource("normalizeCostOrderDate", "costOrderDateInRange");
+const dateRangeSource = frontendFunctionSource("costOrderDateInRange", "costOrderMatchesSuppliers");
+const costOrderDateInRange = new Function(
+  normalizeDateSource + "\nreturn (" + dateRangeSource + ");"
+)();
+assert.strictEqual(costOrderDateInRange("2026/7/1", "2026-07-01", "2026-07-31"), true);
+assert.strictEqual(costOrderDateInRange("2026-07-31", "2026-07-01", "2026-07-31"), true);
+assert.strictEqual(costOrderDateInRange("2026-06-30", "2026-07-01", "2026-07-31"), false);
+assert.strictEqual(costOrderDateInRange("2026-02-30", "2026-02-01", "2026-02-28"), false);
+
+const supplierFilterSource = frontendFunctionSource("costOrderMatchesSuppliers", "summarizeCostOrders");
+const costOrderMatchesSuppliers = new Function(
+  "COST_UNASSIGNED_SUPPLIER",
+  "return (" + supplierFilterSource + ");"
+)("__unassigned_supplier__");
+const supplierOrder = {
+  costControl: {
+    suppliers: [{ name: "Supplier A" }, { name: "Supplier B" }]
+  }
+};
+assert.strictEqual(costOrderMatchesSuppliers(supplierOrder, []), true);
+assert.strictEqual(costOrderMatchesSuppliers(supplierOrder, ["Supplier B", "Supplier C"]), true);
+assert.strictEqual(costOrderMatchesSuppliers(supplierOrder, ["Supplier C"]), false);
+assert.strictEqual(costOrderMatchesSuppliers({ costControl: { suppliers: [] } }, ["__unassigned_supplier__"]), true);
+assert.strictEqual(costOrderMatchesSuppliers(supplierOrder, ["__unassigned_supplier__"]), false);
+
+const costRenderSource = appSource.slice(
+  appSource.indexOf("function renderCostControl"),
+  appSource.indexOf("function renderCostOrderCard")
+);
+assert(costRenderSource.includes("costOrderDateInRange"), "成本订单必须应用日期筛选");
+assert(costRenderSource.includes("costOrderMatchesSuppliers"), "成本订单必须应用供应商筛选");
+assert(costRenderSource.includes("整体毛利率"), "成本汇总必须展示整体毛利率");
+assert(appSource.includes("summary.profit / summary.revenue"), "整体毛利率必须按总盈利除以实际付款合计计算");
+assert(stylesSource.includes(".cost-filter-toggle"), "手机成本筛选必须提供折叠入口");
+assert(stylesSource.includes(".cost-filter-content.is-open"), "手机成本筛选必须支持展开");
+assert(stylesSource.includes("grid-template-columns: repeat(5"), "桌面成本汇总必须容纳五张统计卡");
 
 console.log("cost control tests passed");

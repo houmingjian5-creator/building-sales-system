@@ -83,7 +83,8 @@ const adminCost = server.assistantCostControlSummary(db, db.orders, users.admin,
   dateTo: '2026-07-31',
 });
 assert.strictEqual(adminCost.totalCost, 150);
-assert.strictEqual(adminCost.profit, 900, 'cost control summary should follow the cost-control page order scope');
+assert.strictEqual(adminCost.profit, 750, 'cost control summary should exclude pending and cancelled orders');
+assert.strictEqual(adminCost.rows.some((row) => row.orderNo === 'ORD2'), false, 'pending orders must not enter cost control');
 assert.strictEqual(server.assistantCostControlSummary(db, scopedOrders, users.salesA, {}).forbidden, true);
 
 assert.strictEqual(server.assistantSanitizeWebQuery('搜索客户13800000001和ORD123的最新政策').includes('13800000001'), false);
