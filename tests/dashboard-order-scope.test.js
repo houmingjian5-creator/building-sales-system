@@ -14,12 +14,18 @@ const ownershipDb = {
     { id: "customer-b", ownerId: "sales-b" },
     { id: "customer-disabled", ownerId: "sales-disabled" },
   ],
+  orders: [
+    { id: "order-a", customerId: "customer-a" },
+    { id: "order-a-return", customerId: "customer-a", type: "return" },
+  ],
 };
 
 assert.strictEqual(server.customerBelongsToSalesperson(ownershipDb, "customer-a", "sales-a"), true);
 assert.strictEqual(server.customerBelongsToSalesperson(ownershipDb, "customer-a", "sales-b"), false);
 assert.strictEqual(server.customerBelongsToSalesperson(ownershipDb, "customer-disabled", "sales-disabled"), false);
 assert.strictEqual(server.customerBelongsToSalesperson(ownershipDb, "missing", "sales-a"), false);
+assert.strictEqual(server.customerOrderReferenceCount(ownershipDb, "customer-a"), 2);
+assert.strictEqual(server.customerOrderReferenceCount(ownershipDb, "customer-b"), 0);
 
 const appSource = fs.readFileSync(path.join(__dirname, "../public/app.js"), "utf8");
 const finalDashboard = appSource.slice(
@@ -40,6 +46,29 @@ const finalCreateOrder = appSource.slice(
 assert(finalCreateOrder.includes("orderCustomerChoices()"), "开单客户必须按所选销售人员限制");
 assert(finalCreateOrder.includes('id="createCustomerSearch"'), "开单客户选择必须支持姓名或电话搜索");
 assert(finalCreateOrder.includes("setOrderSalesperson(this.value)"), "切换销售人员时必须同步刷新客户范围");
+assert(finalCreateOrder.includes("|| null"), "开单页面未选择客户时必须保持空值");
+assert(!finalCreateOrder.includes("|| customerList[0]"), "开单页面不能自动选择客户列表第一项");
+
+const ensureSalesScopeSource = appSource.slice(
+  appSource.indexOf("function ensureSalesScope"),
+  appSource.indexOf("function setRoute", appSource.indexOf("function ensureSalesScope"))
+);
+assert(!ensureSalesScopeSource.includes("allowedCustomers[0]?.id"), "销售范围刷新时不能自动选择首位客户");
+
+const customerCardSource = appSource.slice(
+  appSource.indexOf("function customerCard"),
+  appSource.indexOf("function renderProducts", appSource.indexOf("function customerCard"))
+);
+assert(customerCardSource.includes('isAdmin() ? actionButton("删除客户"'), "删除客户入口必须仅管理员可见");
+
+const serverSource = fs.readFileSync(path.join(__dirname, "../server.js"), "utf8");
+const customerRouteSource = serverSource.slice(
+  serverSource.indexOf('if (url.pathname.startsWith("/api/customers/"))'),
+  serverSource.indexOf('if (method === "GET" && url.pathname.startsWith("/api/product-images/"))')
+);
+assert(customerRouteSource.includes('method === "DELETE"'), "客户接口必须支持删除");
+assert(customerRouteSource.includes("isAdminRole(user)"), "客户删除必须在服务端校验管理员权限");
+assert(customerRouteSource.includes("customerOrderReferenceCount"), "存在历史订单的客户必须阻止删除");
 
 const finalSaveOrder = appSource.slice(
   appSource.lastIndexOf("async function saveOrder()"),

@@ -13,7 +13,7 @@ const state = {
   toast: "",
   loading: false,
   cart: [],
-  selectedCustomerId: "c1",
+  selectedCustomerId: "",
   salesUserId: "u2",
   orderType: "sale",
   aiDraft: null,
@@ -234,11 +234,10 @@ function updateCreateCustomerSearch(input) {
 function setOrderSalesperson(userId) {
   if (!canChooseSalesperson() || !activeSalesUsers().some((user) => user.id === userId)) return;
   state.salesUserId = userId;
-  const customer = orderCustomerChoices()[0] || null;
-  state.selectedCustomerId = customer?.id || "";
-  state.createCustomerQuery = orderCustomerLabel(customer);
+  state.selectedCustomerId = "";
+  state.createCustomerQuery = "";
   state.createCustomerPickerOpen = false;
-  resetOrderDraft(customer);
+  resetOrderDraft(null);
   render();
 }
 
@@ -494,9 +493,11 @@ async function loadBootstrap() {
   customers = data.customers;
   products = data.products;
   orders = data.orders;
-  state.selectedCustomerId = customers[0]?.id || "";
+  state.selectedCustomerId = "";
+  state.createCustomerQuery = "";
+  state.createCustomerPickerOpen = false;
   state.salesUserId = state.user?.id || salesUsers[0]?.id || "";
-  resetOrderDraft(byId(customers, state.selectedCustomerId));
+  resetOrderDraft(null);
   restoreCart(state.orderType);
 }
 
@@ -640,6 +641,7 @@ function customerCard(c) {
       <div>
         ${actionButton("历史订单", "orders", `openModal('customerOrders','${c.id}')`)}
         ${actionButton("编辑", "edit", `openModal('customer','${c.id}')`)}
+        ${isAdmin() ? actionButton("删除客户", "delete", `deleteCustomer(${jsArg(c.id)})`) : ""}
       </div>
     </div>
   `;
@@ -1600,6 +1602,30 @@ async function saveCustomer(id) {
   } catch (error) {
     alert(error.message);
   }
+}
+
+async function deleteCustomer(id) {
+  if (!isAdmin()) return alert("只有管理员和超级管理员可以删除客户");
+  const customer = byId(customers, id);
+  if (!customer) return;
+  const stats = customerStats(customer.id);
+  const message = stats.count
+    ? `客户“${customer.name}”已有 ${stats.count} 笔订单记录，为保留历史数据不能删除。`
+    : `确定删除客户“${customer.name}”吗？\n电话：${customer.phone || "-"}\n\n删除后无法恢复。`;
+  if (stats.count) return alert(message);
+  if (!confirm(message)) return;
+  const response = await fetch(`/api/customers/${encodeURIComponent(id)}`, { method: "DELETE" });
+  const data = await response.json().catch(() => ({}));
+  if (!response.ok) return alert(data.error || "删除客户失败");
+  customers = customers.filter((item) => item.id !== id);
+  if (state.selectedCustomerId === id) {
+    state.selectedCustomerId = "";
+    state.createCustomerQuery = "";
+    state.createCustomerPickerOpen = false;
+    resetOrderDraft(null);
+  }
+  showToast("客户已删除");
+  render();
 }
 
 function productModal(id) {
@@ -2722,9 +2748,10 @@ function ensureSalesScope() {
     state.salesUserId = state.user?.id || activeSalesUsers()[0]?.id || "";
   }
   const allowedCustomers = orderCustomerChoices();
-  if (!allowedCustomers.some((customer) => customer.id === state.selectedCustomerId)) {
-    state.selectedCustomerId = allowedCustomers[0]?.id || "";
-    resetOrderDraft(allowedCustomers[0] || null);
+  if (state.selectedCustomerId && !allowedCustomers.some((customer) => customer.id === state.selectedCustomerId)) {
+    state.selectedCustomerId = "";
+    state.createCustomerQuery = "";
+    resetOrderDraft(null);
   }
   const selectedCustomer = byId(allowedCustomers, state.selectedCustomerId);
   if (!state.createCustomerPickerOpen) state.createCustomerQuery = orderCustomerLabel(selectedCustomer);
@@ -3045,7 +3072,7 @@ function renderCustomers() {
 function renderCreateOrder() {
   ensureSalesScope();
   const customerList = orderCustomerChoices();
-  const customer = byId(customerList, state.selectedCustomerId) || customerList[0];
+  const customer = byId(customerList, state.selectedCustomerId) || null;
   ensureOrderDraft(customer);
   const productList = filteredProducts();
   const visible = productList.slice(0, 120);
@@ -3543,7 +3570,7 @@ function renderCreateProductResults() {
 function renderCreateOrder() {
   ensureSalesScope();
   const customerList = orderCustomerChoices();
-  const customer = byId(customerList, state.selectedCustomerId) || customerList[0];
+  const customer = byId(customerList, state.selectedCustomerId) || null;
   ensureOrderDraft(customer);
   const productList = filteredProducts().filter(isProductActive);
   const pageData = paginateList(productList, "createProducts", EDIT_PAGE_SIZES.createProducts);
@@ -3633,7 +3660,10 @@ async function saveOrder() {
   clearPersistedCart(state.orderType);
   state.cart = [];
   state.aiLearnPairs = [];
-  resetOrderDraft(customer);
+  state.selectedCustomerId = "";
+  state.createCustomerQuery = "";
+  state.createCustomerPickerOpen = false;
+  resetOrderDraft(null);
   state.orderType = "sale";
   resetPage("orders");
   showToast(data.learnedAliases?.length ? `订单已生成，并新增 ${data.learnedAliases.length} 个商品关键词` : "订单已生成");

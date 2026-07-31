@@ -679,6 +679,12 @@ function customerBelongsToSalesperson(db, customerId, salesUserId) {
   return Boolean(customer && salesperson && customer.ownerId === salesperson.id);
 }
 
+function customerOrderReferenceCount(db, customerId) {
+  return (db.orders || []).filter(function (order) {
+    return order.customerId === customerId;
+  }).length;
+}
+
 function orderAmount(items) {
   return (Array.isArray(items) ? items : []).reduce((sum, item) => sum + Number(item.quantity || 0) * Number(item.price || 0), 0);
 }
@@ -2695,6 +2701,16 @@ async function handleApi(req, res) {
     const db = readDb();
     const customer = db.customers.find((item) => item.id === id);
     if (!customer) return sendError(res, 404, "客户不存在");
+    if (method === "DELETE") {
+      if (!isAdminRole(user)) return sendError(res, 403, "只有管理员和超级管理员可以删除客户");
+      const orderCount = customerOrderReferenceCount(db, customer.id);
+      if (orderCount > 0) {
+        return sendError(res, 409, `该客户已有 ${orderCount} 笔订单记录，为保留历史数据不能删除`);
+      }
+      db.customers = db.customers.filter((item) => item.id !== customer.id);
+      writeDb(db);
+      return sendJson(res, 200, { ok: true, customerId: customer.id });
+    }
     if (user.role === "销售人员" && customer.ownerId !== user.id) return sendError(res, 403, "无权编辑该客户");
     if (method === "PUT" || method === "PATCH") {
       const payload = await readBody(req);
@@ -3111,6 +3127,7 @@ module.exports.validateAiDraft = validateAiDraft;
 module.exports.recordAiLearning = recordAiLearning;
 module.exports.invalidOrderQuantityIndexes = invalidOrderQuantityIndexes;
 module.exports.customerBelongsToSalesperson = customerBelongsToSalesperson;
+module.exports.customerOrderReferenceCount = customerOrderReferenceCount;
 module.exports.buildProductWorkbook = buildProductWorkbook;
 module.exports.parseProductWorkbook = parseProductWorkbook;
 module.exports.assistantVisibleCustomers = assistantVisibleCustomers;
