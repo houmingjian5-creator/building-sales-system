@@ -652,7 +652,7 @@ function customerCard(c) {
       <div>
         ${actionButton("历史订单", "orders", `openModal('customerOrders','${c.id}')`)}
         ${actionButton("编辑", "edit", `openModal('customer','${c.id}')`)}
-        ${isAdmin() ? actionButton("删除客户", "delete", `deleteCustomer(${jsArg(c.id)})`) : ""}
+        ${isAdmin() ? actionButton("删除客户", "delete", `deleteCustomer(${JSON.stringify(c.id)})`) : ""}
       </div>
     </div>
   `;

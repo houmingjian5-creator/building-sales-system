@@ -64,6 +64,8 @@ const customerCardSource = appSource.slice(
   appSource.indexOf("function renderProducts", appSource.indexOf("function customerCard"))
 );
 assert(customerCardSource.includes('isAdmin() ? actionButton("删除客户"'), "删除客户入口必须仅管理员可见");
+assert(customerCardSource.includes("deleteCustomer(${JSON.stringify(c.id)})"), "删除客户按钮必须生成可执行的客户 ID 参数");
+assert(!customerCardSource.includes("deleteCustomer(${jsArg(c.id)})"), "删除客户按钮不能对客户 ID 重复转义");
 
 const serverSource = fs.readFileSync(path.join(__dirname, "../server.js"), "utf8");
 const customerRouteSource = serverSource.slice(
