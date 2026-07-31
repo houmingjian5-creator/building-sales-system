@@ -16,6 +16,18 @@ const finalFilteredProducts = appSource.slice(appSource.lastIndexOf('function fi
 assert(finalFilteredProducts.includes('productSearchScore(product, query)'), '商品搜索结果必须按文字匹配度筛选和排序');
 const manualSearch = appSource.slice(appSource.indexOf('function updateAiManualSearch'), appSource.indexOf('function applyAiDraft'));
 assert(!manualSearch.includes('dataset.composing === "true") return'), 'AI 人工搜索不能在中文输入法合成期间停留在旧候选');
+const aiDraftLayout = appSource.slice(appSource.indexOf('function renderAiDraft'), appSource.indexOf('function renderAiMatched'));
+assert(aiDraftLayout.includes('ai-master-detail'), 'AI 识别结果必须使用左右主从分列布局');
+assert(aiDraftLayout.includes('ai-result-master'), '左侧必须持续显示全部识别商品和状态');
+assert(aiDraftLayout.includes('ai-result-detail'), '右侧必须显示当前商品的候选与搜索工作区');
+assert(aiDraftLayout.includes('renderAiNavItem'), '识别商品必须统一呈现在左侧清单');
+const aiCandidateSelection = appSource.slice(appSource.indexOf('function selectAiCandidateChoice'), appSource.indexOf('function aiCandidateFromProduct'));
+assert(aiCandidateSelection.includes('data-ai-nav-match'), '右侧选择商品后必须回写左侧匹配结果');
+assert(aiCandidateSelection.includes('refreshAiStatusCounts()'), '右侧选择商品后必须更新左侧状态统计');
+assert(aiCandidateSelection.includes('isPositiveInteger(Number(quantityInput?.value))'), '商品和有效数量同时确定后才能标记为已确定');
+const stylesSource = fs.readFileSync(path.join(__dirname, '..', 'public', 'styles.css'), 'utf8');
+assert(stylesSource.includes('.ai-master-detail'), 'AI 左右分列布局必须包含桌面端样式');
+assert(stylesSource.includes('grid-template-rows: auto minmax(0, 1fr)'), 'AI 左右分列布局必须提供手机端主从适配');
 const removeEditLine = appSource.slice(appSource.indexOf('function removeEditOrderLine'), appSource.indexOf('function moveEditOrderLine'));
 assert(removeEditLine.includes('refreshEditOrderItems(scrollTop)'), '编辑订单删除商品必须保留弹窗滚动位置');
 assert(!removeEditLine.includes('\n  render();'), '编辑订单删除商品不能整页重绘');
