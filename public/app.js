@@ -291,6 +291,17 @@ function selectAddressHistory(button, mode) {
   closeAddressHistory(mode);
 }
 
+function orderCustomerForDisplay(order = {}) {
+  const customer = byId(customers, order.customerId) || {};
+  return {
+    ...customer,
+    id: customer.id || order.customerId || "",
+    name: customer.name || order.customerName || "已删除客户",
+    phone: customer.phone || order.customerPhone || order.phone || "",
+    address: customer.address || order.customerAddress || order.address || "",
+  };
+}
+
 function orderAddressForDisplay(order, customer = {}) {
   if (Object.prototype.hasOwnProperty.call(order || {}, "address")) {
     return String(order.address || "");
@@ -1610,13 +1621,18 @@ async function deleteCustomer(id) {
   if (!customer) return;
   const stats = customerStats(customer.id);
   const message = stats.count
-    ? `客户“${customer.name}”已有 ${stats.count} 笔订单记录，为保留历史数据不能删除。`
+    ? `确定删除客户“${customer.name}”吗？\n\n该客户有 ${stats.count} 笔历史订单。删除后客户将从客户列表和开单选择中移除，历史订单仍会保留。`
     : `确定删除客户“${customer.name}”吗？\n电话：${customer.phone || "-"}\n\n删除后无法恢复。`;
-  if (stats.count) return alert(message);
   if (!confirm(message)) return;
   const response = await fetch(`/api/customers/${encodeURIComponent(id)}`, { method: "DELETE" });
   const data = await response.json().catch(() => ({}));
   if (!response.ok) return alert(data.error || "删除客户失败");
+  orders.forEach((order) => {
+    if (order.customerId !== id) return;
+    if (!order.customerName) order.customerName = customer.name || customer.contact || "";
+    if (!order.customerPhone) order.customerPhone = customer.phone || order.phone || "";
+    if (!order.customerAddress) order.customerAddress = customer.address || order.address || "";
+  });
   customers = customers.filter((item) => item.id !== id);
   if (state.selectedCustomerId === id) {
     state.selectedCustomerId = "";
@@ -1947,7 +1963,7 @@ function getDisplayRows(order) {
 
 function getOrderDoc(orderId) {
   const order = byId(orders, orderId);
-  const customer = byId(customers, order.customerId);
+  const customer = orderCustomerForDisplay(order);
   const title = order.no.startsWith("TH") || order.status === "已退货" ? "退货单" : "销售订单";
   return { order, customer, title, rows: getOrderRows(order) };
 }
@@ -1955,7 +1971,7 @@ function getOrderDoc(orderId) {
 function buildOrderText(orderId) {
   const order = byId(orders, orderId);
   if (!order) throw new Error("订单不存在");
-  const customer = byId(customers, order.customerId) || {};
+  const customer = orderCustomerForDisplay(order);
   const excludedTerms = ["运费", "搬运费", "货拉拉"];
   const productLines = (order.items || []).filter((item) => {
     const details = orderItemDetails(item);
@@ -2673,7 +2689,7 @@ function renderCreateOrder() {
 function renderOrders() {
   const q = state.orderQuery.trim();
   const list = orders.filter((order) => {
-    const customer = byId(customers, order.customerId);
+    const customer = orderCustomerForDisplay(order);
     const statusOk = state.orderStatus === "全部" || order.status === state.orderStatus;
     const salesOk = state.orderSalesFilter === "全部" || order.salesUserId === state.orderSalesFilter;
     const queryOk = !q || [order.no, customer?.name, customer?.phone].some((value) => String(value || "").includes(q));
@@ -3674,7 +3690,7 @@ function renderOrders() {
   const q = state.orderQuery.trim();
   const payFilter = state.orderPayStatus || "全部";
   const list = visibleOrders().filter((order) => {
-    const customer = byId(customers, order.customerId);
+    const customer = orderCustomerForDisplay(order);
     const statusOk = state.orderStatus === "全部" || order.status === state.orderStatus;
     const payOk = payFilter === "全部" || normalizeClientPayStatus(order.payStatus) === payFilter;
     const salesOk = isSalesRole() || state.orderSalesFilter === "全部" || order.salesUserId === state.orderSalesFilter;
@@ -3697,7 +3713,7 @@ function renderOrders() {
 }
 
 function orderCard(order) {
-  const customer = byId(customers, order.customerId) || {};
+  const customer = orderCustomerForDisplay(order);
   const salesperson = byId(salesUsers, order.salesUserId) || {};
   const payStatus = normalizeClientPayStatus(order.payStatus);
   return `
@@ -5015,7 +5031,7 @@ function repeatOrder(orderId) {
 async function deleteOrder(orderId) {
   if (!isAdmin()) return alert("只有管理员可以删除订单");
   const order = byId(orders, orderId);
-  const customer = byId(customers, order?.customerId) || {};
+  const customer = orderCustomerForDisplay(order || {});
   if (!order || !confirm(`确定删除订单 ${order.no} 吗？\n客户：${customer.name || "-"}\n金额：${money(order.amount)}\n\n删除后订单将从业务页面和统计中隐藏。`)) return;
   const response = await fetch(`/api/orders/${encodeURIComponent(orderId)}`, { method: "DELETE" });
   const data = await response.json().catch(() => ({}));
@@ -5026,7 +5042,7 @@ async function deleteOrder(orderId) {
 }
 
 function orderCard(order) {
-  const customer = byId(customers, order.customerId) || {};
+  const customer = orderCustomerForDisplay(order);
   const salesperson = byId(salesUsers, order.salesUserId) || {};
   const payStatus = normalizeClientPayStatus(order.payStatus);
   const status = order.status || "待确认";

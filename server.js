@@ -619,6 +619,9 @@ function publicOrder(order) {
     type: isReturn ? 'return' : order.type || 'sale',
     no: order.no || '',
     customerId: order.customerId || '',
+    customerName: order.customerName || '',
+    customerPhone: order.customerPhone || '',
+    customerAddress: order.customerAddress || '',
     salesUserId: order.salesUserId || '',
     date: order.date || '',
     status: order.status || '',
@@ -683,6 +686,20 @@ function customerOrderReferenceCount(db, customerId) {
   return (db.orders || []).filter(function (order) {
     return order.customerId === customerId;
   }).length;
+}
+
+function preserveCustomerOrderSnapshots(db, customer) {
+  let preservedOrderCount = 0;
+  (db.orders || []).forEach(function (order) {
+    if (!customer || order.customerId !== customer.id) return;
+    if (!order.customerName) order.customerName = customer.name || customer.contact || '';
+    if (!order.customerPhone) order.customerPhone = customer.phone || order.phone || '';
+    if (!order.customerAddress) order.customerAddress = customer.address || order.address || '';
+    if (!order.phone && customer.phone) order.phone = customer.phone;
+    if (!order.address && customer.address) order.address = customer.address;
+    preservedOrderCount += 1;
+  });
+  return preservedOrderCount;
 }
 
 function orderAmount(items) {
@@ -2703,13 +2720,10 @@ async function handleApi(req, res) {
     if (!customer) return sendError(res, 404, "客户不存在");
     if (method === "DELETE") {
       if (!isAdminRole(user)) return sendError(res, 403, "只有管理员和超级管理员可以删除客户");
-      const orderCount = customerOrderReferenceCount(db, customer.id);
-      if (orderCount > 0) {
-        return sendError(res, 409, `该客户已有 ${orderCount} 笔订单记录，为保留历史数据不能删除`);
-      }
+      const preservedOrderCount = preserveCustomerOrderSnapshots(db, customer);
       db.customers = db.customers.filter((item) => item.id !== customer.id);
       writeDb(db);
-      return sendJson(res, 200, { ok: true, customerId: customer.id });
+      return sendJson(res, 200, { ok: true, customerId: customer.id, preservedOrderCount });
     }
     if (user.role === "销售人员" && customer.ownerId !== user.id) return sendError(res, 403, "无权编辑该客户");
     if (method === "PUT" || method === "PATCH") {
@@ -2953,6 +2967,9 @@ async function handleApi(req, res) {
         type: payload.type === "return" ? "return" : "sale",
         no: `${payload.type === "return" ? "TH" : "ORD"}${Date.now()}`,
         customerId: payload.customerId,
+        customerName: customer.name || customer.contact || "",
+        customerPhone: customer.phone || "",
+        customerAddress: customer.address || "",
         salesUserId: salesUserId,
         date: payload.date || new Date().toLocaleDateString("zh-CN"),
         phone: payload.phone || "",
@@ -3026,7 +3043,8 @@ async function handleApi(req, res) {
         const nextSalesUserId = user.role === "销售人员"
           ? user.id
           : (payload.salesUserId !== undefined ? payload.salesUserId : order.salesUserId);
-        if (!customerBelongsToSalesperson(db, nextCustomerId, nextSalesUserId)) {
+        const customerOrSalespersonChanged = nextCustomerId !== order.customerId || nextSalesUserId !== order.salesUserId;
+        if (customerOrSalespersonChanged && !customerBelongsToSalesperson(db, nextCustomerId, nextSalesUserId)) {
           return sendError(res, 403, "只能选择该销售人员名下的客户");
         }
       }
@@ -3036,7 +3054,17 @@ async function handleApi(req, res) {
       if (payload.items !== undefined && invalidOrderQuantityIndexes(payload.items).length) {
         return sendError(res, 400, "商品数量必须为大于 0 的整数，请检查后再保存");
       }
-      if (payload.customerId !== undefined) order.customerId = payload.customerId;
+      if (payload.customerId !== undefined) {
+        const nextCustomer = db.customers.find(function (item) {
+          return item.id === payload.customerId;
+        });
+        order.customerId = payload.customerId;
+        if (nextCustomer) {
+          order.customerName = nextCustomer.name || nextCustomer.contact || "";
+          order.customerPhone = nextCustomer.phone || "";
+          order.customerAddress = nextCustomer.address || "";
+        }
+      }
       if (payload.salesUserId !== undefined && user.role !== "销售人员") order.salesUserId = payload.salesUserId;
       if (payload.date !== undefined) order.date = payload.date;
       if (payload.phone !== undefined) order.phone = payload.phone;
@@ -3128,6 +3156,7 @@ module.exports.recordAiLearning = recordAiLearning;
 module.exports.invalidOrderQuantityIndexes = invalidOrderQuantityIndexes;
 module.exports.customerBelongsToSalesperson = customerBelongsToSalesperson;
 module.exports.customerOrderReferenceCount = customerOrderReferenceCount;
+module.exports.preserveCustomerOrderSnapshots = preserveCustomerOrderSnapshots;
 module.exports.buildProductWorkbook = buildProductWorkbook;
 module.exports.parseProductWorkbook = parseProductWorkbook;
 module.exports.assistantVisibleCustomers = assistantVisibleCustomers;

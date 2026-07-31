@@ -10,7 +10,7 @@ const ownershipDb = {
     { id: "sales-disabled", status: "停用" },
   ],
   customers: [
-    { id: "customer-a", ownerId: "sales-a" },
+    { id: "customer-a", ownerId: "sales-a", name: "测试客户", phone: "13800000000", address: "测试地址" },
     { id: "customer-b", ownerId: "sales-b" },
     { id: "customer-disabled", ownerId: "sales-disabled" },
   ],
@@ -26,6 +26,10 @@ assert.strictEqual(server.customerBelongsToSalesperson(ownershipDb, "customer-di
 assert.strictEqual(server.customerBelongsToSalesperson(ownershipDb, "missing", "sales-a"), false);
 assert.strictEqual(server.customerOrderReferenceCount(ownershipDb, "customer-a"), 2);
 assert.strictEqual(server.customerOrderReferenceCount(ownershipDb, "customer-b"), 0);
+assert.strictEqual(server.preserveCustomerOrderSnapshots(ownershipDb, ownershipDb.customers[0]), 2);
+assert.strictEqual(ownershipDb.orders[0].customerName, "测试客户");
+assert.strictEqual(ownershipDb.orders[0].customerPhone, "13800000000");
+assert.strictEqual(ownershipDb.orders[0].customerAddress, "测试地址");
 
 const appSource = fs.readFileSync(path.join(__dirname, "../public/app.js"), "utf8");
 const finalDashboard = appSource.slice(
@@ -68,7 +72,16 @@ const customerRouteSource = serverSource.slice(
 );
 assert(customerRouteSource.includes('method === "DELETE"'), "客户接口必须支持删除");
 assert(customerRouteSource.includes("isAdminRole(user)"), "客户删除必须在服务端校验管理员权限");
-assert(customerRouteSource.includes("customerOrderReferenceCount"), "存在历史订单的客户必须阻止删除");
+assert(customerRouteSource.includes("preserveCustomerOrderSnapshots"), "删除客户前必须保留历史订单中的客户快照");
+assert(!customerRouteSource.includes("sendError(res, 409"), "有历史订单的客户不应再被禁止删除");
+
+const deleteCustomerSource = appSource.slice(
+  appSource.indexOf("async function deleteCustomer"),
+  appSource.indexOf("function productModal", appSource.indexOf("async function deleteCustomer"))
+);
+assert(deleteCustomerSource.includes("历史订单仍会保留"), "删除有订单客户时必须明确提示历史订单会保留");
+assert(!deleteCustomerSource.includes("if (stats.count) return"), "前端不能拦截有历史订单的客户删除");
+assert(appSource.includes("function orderCustomerForDisplay"), "订单页面必须支持已删除客户的快照显示");
 
 const finalSaveOrder = appSource.slice(
   appSource.lastIndexOf("async function saveOrder()"),
