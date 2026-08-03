@@ -13,6 +13,7 @@ assert(renderShellSource.includes("renderMobileNavigation()"), "登录后页面�
 assert(renderShellSource.includes("renderMobileMoreSheet()"), "登录后页面必须渲染手机更多功能抽屉");
 assert(renderShellSource.includes("renderMobileCart()"), "登录后页面必须渲染手机购物车入口");
 assert(renderShellSource.includes("has-mobile-cart"), "开单页面必须标记手机购物车占位状态");
+assert(renderShellSource.includes("route-${html(state.route)}"), "页面外壳必须提供路由类以隔离各手机页面布局");
 
 const mobileNavigationSource = appSource.slice(
   appSource.indexOf("function renderMobileNavigation"),
@@ -46,6 +47,7 @@ const finalCreateOrder = appSource.slice(
 );
 assert(finalCreateOrder.includes("mobile-product-filters"), "手机商品搜索和分类必须有独立的吸顶容器");
 assert(finalCreateOrder.includes("create-product-layout"), "开单商品区必须提供手机布局挂载类");
+assert(finalCreateOrder.includes("create-order-meta-card"), "开单资料区必须提供紧凑手机布局挂载类");
 
 const finalSetRoute = appSource.slice(
   appSource.lastIndexOf("function setRoute"),
@@ -65,5 +67,13 @@ assert(mobileStyles.includes("grid-template-columns: repeat(2"), "手机概览�
 assert(mobileStyles.includes(".xiaocai-assistant.has-mobile-cart:not(.is-open)"), "小材入口必须避让手机购物车");
 assert(mobileStyles.includes("height: 100dvh"), "手机 AI 对话和弹层必须使用动态视口高度");
 assert(mobileStyles.includes(".order-icon-toolbar .order-action-edit"), "手机订单次要操作必须收进更多菜单");
+assert(mobileStyles.includes(".product-card > :nth-child(2)"), "手机商品文字区域必须允许收缩，不能把加购按钮挤出屏幕");
+assert(mobileStyles.includes(".product-card .product-thumb-button.catalog"), "手机商品缩略图尺寸必须与卡片网格列一致");
+assert(appSource.includes('<td class="product-actions-cell"><div class="row-actions">'), "商品表格操作按钮必须包在正常表格单元格内，避免手机端错行");
+assert(appSource.includes('class="product-mobile-list"'), "产品管理必须提供不依赖横向表格的手机商品列表");
+assert(mobileStyles.includes("Mobile compact list layout (option B)"), "手机端必须采用已确认的 B 版高密度清单布局");
+assert(mobileStyles.includes(".create-product-column .product-card-qty"), "B 版已选商品数量控件必须固定在商品行右侧");
+assert(mobileStyles.includes(".route-products .product-table"), "手机产品管理必须隐藏桌面宽表格");
+assert(mobileStyles.includes(".product-mobile-item"), "手机产品管理必须渲染紧凑商品卡片");
 
 console.log("Mobile sales workflow layout tests passed");

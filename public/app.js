@@ -431,7 +431,7 @@ function render() {
   }
 
   app.innerHTML = `
-    <div class="app-shell ${["create", "returns"].includes(state.route) ? "has-mobile-cart" : ""}">
+    <div class="app-shell route-${html(state.route)} ${["create", "returns"].includes(state.route) ? "has-mobile-cart" : ""}">
       ${state.toast ? `<div class="toast">✓ ${state.toast}</div>` : ""}
       <aside class="sidebar">
         <div class="side-brand"><div class="brand-mark">建</div><strong>建材订单管理</strong></div>
@@ -767,16 +767,16 @@ function customerCard(c) {
   const stats = customerStats(c.id);
   return `
     <div class="customer-card">
-      <div>
+      <div class="customer-main">
         <div class="customer-name">${c.name} <span class="badge success">正常</span></div>
         <div class="meta"><span>☎ ${c.phone}</span><span>录入：${owner?.name || "-"}</span></div>
       </div>
-      <div class="meta">
+      <div class="meta customer-stats">
         <span>成交额：<strong>${money(stats.total)}</strong></span>
         <span>最近成交：${stats.last}</span>
         <span>共成交 ${stats.count} 单</span>
       </div>
-      <div>
+      <div class="customer-actions">
         ${actionButton("历史订单", "orders", `openModal('customerOrders','${c.id}')`)}
         ${actionButton("编辑", "edit", `openModal('customer','${c.id}')`)}
         ${isAdmin() ? actionButton("删除客户", "delete", `deleteCustomer(${JSON.stringify(c.id)})`) : ""}
@@ -3651,6 +3651,7 @@ function productThumbnail(product, extraClass = "") {
 function productTableResultsHtml(list, pageData, canManage = isAdmin(), canExport = state.user?.role !== "销售人员") {
   const selected = new Set(state.selectedProductIds || []);
   const pageAllSelected = pageData.items.length && pageData.items.every((product) => selected.has(product.id));
+  const productActions = (product) => `${actionButton("查看图片", "view", `openModal('productImage',${JSON.stringify(product.id)})`)}${canManage ? `${actionButton("编辑", "edit", `openModal('product',${JSON.stringify(product.id)})`)}${actionButton("删除", "delete", `deleteProduct(${JSON.stringify(product.id)})`)}` : ""}`;
   return `
     <div class="product-list-summary"><span>共 ${list.length} 个商品，当前显示 ${pageData.items.length} 个</span>${canExport ? `<span>已选 ${selected.size} 个</span>` : ""}</div>
     <div class="card table-wrap product-table">
@@ -3667,10 +3668,28 @@ function productTableResultsHtml(list, pageData, canManage = isAdmin(), canExpor
             <td>${html(p.unit)}</td>
             <td class="num">${money(p.price)}</td>
             <td><span class="badge ${isProductActive(p) ? "success" : "danger"}">${html(p.status || "在售")}</span></td>
-            <td class="row-actions">${actionButton("查看图片", "view", `openModal('productImage',${JSON.stringify(p.id)})`)}${canManage ? `${actionButton("编辑", "edit", `openModal('product',${JSON.stringify(p.id)})`)}${actionButton("删除", "delete", `deleteProduct(${JSON.stringify(p.id)})`)}` : ""}</td>
+            <td class="product-actions-cell"><div class="row-actions">${productActions(p)}</div></td>
           </tr>
         `).join("")}</tbody>
       </table>
+    </div>
+    <div class="product-mobile-list">
+      ${pageData.items.map((p) => `
+        <article class="product-mobile-item">
+          ${canExport ? `<label class="product-mobile-select" title="选择商品"><input type="checkbox" ${selected.has(p.id) ? "checked" : ""} onchange="toggleProductSelection(${jsArg(p.id)},this.checked)" /></label>` : ""}
+          ${productThumbnail(p, "small")}
+          <div class="product-mobile-info">
+            <strong>${html(p.name)}</strong>
+            <span>${html(p.spec || "无规格")}</span>
+            <small>${html(p.cat1 || "-")} / ${html(p.cat2 || "-")} · ${html(p.unit || "-")}</small>
+          </div>
+          <div class="product-mobile-side">
+            <strong>${money(p.price)}</strong>
+            <span class="badge ${isProductActive(p) ? "success" : "danger"}">${html(p.status || "在售")}</span>
+          </div>
+          <div class="row-actions">${productActions(p)}</div>
+        </article>
+      `).join("")}
     </div>
     ${paginationControls("products", pageData.page, pageData.totalPages, pageData.total)}
   `;
@@ -3894,16 +3913,16 @@ function renderCreateOrder() {
   const productList = filteredProducts().filter(isProductActive);
   const pageData = paginateList(productList, "createProducts", EDIT_PAGE_SIZES.createProducts);
   const salespersonField = canChooseSalesperson()
-    ? `<div class="field"><label>代下单销售人员</label><select class="select" onchange="setOrderSalesperson(this.value)">${activeSalesUsers().map((u) => `<option value="${html(u.id)}" ${u.id === state.salesUserId ? "selected" : ""}>${html(u.name)}</option>`).join("")}</select></div>`
+    ? `<div class="field order-salesperson-field"><label>代下单销售人员</label><select class="select" onchange="setOrderSalesperson(this.value)">${activeSalesUsers().map((u) => `<option value="${html(u.id)}" ${u.id === state.salesUserId ? "selected" : ""}>${html(u.name)}</option>`).join("")}</select></div>`
     : "";
   return `
-    <div class="card card-pad" style="margin-bottom:16px">
-      <div class="form-grid">
+    <div class="card card-pad create-order-meta-card" style="margin-bottom:16px">
+      <div class="form-grid create-order-meta-grid">
         <div class="field edit-customer-field"><label>选择客户 *</label><div class="edit-customer-combobox"><input id="createCustomerSearch" class="input" value="${html(state.createCustomerQuery)}" placeholder="${customerList.length ? "输入客户姓名或电话搜索" : "该销售人员暂无客户"}" autocomplete="off" role="combobox" onfocus="openCreateCustomerPicker();this.select()" onblur="closeCreateCustomerPicker()" oncompositionstart="this.dataset.composing='true'" oncompositionend="this.dataset.composing='false';updateCreateCustomerSearch(this)" oninput="updateCreateCustomerSearch(this)" /><div id="createCustomerResults" class="edit-customer-results hidden">${renderCreateCustomerResults()}</div></div></div>
         ${salespersonField}
-        <div class="field address-history-field"><label>送货地址</label><div class="address-history-combobox"><input id="orderAddressInput" class="input" value="${html(state.orderAddress)}" placeholder="输入新地址，或选择历史下单地址" autocomplete="off" onfocus="openAddressHistory('create')" onclick="openAddressHistory('create')" onblur="closeAddressHistory('create')" oninput="updateOrderDraftField('address',this.value)" />${addressHistoryMenuHtml(customer?.id || "", "create")}</div></div>
-        <div class="field"><label>收货人手机号 *</label><input id="orderPhoneInput" class="input" value="${html(state.orderPhone)}" oninput="updateOrderDraftField('phone',this.value)" /></div>
-        <div class="field" style="grid-column:1/-1"><label>订单备注</label><textarea id="orderRemarkInput" class="textarea compact-textarea" placeholder="可填写配送说明、客户要求等" oninput="updateOrderDraftField('remark',this.value)">${html(state.orderRemark)}</textarea></div>
+        <div class="field address-history-field order-address-field"><label>送货地址</label><div class="address-history-combobox"><input id="orderAddressInput" class="input" value="${html(state.orderAddress)}" placeholder="输入新地址，或选择历史下单地址" autocomplete="off" onfocus="openAddressHistory('create')" onclick="openAddressHistory('create')" onblur="closeAddressHistory('create')" oninput="updateOrderDraftField('address',this.value)" />${addressHistoryMenuHtml(customer?.id || "", "create")}</div></div>
+        <div class="field order-phone-field"><label>收货人手机号 *</label><input id="orderPhoneInput" class="input" value="${html(state.orderPhone)}" oninput="updateOrderDraftField('phone',this.value)" /></div>
+        <div class="field order-remark-field" style="grid-column:1/-1"><label>订单备注</label><textarea id="orderRemarkInput" class="textarea compact-textarea" placeholder="可填写配送说明、客户要求等" oninput="updateOrderDraftField('remark',this.value)">${html(state.orderRemark)}</textarea></div>
       </div>
     </div>
     <div class="product-layout create-product-layout">
