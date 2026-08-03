@@ -48,6 +48,7 @@ const finalCreateOrder = appSource.slice(
 assert(finalCreateOrder.includes("mobile-product-filters"), "手机商品搜索和分类必须有独立的吸顶容器");
 assert(finalCreateOrder.includes("create-product-layout"), "开单商品区必须提供手机布局挂载类");
 assert(finalCreateOrder.includes("create-order-meta-card"), "开单资料区必须提供紧凑手机布局挂载类");
+assert(finalCreateOrder.includes("create-order-summary"), "手机开单客户和配送信息必须提供可展开摘要");
 
 const finalSetRoute = appSource.slice(
   appSource.lastIndexOf("function setRoute"),
@@ -71,9 +72,13 @@ assert(mobileStyles.includes(".product-card > :nth-child(2)"), "手机商品文�
 assert(mobileStyles.includes(".product-card .product-thumb-button.catalog"), "手机商品缩略图尺寸必须与卡片网格列一致");
 assert(appSource.includes('<td class="product-actions-cell"><div class="row-actions">'), "商品表格操作按钮必须包在正常表格单元格内，避免手机端错行");
 assert(appSource.includes('class="product-mobile-list"'), "产品管理必须提供不依赖横向表格的手机商品列表");
-assert(mobileStyles.includes("Mobile compact list layout (option B)"), "手机端必须采用已确认的 B 版高密度清单布局");
-assert(mobileStyles.includes(".create-product-column .product-card-qty"), "B 版已选商品数量控件必须固定在商品行右侧");
+assert(mobileStyles.includes("Mobile table-card hybrid layout (option D)"), "手机端必须采用已确认的 D 版表卡混合布局");
+assert(mobileStyles.includes(".create-product-column .product-card-qty"), "D 版已选商品数量控件必须固定在商品行右侧");
 assert(mobileStyles.includes(".route-products .product-table"), "手机产品管理必须隐藏桌面宽表格");
 assert(mobileStyles.includes(".product-mobile-item"), "手机产品管理必须渲染紧凑商品卡片");
+assert(mobileStyles.includes(".create-product-layout,"), "开单商品列必须限制手机端宽度，避免分类标签撑宽页面");
+assert(mobileStyles.includes(".mobile-product-filters .subcategory-panel-head"), "手机二级分类必须移除占高的大标题面板");
+assert(appSource.includes('class="user-mobile-list"'), "人员管理必须提供手机表卡列表");
+assert(mobileStyles.includes(".route-costs .cost-summary-grid"), "成本控制五项指标必须提供手机紧凑布局");
 
 console.log("Mobile sales workflow layout tests passed");

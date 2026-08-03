@@ -74,6 +74,7 @@ const state = {
   dashboardCustomerDetail: "",
   mobileMoreOpen: false,
   mobileCartOpen: false,
+  mobileOrderDetailsOpen: false,
   assistantSide: (() => {
     try {
       return localStorage.getItem("xiaocai-side") === "left" ? "left" : "right";
@@ -196,7 +197,13 @@ function selectOrderCustomer(customerId) {
   state.selectedCustomerId = customerId;
   state.createCustomerQuery = orderCustomerLabel(customer);
   state.createCustomerPickerOpen = false;
+  state.mobileOrderDetailsOpen = false;
   resetOrderDraft(customer);
+  render();
+}
+
+function toggleMobileOrderDetails() {
+  state.mobileOrderDetailsOpen = !state.mobileOrderDetailsOpen;
   render();
 }
 
@@ -1426,16 +1433,25 @@ function cycleStatus(orderId) {
 }
 
 function renderUsers() {
+  const list = filteredUsers();
   return `
     <div class="toolbar">
       <input id="userSearchInput" class="input" placeholder="搜索姓名/手机号/角色" value="${state.query}" oninput="updatePageQuery(this)" />
       <div class="spacer"></div>
       <button class="btn primary" onclick="openModal('user')">＋ 添加人员</button>
     </div>
-    <div class="card table-wrap">
+    <div class="card table-wrap user-table">
       <table><thead><tr><th>姓名</th><th>登录手机号</th><th>登录密码</th><th>角色定位</th><th>账号状态</th><th>权限说明</th><th>操作</th></tr></thead>
-      <tbody>${filteredUsers().map((u) => `<tr><td><strong>${u.name}</strong></td><td>${u.phone}</td><td class="num">${maskPassword(u.password)}</td><td>${u.role}</td><td><span class="badge ${u.status === "启用" ? "success" : "danger"}">${u.status}</span></td><td>${roleDesc(u.role)}</td><td>${actionButton("编辑", "edit", `openModal('user','${u.id}')`)}${actionButton(u.status === "启用" ? "停用" : "启用", "refresh", `toggleUserStatus('${u.id}')`)}</td></tr>`).join("")}</tbody></table>
+      <tbody>${list.map((u) => `<tr><td><strong>${u.name}</strong></td><td>${u.phone}</td><td class="num">${maskPassword(u.password)}</td><td>${u.role}</td><td><span class="badge ${u.status === "启用" ? "success" : "danger"}">${u.status}</span></td><td>${roleDesc(u.role)}</td><td>${actionButton("编辑", "edit", `openModal('user','${u.id}')`)}${actionButton(u.status === "启用" ? "停用" : "启用", "refresh", `toggleUserStatus('${u.id}')`)}</td></tr>`).join("")}</tbody></table>
     </div>
+    <div class="mobile-table-head user-mobile-head"><span>人员 / 手机</span><span>角色 / 状态</span><span>操作</span></div>
+    <div class="user-mobile-list">${list.map((u) => `
+      <article class="user-mobile-item">
+        <div><strong>${html(u.name)}</strong><span>${html(u.phone || "-")}</span></div>
+        <div><b>${html(u.role || "-")}</b><span class="badge ${u.status === "启用" ? "success" : "danger"}">${html(u.status || "-")}</span></div>
+        <small>${html(roleDesc(u.role))}</small>
+        <div class="row-actions">${actionButton("编辑", "edit", `openModal('user','${u.id}')`)}${actionButton(u.status === "启用" ? "停用" : "启用", "refresh", `toggleUserStatus('${u.id}')`)}</div>
+      </article>`).join("")}</div>
   `;
 }
 
@@ -3381,6 +3397,7 @@ function renderCustomers() {
       ${canChooseSalesperson() ? `<select class="select compact-select" onchange="updateCustomerOwnerFilter(this.value)">${salesFilterOptions(state.customerOwnerFilter)}</select>` : ""}
       <button class="btn primary" onclick="openModal('customer')">＋ 新增客户</button>
     </div>
+    <div class="mobile-table-head customer-mobile-head"><span>客户 / 联系方式</span><span>成交数据</span><span>操作</span></div>
     <div class="customer-list">${list.length ? list.map(customerCard).join("") : `<div class="empty">没有符合条件的客户</div>`}</div>
   `;
 }
@@ -3673,6 +3690,7 @@ function productTableResultsHtml(list, pageData, canManage = isAdmin(), canExpor
         `).join("")}</tbody>
       </table>
     </div>
+    <div class="mobile-table-head product-mobile-head"><span>商品 / 规格</span><span>价格 / 状态</span><span>操作</span></div>
     <div class="product-mobile-list">
       ${pageData.items.map((p) => `
         <article class="product-mobile-item">
@@ -3917,13 +3935,17 @@ function renderCreateOrder() {
     : "";
   return `
     <div class="card card-pad create-order-meta-card" style="margin-bottom:16px">
-      <div class="form-grid create-order-meta-grid">
+      <button type="button" class="create-order-summary" aria-expanded="${state.mobileOrderDetailsOpen}" onclick="toggleMobileOrderDetails()">
+        <span><strong>${html(customer?.name || "请选择客户")}</strong><small>${html(customer ? `${customer.phone || "未填写电话"} · ${state.orderAddress || "未填写地址"}` : "点击展开客户与配送信息")}</small></span>
+        <b>${state.mobileOrderDetailsOpen ? "收起" : "展开"}⌄</b>
+      </button>
+      <div class="create-order-meta-details ${state.mobileOrderDetailsOpen ? "is-open" : ""}"><div class="form-grid create-order-meta-grid">
         <div class="field edit-customer-field"><label>选择客户 *</label><div class="edit-customer-combobox"><input id="createCustomerSearch" class="input" value="${html(state.createCustomerQuery)}" placeholder="${customerList.length ? "输入客户姓名或电话搜索" : "该销售人员暂无客户"}" autocomplete="off" role="combobox" onfocus="openCreateCustomerPicker();this.select()" onblur="closeCreateCustomerPicker()" oncompositionstart="this.dataset.composing='true'" oncompositionend="this.dataset.composing='false';updateCreateCustomerSearch(this)" oninput="updateCreateCustomerSearch(this)" /><div id="createCustomerResults" class="edit-customer-results hidden">${renderCreateCustomerResults()}</div></div></div>
         ${salespersonField}
         <div class="field address-history-field order-address-field"><label>送货地址</label><div class="address-history-combobox"><input id="orderAddressInput" class="input" value="${html(state.orderAddress)}" placeholder="输入新地址，或选择历史下单地址" autocomplete="off" onfocus="openAddressHistory('create')" onclick="openAddressHistory('create')" onblur="closeAddressHistory('create')" oninput="updateOrderDraftField('address',this.value)" />${addressHistoryMenuHtml(customer?.id || "", "create")}</div></div>
         <div class="field order-phone-field"><label>收货人手机号 *</label><input id="orderPhoneInput" class="input" value="${html(state.orderPhone)}" oninput="updateOrderDraftField('phone',this.value)" /></div>
         <div class="field order-remark-field" style="grid-column:1/-1"><label>订单备注</label><textarea id="orderRemarkInput" class="textarea compact-textarea" placeholder="可填写配送说明、客户要求等" oninput="updateOrderDraftField('remark',this.value)">${html(state.orderRemark)}</textarea></div>
-      </div>
+      </div></div>
     </div>
     <div class="product-layout create-product-layout">
       <div class="create-product-column">
@@ -4040,6 +4062,7 @@ function renderOrders() {
       <div class="spacer"></div>
       <button class="btn primary" onclick="state.orderType='sale';setRoute('create')">开单</button>
     </div>
+    <div class="mobile-table-head order-mobile-head"><span>订单 / 客户</span><span>金额 / 状态</span><span>操作</span></div>
     <div class="order-list">${pageData.items.length ? pageData.items.map(orderCard).join("") : `<div class="empty">没有符合条件的订单</div>`}</div>
     ${paginationControls("orders", pageData.page, pageData.totalPages, pageData.total)}
   `;
@@ -5420,6 +5443,7 @@ function openOrderRoute(type = "sale") {
   state.modal = null;
   state.mobileMoreOpen = false;
   state.mobileCartOpen = false;
+  state.mobileOrderDetailsOpen = false;
   state.query = "";
   if (typeof resetPage === "function") resetPage("createProducts");
   ensureSalesScope();
@@ -5435,6 +5459,7 @@ function setRoute(route) {
   state.modal = null;
   state.mobileMoreOpen = false;
   state.mobileCartOpen = false;
+  if (route === "create" || route === "returns") state.mobileOrderDetailsOpen = false;
   if (route === "returns") state.orderType = "return";
   if (route === "create") state.orderType = "sale";
   if (state.orderType !== previousType) restoreCart(state.orderType);
@@ -6204,6 +6229,7 @@ Object.assign(window, {
   deleteOrder,
   saveCustomer,
   selectOrderCustomer,
+  toggleMobileOrderDetails,
   openCreateCustomerPicker,
   closeCreateCustomerPicker,
   updateCreateCustomerSearch,
