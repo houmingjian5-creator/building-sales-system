@@ -75,19 +75,11 @@ const state = {
   mobileMoreOpen: false,
   mobileCartOpen: false,
   mobileOrderDetailsOpen: false,
-  assistantSide: (() => {
-    try {
-      return localStorage.getItem("xiaocai-side") === "left" ? "left" : "right";
-    } catch (_) {
-      return "right";
-    }
-  })(),
 };
 
 let inputRenderTimer = null;
 let assistantAbortController = null;
 let assistantStageTimer = null;
-let suppressAssistantClick = false;
 
 let salesUsers = [
   { id: "u1", name: "钱锦健", phone: "13800000001", role: "超级管理员", status: "启用" },
@@ -452,6 +444,10 @@ function render() {
           ${isAdmin() ? navButton("users", "人员管理") : ""}
           ${isAdmin() ? navButton("costs", "成本控制") : ""}
         </nav>
+        <button type="button" class="side-assistant-entry ${state.assistantOpen ? "active" : ""}" onclick="openXiaocai()">
+          <img src="./assets/xiaocai.png" alt="" />
+          <span><strong>小材</strong><small>AI 业务助手</small></span>
+        </button>
         <div class="side-user">
           <strong>${state.user.name}</strong>
           <div class="hint" style="color: rgba(255,255,255,.75)">${state.user.role}</div>
@@ -635,6 +631,7 @@ function renderMobileMoreSheet() {
         <div class="mobile-sheet-handle"></div>
         <div class="mobile-sheet-head"><div><strong>更多功能</strong><span>${html(state.user?.name || "")} · ${html(state.user?.role || "")}</span></div><button type="button" class="icon-btn" onclick="closeMobileMore()" aria-label="关闭">×</button></div>
         <div class="mobile-more-grid">
+          <button type="button" class="mobile-assistant-entry" onclick="openXiaocai()"><span class="nav-icon"><img src="./assets/xiaocai.png" alt="" /></span><span>小材 AI 助手</span></button>
           ${mobileMoreRouteButton("products", "产品管理")}
           ${mobileMoreRouteButton("returns", "退货开单")}
           ${isAdmin() ? mobileMoreRouteButton("users", "人员管理") : ""}
@@ -5942,12 +5939,9 @@ function assistantMessageHtml(message, index) {
 }
 
 function renderXiaocai() {
-  if (!state.user) return "";
-  const sideClass = state.assistantSide === "left" ? "is-left" : "is-right";
-  const cartClass = ["create", "returns"].includes(state.route) ? "has-mobile-cart" : "";
+  if (!state.user || !state.assistantOpen) return "";
   return `
-    <div class="xiaocai-assistant ${sideClass} ${cartClass} ${state.assistantOpen ? "is-open" : ""}">
-      ${state.assistantOpen ? `
+    <div class="xiaocai-assistant is-docked is-open">
         <section class="xiaocai-panel" aria-label="小材 AI 业务助手">
           <header class="xiaocai-head">
             <div class="xiaocai-identity"><img src="./assets/xiaocai.png" alt="" /><div><strong>小材</strong><span><i></i>AI 业务助手</span></div></div>
@@ -5967,10 +5961,6 @@ function renderXiaocai() {
             <div><span>只读访问权限内数据 · 联网内容会显示来源</span>${state.assistantLoading ? `<button type="button" class="xiaocai-stop" onclick="stopXiaocai()">停止</button>` : `<button type="button" class="xiaocai-send" title="发送" aria-label="发送" onclick="sendXiaocai()">${svgIcon("arrowRight")}</button>`}</div>
           </footer>
         </section>
-      ` : ""}
-      <button type="button" class="xiaocai-launcher" title="打开小材 AI 助手" aria-label="打开小材 AI 助手" onpointerdown="startXiaocaiDrag(event)" onclick="toggleXiaocai()">
-        <span class="xiaocai-pulse"></span><img src="./assets/xiaocai.png" alt="" /><strong>小材</strong>
-      </button>
     </div>
   `;
 }
@@ -6000,7 +5990,6 @@ async function loadXiaocaiHistory() {
 }
 
 function toggleXiaocai() {
-  if (suppressAssistantClick) return;
   state.assistantOpen = !state.assistantOpen;
   render();
   if (state.assistantOpen) {
@@ -6008,6 +5997,17 @@ function toggleXiaocai() {
     scrollXiaocaiToBottom();
     requestAnimationFrame(() => document.getElementById("xiaocaiInput")?.focus());
   }
+}
+
+function openXiaocai() {
+  state.mobileMoreOpen = false;
+  state.mobileCartOpen = false;
+  if (state.assistantOpen) return;
+  state.assistantOpen = true;
+  render();
+  loadXiaocaiHistory();
+  scrollXiaocaiToBottom();
+  requestAnimationFrame(() => document.getElementById("xiaocaiInput")?.focus());
 }
 
 function handleXiaocaiKey(event) {
@@ -6185,40 +6185,6 @@ function openXiaocaiRoute(route) {
   setRoute(route);
 }
 
-function startXiaocaiDrag(event) {
-  if (window.matchMedia("(max-width: 720px)").matches) return;
-  const launcher = event.currentTarget;
-  const startX = event.clientX;
-  const startY = event.clientY;
-  let moved = false;
-  launcher.setPointerCapture?.(event.pointerId);
-  const move = (moveEvent) => {
-    const dx = moveEvent.clientX - startX;
-    const dy = moveEvent.clientY - startY;
-    if (Math.hypot(dx, dy) > 6) moved = true;
-    launcher.style.transform = `translate(${dx}px, ${dy}px)`;
-  };
-  const finish = (upEvent) => {
-    launcher.removeEventListener("pointermove", move);
-    launcher.removeEventListener("pointerup", finish);
-    launcher.removeEventListener("pointercancel", finish);
-    launcher.style.transform = "";
-    if (!moved) return;
-    suppressAssistantClick = true;
-    state.assistantSide = upEvent.clientX < window.innerWidth / 2 ? "left" : "right";
-    try {
-      localStorage.setItem("xiaocai-side", state.assistantSide);
-    } catch (_) {
-      // Keep the selected side for this session.
-    }
-    render();
-    setTimeout(() => { suppressAssistantClick = false; }, 0);
-  };
-  launcher.addEventListener("pointermove", move);
-  launcher.addEventListener("pointerup", finish);
-  launcher.addEventListener("pointercancel", finish);
-}
-
 Object.assign(window, {
   setRoute,
   openOrderRoute,
@@ -6281,13 +6247,13 @@ Object.assign(window, {
   logout,
   toggleLoginPassword,
   toggleXiaocai,
+  openXiaocai,
   sendXiaocai,
   stopXiaocai,
   retryXiaocai,
   clearXiaocaiHistory,
   openXiaocaiRoute,
   handleXiaocaiKey,
-  startXiaocaiDrag,
 });
 
 bindGlobalClickHandlers();

@@ -1208,7 +1208,9 @@ button {
 .sidebar {
   position: fixed;
   inset: 0 auto 0 0;
+  display: flex;
   width: 236px;
+  flex-direction: column;
   background: linear-gradient(180deg, var(--primary), var(--primary-dark));
   color: white;
   box-shadow: 12px 0 28px rgba(35, 61, 147, 0.16);
@@ -1233,9 +1235,12 @@ button {
 }
 
 .nav {
-  padding: 16px 12px;
   display: grid;
+  flex: 1 1 auto;
   gap: 6px;
+  align-content: start;
+  overflow-y: auto;
+  padding: 16px 12px;
 }
 
 .nav button {
@@ -1279,13 +1284,57 @@ button {
 }
 
 .side-user {
-  position: absolute;
-  left: 12px;
-  right: 12px;
-  bottom: 14px;
+  flex: 0 0 auto;
+  margin: 8px 12px 14px;
   border-radius: 8px;
   padding: 12px;
   background: rgba(255, 255, 255, 0.12);
+}
+
+.side-assistant-entry {
+  display: flex;
+  min-height: 58px;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 10px;
+  margin: 4px 12px 0;
+  padding: 7px 10px;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.1);
+  color: #fff;
+  text-align: left;
+  cursor: pointer;
+}
+
+.side-assistant-entry:hover,
+.side-assistant-entry.active {
+  border-color: rgba(255, 255, 255, 0.42);
+  background: rgba(255, 255, 255, 0.2);
+}
+
+.side-assistant-entry img {
+  width: 42px;
+  height: 42px;
+  flex: 0 0 42px;
+  border: 2px solid rgba(255, 255, 255, 0.55);
+  border-radius: 50%;
+  object-fit: cover;
+}
+
+.side-assistant-entry span {
+  display: grid;
+  min-width: 0;
+  gap: 2px;
+}
+
+.side-assistant-entry strong {
+  font-size: 14px;
+}
+
+.side-assistant-entry small {
+  color: rgba(255, 255, 255, 0.72);
+  font-size: 11px;
 }
 
 .main {
@@ -2339,6 +2388,12 @@ tbody tr:hover {
 .xiaocai-assistant.is-right { right: 24px; }
 .xiaocai-assistant.is-left { left: 24px; }
 
+.xiaocai-assistant.is-docked {
+  right: 24px;
+  bottom: 24px;
+  left: auto;
+}
+
 .xiaocai-launcher {
   position: relative;
   display: grid;
@@ -2407,6 +2462,13 @@ tbody tr:hover {
 
 .xiaocai-assistant.is-right .xiaocai-panel { right: 0; }
 .xiaocai-assistant.is-left .xiaocai-panel { left: 0; }
+
+.xiaocai-assistant.is-docked .xiaocai-panel {
+  position: relative;
+  right: auto;
+  bottom: auto;
+  left: auto;
+}
 
 .xiaocai-head {
   display: flex;
@@ -6968,6 +7030,19 @@ tbody tr:hover {
     border-radius: 9px;
     background: #e9effc;
     color: var(--primary);
+  }
+
+  .mobile-more-grid .mobile-assistant-entry .nav-icon {
+    overflow: hidden;
+    padding: 0;
+    border-radius: 50%;
+    background: #123b87;
+  }
+
+  .mobile-more-grid .mobile-assistant-entry .nav-icon img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
   }
 
   .mobile-logout-button {

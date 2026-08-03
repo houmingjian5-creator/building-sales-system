@@ -30,6 +30,7 @@ const mobileMoreSource = appSource.slice(
 );
 assert(mobileMoreSource.includes('mobileMoreRouteButton("products"'), "更多抽屉必须包含产品管理");
 assert(mobileMoreSource.includes('mobileMoreRouteButton("returns"'), "更多抽屉必须包含退货开单");
+assert(mobileMoreSource.includes('class="mobile-assistant-entry"'), "更多抽屉必须包含固定的小材入口");
 assert(mobileMoreSource.includes('isAdmin() ? mobileMoreRouteButton("users"'), "人员管理必须继续受管理员权限控制");
 assert(mobileMoreSource.includes('isAdmin() ? mobileMoreRouteButton("costs"'), "成本控制必须继续受管理员权限控制");
 
@@ -65,7 +66,9 @@ assert(mobileStyles.includes("env(safe-area-inset-bottom)"), "手机底部控件
 assert(mobileStyles.includes(".modal-backdrop"), "手机弹层必须覆盖底部导航和结算条");
 assert(mobileStyles.includes(".dashboard-metric-grid.month-metrics"), "手机概览指标必须单独优化");
 assert(mobileStyles.includes("grid-template-columns: repeat(2"), "手机概览指标必须采用两列布局");
-assert(mobileStyles.includes(".xiaocai-assistant.has-mobile-cart:not(.is-open)"), "小材入口必须避让手机购物车");
+assert(renderShellSource.includes('class="side-assistant-entry'), "电脑侧栏必须包含固定的小材入口");
+assert(appSource.includes('if (!state.user || !state.assistantOpen) return "";'), "小材关闭时不得渲染悬浮入口");
+assert(!appSource.includes('class="xiaocai-launcher"'), "电脑和手机端不得继续渲染悬浮小材按钮");
 assert(mobileStyles.includes("height: 100dvh"), "手机 AI 对话和弹层必须使用动态视口高度");
 assert(mobileStyles.includes(".order-icon-toolbar .order-action-edit"), "手机订单次要操作必须收进更多菜单");
 assert(mobileStyles.includes(".product-card > :nth-child(2)"), "手机商品文字区域必须允许收缩，不能把加购按钮挤出屏幕");
