@@ -28,6 +28,35 @@ async function run() {
   assert.strictEqual(server.canViewProductCost({ role: "管理员" }), true);
   assert.strictEqual(server.canViewProductCost({ role: "超级管理员" }), true);
   assert.strictEqual(server.canViewProductCost({ role: "财务" }), false);
+  assert.strictEqual(server.canExportProductWorkbook({ role: "销售人员" }), false);
+  assert.strictEqual(server.canExportProductWorkbook({ role: "财务" }), true);
+  assert.strictEqual(server.canExportProductWorkbook({ role: "管理员" }), true);
+  assert.deepStrictEqual(server.productImageFiles({ imageFile: "abcdef1234567890-1.jpg" }), ["abcdef1234567890-1.jpg"]);
+  assert.deepStrictEqual(server.productImageFiles({
+    imageFile: "abcdef1234567890-1.jpg",
+    imageFiles: ["abcdef1234567890-1.jpg", "abcdef1234567890-2.webp", "../unsafe.png"]
+  }), ["abcdef1234567890-1.jpg", "abcdef1234567890-2.webp"]);
+  assert.deepStrictEqual(server.publicProduct({ ...product, imageFiles: ["abcdef1234567890-1.jpg", "abcdef1234567890-2.webp"] }).imageUrls, [
+    "/api/product-images/abcdef1234567890-1.jpg",
+    "/api/product-images/abcdef1234567890-2.webp"
+  ]);
+
+  const pendingOrder = { id: "pending", salesUserId: "sales-1", status: "待确认" };
+  assert.strictEqual(server.canDeleteOrder({ id: "sales-1", role: "销售人员" }, pendingOrder), true);
+  assert.strictEqual(server.canDeleteOrder({ id: "sales-2", role: "销售人员" }, pendingOrder), false);
+  assert.strictEqual(server.canDeleteOrder({ id: "sales-1", role: "销售人员" }, { ...pendingOrder, status: "已确认" }), false);
+  assert.strictEqual(server.canDeleteOrder({ id: "admin", role: "管理员" }, { ...pendingOrder, status: "已完成" }), true);
+  assert.strictEqual(server.canDeleteOrder({ id: "finance", role: "财务" }, pendingOrder), false);
+
+  const companyCustomers = [
+    { id: "customer-a", ownerId: "sales-1", phone: "138 0000 0001" },
+    { id: "customer-b", ownerId: "sales-2", phone: "028-88886666" }
+  ];
+  assert.strictEqual(server.normalizeCustomerPhone("+86 138-0000-0001"), "13800000001");
+  assert.strictEqual(server.customerPhoneExists(companyCustomers, "13800000001"), true, "客户电话必须跨销售全局唯一");
+  assert.strictEqual(server.customerPhoneExists(companyCustomers, "028 8888 6666"), true);
+  assert.strictEqual(server.customerPhoneExists(companyCustomers, "13800000001", "customer-a"), false, "编辑客户自身时应排除自身记录");
+  assert.strictEqual(server.customerPhoneExists(companyCustomers, "13900000001"), false);
 
   const order = {
     id: "o1",
@@ -80,6 +109,28 @@ async function run() {
   const headers = workbook.sheet("产品").usedRange().value()[0];
   assert.ok(headers.includes("销售价"));
   assert.ok(!headers.includes("成本价"));
+
+  const serverSource = fs.readFileSync(path.join(__dirname, "../server.js"), "utf8");
+  const exportRoute = serverSource.slice(
+    serverSource.indexOf('url.pathname === "/api/products/export"'),
+    serverSource.indexOf('url.pathname === "/api/products/import"')
+  );
+  assert(exportRoute.includes("canExportProductWorkbook(user)"), "商品表格导出接口必须禁止销售人员");
+
+  const appSource = fs.readFileSync(path.join(__dirname, "../public/app.js"), "utf8");
+  const finalProductRender = appSource.slice(
+    appSource.lastIndexOf("function renderProducts"),
+    appSource.indexOf("function productThumbnail", appSource.lastIndexOf("function renderProducts"))
+  );
+  assert(finalProductRender.includes('${canExport ? `<button id="productExportSelectedBtn"'), "商品导出按钮必须对销售人员隐藏");
+  assert(appSource.includes('multiple hidden onchange="previewProductImage(this)"'), "商品图片选择必须支持多选");
+  assert(appSource.includes("prepareProductImage"), "商品图片上传前必须经过压缩处理");
+  assert(appSource.includes('order.status === "待确认"'), "销售人员删除订单入口必须限制为待确认状态");
+  const customerRoutes = serverSource.slice(
+    serverSource.indexOf('url.pathname === "/api/customers"'),
+    serverSource.indexOf('method === "GET" && url.pathname.startsWith("/api/product-images/")')
+  );
+  assert(customerRoutes.split("customerPhoneExists").length >= 3, "新增和编辑客户都必须校验全局电话唯一性");
 
   const tempPath = path.join(os.tmpdir(), `building-sales-security-${process.pid}-${Date.now()}.json`);
   const previousPath = `${tempPath}.previous`;

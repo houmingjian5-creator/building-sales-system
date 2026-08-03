@@ -243,6 +243,10 @@ function canViewProductCost(user) {
   return Boolean(user && ["\u8d85\u7ea7\u7ba1\u7406\u5458", "\u7ba1\u7406\u5458"].includes(user.role));
 }
 
+function canExportProductWorkbook(user) {
+  return Boolean(user && user.role !== "销售人员");
+}
+
 function normalizeText(value) {
   return String(value || '')
     .toLowerCase()
@@ -295,14 +299,30 @@ function productAliases(product) {
   return [...new Set(terms.filter(Boolean))];
 }
 
+function productImageFiles(product) {
+  const validName = /^[a-f0-9-]+\.(?:png|jpg|webp)$/i;
+  const storedFiles = Array.isArray(product && product.imageFiles) ? product.imageFiles.slice() : [];
+  if (product && product.imageFile) storedFiles.push(product.imageFile);
+  return Array.from(new Set(storedFiles.map(function (file) {
+    return String(file || "").trim();
+  }).filter(function (file) {
+    return validName.test(file);
+  }))).slice(0, 6);
+}
+
 function publicProduct(product, options) {
+  const imageFiles = productImageFiles(product);
+  const imageUrls = imageFiles.map(function (file) {
+    return `/api/product-images/${encodeURIComponent(file)}`;
+  });
   const result = {
     id: product.id,
     code: product.code || product.id,
     brand: product.brand || product.cat1 || '',
     cat1: product.cat1 || '',
     cat2: product.cat2 || '',
-    imageUrl: product.imageFile ? `/api/product-images/${encodeURIComponent(product.imageFile)}` : '',
+    imageUrl: imageUrls[0] || '',
+    imageUrls: imageUrls,
     name: product.name || '',
     spec: product.spec || '',
     unit: product.unit || '',
@@ -318,6 +338,7 @@ function publicProduct(product, options) {
 
 function normalizeProductPayload(payload, existing = {}) {
   const cat1 = payload.cat1 || existing.cat1 || '\u8f85\u52a9\u5546\u54c1';
+  const imageFiles = productImageFiles(existing);
   return {
     ...existing,
     id: existing.id || payload.id || payload.code || newId(),
@@ -334,7 +355,8 @@ function normalizeProductPayload(payload, existing = {}) {
     aliases: splitAliases(payload.aliases !== undefined ? payload.aliases : existing.aliases),
     color: existing.color || payload.color || '#dbe4ef',
     stock: Number(existing.stock || payload.stock || 0),
-    imageFile: existing.imageFile || '',
+    imageFile: imageFiles[0] || '',
+    imageFiles: imageFiles,
   };
 }
 
@@ -459,11 +481,11 @@ async function parseProductWorkbook(buffer, db) {
 }
 
 function productImageInfo(dataUrl) {
-  const match = String(dataUrl || '').match(/^data:(image\/(?:png|jpeg|webp));base64,([A-Za-z0-9+/=\s]+)$/);
+  const match = String(dataUrl || '').match(/^data:(image\/(?:png|jpeg|jpg|webp));base64,([A-Za-z0-9+/=\s]+)$/);
   if (!match) throw new Error('仅支持 PNG、JPG 或 WebP 图片');
   const buffer = Buffer.from(match[2].replace(/\s/g, ''), 'base64');
   if (!buffer.length || buffer.length > 3 * 1024 * 1024) throw new Error('图片大小必须在 3MB 以内');
-  const mime = match[1];
+  const mime = match[1] === 'image/jpg' ? 'image/jpeg' : match[1];
   const valid = mime === 'image/png'
     ? buffer.slice(0, 8).equals(Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]))
     : mime === 'image/jpeg'
@@ -474,6 +496,14 @@ function productImageInfo(dataUrl) {
 }
 
 const ORDER_STATUS_OPTIONS = new Set(['待确认', '已确认', '已发货', '已完成', '已取消', '已退货']);
+
+function canDeleteOrder(user, order) {
+  if (!user || !order || order.deletedAt) return false;
+  if (user.role === '超级管理员' || user.role === '管理员') return true;
+  return user.role === '销售人员'
+    && order.status === '待确认'
+    && order.salesUserId === user.id;
+}
 
 function normalizePayStatus(value) {
   if (value === '已付款' || value === '已回款') return '已付款';
@@ -681,6 +711,21 @@ function customerBelongsToSalesperson(db, customerId, salesUserId) {
     return item.id === salesUserId && item.status !== '停用';
   });
   return Boolean(customer && salesperson && customer.ownerId === salesperson.id);
+}
+
+function normalizeCustomerPhone(value) {
+  const trimmed = String(value || "").trim();
+  const digits = trimmed.replace(/\D/g, "");
+  if (digits.length === 13 && digits.startsWith("86")) return digits.slice(2);
+  return digits || trimmed.toLowerCase();
+}
+
+function customerPhoneExists(customers, phone, excludeId) {
+  const normalized = normalizeCustomerPhone(phone);
+  if (!normalized) return false;
+  return (customers || []).some(function (customer) {
+    return customer.id !== excludeId && normalizeCustomerPhone(customer.phone) === normalized;
+  });
 }
 
 function customerOrderReferenceCount(db, customerId) {
@@ -2694,6 +2739,7 @@ async function handleApi(req, res) {
     if (method === "POST") {
       const payload = await readBody(req);
       if (!payload.name || !payload.phone) return sendError(res, 400, "客户名称和联系电话必填");
+      if (customerPhoneExists(db.customers, payload.phone)) return sendError(res, 409, "该联系电话已被其他客户使用，客户电话不能重复");
       const ownerId = user.role === "销售人员" ? user.id : payload.ownerId || user.id;
       if (!db.users.some((item) => item.id === ownerId && item.status !== "停用")) return sendError(res, 400, "所属销售不存在或已停用");
       const customer = {
@@ -2731,6 +2777,9 @@ async function handleApi(req, res) {
       const payload = await readBody(req);
       if (payload.name !== undefined && !String(payload.name).trim()) return sendError(res, 400, "客户名称必填");
       if (payload.phone !== undefined && !String(payload.phone).trim()) return sendError(res, 400, "联系电话必填");
+      if (payload.phone !== undefined && customerPhoneExists(db.customers, payload.phone, customer.id)) {
+        return sendError(res, 409, "该联系电话已被其他客户使用，客户电话不能重复");
+      }
       ["name", "contact", "phone", "email", "address"].forEach((key) => {
         if (payload[key] !== undefined) customer[key] = String(payload[key]).trim();
       });
@@ -2770,6 +2819,7 @@ async function handleApi(req, res) {
   if (method === "POST" && url.pathname === "/api/products/export") {
     const user = requireUser(req, res);
     if (!user) return;
+    if (!canExportProductWorkbook(user)) return sendError(res, 403, "销售人员不能导出商品表格");
     const payload = await readBody(req);
     const db = readDb();
     const ids = Array.isArray(payload.ids) ? new Set(payload.ids.map(String)) : null;
@@ -2810,6 +2860,33 @@ async function handleApi(req, res) {
     }
   }
 
+  if (method === "DELETE" && /^\/api\/products\/[^/]+\/images\/[^/]+$/.test(url.pathname)) {
+    if (!requireAdmin(req, res)) return;
+    const parts = url.pathname.split("/");
+    const id = decodeURIComponent(parts[3]);
+    const filename = decodeURIComponent(parts[5]);
+    if (!/^[a-f0-9-]+\.(?:png|jpg|webp)$/i.test(filename)) return sendError(res, 400, "图片路径无效");
+    const db = readDb();
+    const product = db.products.find(function (item) {
+      return item.id === id;
+    });
+    if (!product) return sendError(res, 404, "商品不存在");
+    const files = productImageFiles(product);
+    if (!files.includes(filename)) return sendError(res, 404, "商品图片不存在");
+    product.imageFiles = files.filter(function (file) {
+      return file !== filename;
+    });
+    product.imageFile = product.imageFiles[0] || "";
+    writeDb(db);
+    const imagePath = path.join(PRODUCT_IMAGE_DIR, filename);
+    try {
+      if (imagePath.startsWith(PRODUCT_IMAGE_DIR) && fs.existsSync(imagePath)) fs.unlinkSync(imagePath);
+    } catch (error) {
+      console.error(`[Product image cleanup] ${error && error.message ? error.message : error}`);
+    }
+    return sendJson(res, 200, { product: publicProduct(product, { includeCost: true }) });
+  }
+
   if (method === "PUT" && /^\/api\/products\/[^/]+\/image$/.test(url.pathname)) {
     if (!requireAdmin(req, res)) return;
     const parts = url.pathname.split("/");
@@ -2819,17 +2896,15 @@ async function handleApi(req, res) {
     const product = db.products.find((item) => item.id === id);
     if (!product) return sendError(res, 404, "商品不存在");
     try {
+      const existingFiles = productImageFiles(product);
+      if (existingFiles.length >= 6) return sendError(res, 400, "每个商品最多上传 6 张图片");
       const image = productImageInfo(payload.image);
       fs.mkdirSync(PRODUCT_IMAGE_DIR, { recursive: true });
       const filename = `${crypto.createHash("sha1").update(String(product.id)).digest("hex").slice(0, 16)}-${Date.now()}.${image.ext}`;
       fs.writeFileSync(path.join(PRODUCT_IMAGE_DIR, filename), image.buffer);
-      const previous = product.imageFile;
-      product.imageFile = filename;
+      product.imageFiles = existingFiles.concat(filename);
+      product.imageFile = product.imageFiles[0] || filename;
       writeDb(db);
-      if (previous && /^[a-f0-9-]+\.(?:png|jpg|webp)$/i.test(previous)) {
-        const previousPath = path.join(PRODUCT_IMAGE_DIR, previous);
-        if (fs.existsSync(previousPath)) fs.unlinkSync(previousPath);
-      }
       return sendJson(res, 200, { product: publicProduct(product, { includeCost: true }) });
     } catch (error) {
       return sendError(res, 400, error.message || "商品图片上传失败");
@@ -3028,7 +3103,11 @@ async function handleApi(req, res) {
     if (!order) return sendError(res, 404, "订单不存在");
     if (order.deletedAt) return sendError(res, 404, "订单已删除");
     if (method === "DELETE") {
-      if (!["超级管理员", "管理员"].includes(user.role)) return sendError(res, 403, "只有管理员可以删除订单");
+      if (!canDeleteOrder(user, order)) {
+        return sendError(res, 403, user.role === "销售人员"
+          ? "销售人员只能删除自己名下的待确认订单"
+          : "无权删除该订单");
+      }
       order.deletedAt = new Date().toISOString();
       order.deletedBy = user.id;
       writeDb(db);
@@ -3156,6 +3235,8 @@ module.exports.validateAiDraft = validateAiDraft;
 module.exports.recordAiLearning = recordAiLearning;
 module.exports.invalidOrderQuantityIndexes = invalidOrderQuantityIndexes;
 module.exports.customerBelongsToSalesperson = customerBelongsToSalesperson;
+module.exports.normalizeCustomerPhone = normalizeCustomerPhone;
+module.exports.customerPhoneExists = customerPhoneExists;
 module.exports.customerOrderReferenceCount = customerOrderReferenceCount;
 module.exports.preserveCustomerOrderSnapshots = preserveCustomerOrderSnapshots;
 module.exports.buildProductWorkbook = buildProductWorkbook;
@@ -3185,11 +3266,14 @@ module.exports.hashPassword = hashPassword;
 module.exports.verifyPassword = verifyPassword;
 module.exports.setUserPassword = setUserPassword;
 module.exports.publicProduct = publicProduct;
+module.exports.productImageFiles = productImageFiles;
 module.exports.canViewProductCost = canViewProductCost;
+module.exports.canExportProductWorkbook = canExportProductWorkbook;
 module.exports.publicOrder = publicOrder;
 module.exports.publicOrderItem = publicOrderItem;
 module.exports.orderActualPaidAmount = orderActualPaidAmount;
 module.exports.effectiveOrderAmount = effectiveOrderAmount;
+module.exports.canDeleteOrder = canDeleteOrder;
 module.exports.isCostControlOrder = isCostControlOrder;
 module.exports.normalizeCostControl = normalizeCostControl;
 module.exports.costControlTotals = costControlTotals;

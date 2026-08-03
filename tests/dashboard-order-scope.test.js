@@ -75,7 +75,7 @@ const customerRouteSource = serverSource.slice(
 assert(customerRouteSource.includes('method === "DELETE"'), "客户接口必须支持删除");
 assert(customerRouteSource.includes("isAdminRole(user)"), "客户删除必须在服务端校验管理员权限");
 assert(customerRouteSource.includes("preserveCustomerOrderSnapshots"), "删除客户前必须保留历史订单中的客户快照");
-assert(!customerRouteSource.includes("sendError(res, 409"), "有历史订单的客户不应再被禁止删除");
+assert(!customerRouteSource.includes("有历史订单，不能删除"), "有历史订单的客户不应再被禁止删除");
 
 const deleteCustomerSource = appSource.slice(
   appSource.indexOf("async function deleteCustomer"),

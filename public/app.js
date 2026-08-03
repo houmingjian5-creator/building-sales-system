@@ -1893,12 +1893,15 @@ function productModal(id) {
 function productImageModal(id) {
   const product = byId(products, id);
   if (!product) return "";
+  const imageUrls = productImageUrls(product);
   return `
     <div class="modal-backdrop">
       <div class="modal product-image-modal">
         <div class="modal-head"><div><h3>${html(product.name)}</h3><div class="hint">${html(product.spec || "无规格")}</div></div><button class="icon-btn" onclick="closeModal()">×</button></div>
         <div class="modal-body">
-          ${product.imageUrl ? `<img class="product-image-large" src="${html(product.imageUrl)}" alt="${html(product.name)}" />` : `<div class="product-image-empty">该商品暂未上传图片</div>`}
+          ${imageUrls.length ? `<div class="product-image-gallery">${imageUrls.map((imageUrl, index) => `
+            <figure><img class="product-image-large" src="${html(imageUrl)}" alt="${html(product.name)} 第 ${index + 1} 张图片" /><figcaption>第 ${index + 1} 张</figcaption></figure>
+          `).join("")}</div>` : `<div class="product-image-empty">该商品暂未上传图片</div>`}
         </div>
         ${isAdmin() ? `<div class="modal-foot"><button class="btn" onclick="closeModal();openModal('product',${jsArg(product.id)})">编辑商品图片</button></div>` : ""}
       </div>
@@ -1906,20 +1909,34 @@ function productImageModal(id) {
   `;
 }
 
+function productImageUrls(product) {
+  const urls = Array.isArray(product?.imageUrls) ? product.imageUrls.filter(Boolean) : [];
+  if (!urls.length && product?.imageUrl) urls.push(product.imageUrl);
+  return Array.from(new Set(urls));
+}
+
 function previewProductImage(input) {
-  const file = input.files && input.files[0];
-  if (!file) return;
-  if (file.size > 3 * 1024 * 1024) {
-    alert("图片不能超过 3MB。");
+  const files = Array.from(input.files || []);
+  if (!files.length) return;
+  const product = byId(products, input.dataset.productId || "") || {};
+  const availableCount = Math.max(0, 6 - productImageUrls(product).length);
+  if (files.length > availableCount) {
+    alert(`每个商品最多保存 6 张图片，当前还可以选择 ${availableCount} 张。`);
     input.value = "";
     return;
   }
-  const wrap = input.closest(".product-image-editor");
-  const preview = wrap && wrap.querySelector("img, .product-image-placeholder");
+  const oversized = files.find((file) => file.size > 12 * 1024 * 1024);
+  if (oversized) {
+    alert(`“${oversized.name}”超过 12MB，请先压缩后上传。`);
+    input.value = "";
+    return;
+  }
+  const preview = input.closest(".product-image-editor")?.querySelector(".product-image-selection");
   if (!preview) return;
-  const url = URL.createObjectURL(file);
-  if (preview.tagName === "IMG") preview.src = url;
-  else preview.outerHTML = `<img src="${html(url)}" alt="商品图片预览" />`;
+  preview.innerHTML = files.map((file, index) => {
+    const url = URL.createObjectURL(file);
+    return `<figure><img src="${html(url)}" alt="待上传图片 ${index + 1}" /><figcaption>${html(file.name)}</figcaption></figure>`;
+  }).join("");
 }
 
 function fileAsDataUrl(file) {
@@ -1938,9 +1955,76 @@ async function uploadProductImage(productId, file) {
     headers: { "content-type": "application/json" },
     body: JSON.stringify({ image: await fileAsDataUrl(file) }),
   });
-  const data = await response.json();
-  if (!response.ok) throw new Error(data.error || "商品图片上传失败");
+  const data = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    if (response.status === 413) throw new Error("图片请求超过服务器限制，请刷新后重试");
+    throw new Error(data.error || "商品图片上传失败");
+  }
   return data.product;
+}
+
+function loadProductImage(file) {
+  return new Promise((resolve, reject) => {
+    const url = URL.createObjectURL(file);
+    const image = new Image();
+    image.onload = () => {
+      URL.revokeObjectURL(url);
+      resolve(image);
+    };
+    image.onerror = () => {
+      URL.revokeObjectURL(url);
+      reject(new Error(`无法识别图片“${file.name}”，请转换为 JPG、PNG 或 WebP 后重试`));
+    };
+    image.src = url;
+  });
+}
+
+function canvasImageBlob(canvas, type, quality) {
+  return new Promise((resolve) => canvas.toBlob(resolve, type, quality));
+}
+
+async function prepareProductImage(file) {
+  const targetBytes = 650 * 1024;
+  const supportedTypes = ["image/png", "image/jpeg", "image/jpg", "image/webp"];
+  if (file.size > 12 * 1024 * 1024) throw new Error(`“${file.name}”超过 12MB`);
+  if (file.size <= targetBytes && supportedTypes.includes(String(file.type || "").toLowerCase())) return file;
+  const image = await loadProductImage(file);
+  const maxSide = 1600;
+  const baseScale = Math.min(1, maxSide / Math.max(image.naturalWidth || image.width, image.naturalHeight || image.height));
+  let width = Math.max(1, Math.round((image.naturalWidth || image.width) * baseScale));
+  let height = Math.max(1, Math.round((image.naturalHeight || image.height) * baseScale));
+  let blob = null;
+  for (let attempt = 0; attempt < 6; attempt += 1) {
+    const canvas = document.createElement("canvas");
+    canvas.width = width;
+    canvas.height = height;
+    const context = canvas.getContext("2d");
+    context.fillStyle = "#fff";
+    context.fillRect(0, 0, width, height);
+    context.drawImage(image, 0, 0, width, height);
+    blob = await canvasImageBlob(canvas, "image/webp", Math.max(0.58, 0.86 - attempt * 0.06));
+    if (!blob) blob = await canvasImageBlob(canvas, "image/jpeg", Math.max(0.58, 0.86 - attempt * 0.06));
+    if (blob && blob.size <= targetBytes) return blob;
+    width = Math.max(640, Math.round(width * 0.82));
+    height = Math.max(480, Math.round(height * 0.82));
+  }
+  if (!blob || blob.size > targetBytes) throw new Error(`“${file.name}”自动压缩失败，请换一张图片后重试`);
+  return blob;
+}
+
+async function deleteProductImage(button, productId, imageUrl) {
+  if (!isAdmin()) return alert("只有管理员可以删除商品图片");
+  if (!confirm("确定删除这张商品图片吗？")) return;
+  const filename = decodeURIComponent(String(imageUrl || "").split("/").pop() || "");
+  const response = await fetch(`/api/products/${encodeURIComponent(productId)}/images/${encodeURIComponent(filename)}`, { method: "DELETE" });
+  const data = await response.json().catch(() => ({}));
+  if (!response.ok) return alert(data.error || "删除商品图片失败");
+  const index = products.findIndex((item) => item.id === productId);
+  if (index >= 0) products[index] = data.product;
+  button.closest(".product-existing-image")?.remove();
+  const gallery = document.querySelector(".product-existing-images");
+  if (gallery && !gallery.children.length) gallery.innerHTML = `<div class="product-image-placeholder">暂无商品图片</div>`;
+  showToast("商品图片已删除");
 }
 
 function customerOrdersModal(id) {
@@ -3541,17 +3625,19 @@ function renderProducts() {
   const list = filteredProducts();
   const pageData = paginateList(list, "products", EDIT_PAGE_SIZES.products);
   const canManage = isAdmin();
+  const canExport = state.user?.role !== "销售人员";
   return `
     <div class="toolbar">
       <input id="productSearchInput" class="input" placeholder="搜索商品名称 / 规格 / 编码 / 别名" value="${html(state.productQuery)}" oncompositionstart="this.dataset.composing='true'" oncompositionend="this.dataset.composing='false';updateProductQuery(this)" oninput="updateProductQuery(this)" />
       <div class="spacer"></div>
-      <button id="productExportSelectedBtn" class="btn" onclick="exportProducts('selected')" ${state.selectedProductIds.length ? "" : "disabled"}>导出已选</button>
+      ${canExport ? `<button id="productExportSelectedBtn" class="btn" onclick="exportProducts('selected')" ${state.selectedProductIds.length ? "" : "disabled"}>导出已选</button>
       <button class="btn" onclick="exportProducts('all')">导出全部</button>
+      ` : ""}
       ${canManage ? `<button class="btn" onclick="downloadProductTemplate()">下载导入模板</button><button class="btn" onclick="document.getElementById('productImportFile').click()">批量上传</button><input id="productImportFile" type="file" accept=".xlsx" hidden onchange="importProducts(this)" /><button class="btn primary" onclick="openModal('product')">新增商品</button>` : ""}
     </div>
     ${categoryTabs()}
     ${subcategoryTabs()}
-    <div id="productTableResults">${productTableResultsHtml(list, pageData, canManage)}</div>
+    <div id="productTableResults">${productTableResultsHtml(list, pageData, canManage, canExport)}</div>
   `;
 }
 
@@ -3562,17 +3648,17 @@ function productThumbnail(product, extraClass = "") {
   return `<button type="button" class="product-thumb-button is-empty ${extraClass}" title="暂无商品图片" onclick="openModal('productImage',${jsArg(product.id)})"><span>暂无图</span></button>`;
 }
 
-function productTableResultsHtml(list, pageData, canManage = isAdmin()) {
+function productTableResultsHtml(list, pageData, canManage = isAdmin(), canExport = state.user?.role !== "销售人员") {
   const selected = new Set(state.selectedProductIds || []);
   const pageAllSelected = pageData.items.length && pageData.items.every((product) => selected.has(product.id));
   return `
-    <div class="product-list-summary"><span>共 ${list.length} 个商品，当前显示 ${pageData.items.length} 个</span><span>已选 ${selected.size} 个</span></div>
+    <div class="product-list-summary"><span>共 ${list.length} 个商品，当前显示 ${pageData.items.length} 个</span>${canExport ? `<span>已选 ${selected.size} 个</span>` : ""}</div>
     <div class="card table-wrap product-table">
       <table>
-        <thead><tr><th class="selection-cell"><input type="checkbox" title="选择当前页" ${pageAllSelected ? "checked" : ""} onchange="toggleCurrentProductPage(this.checked)" /></th><th>图片</th><th>商品名称</th><th>规格</th><th>一级分类</th><th>二级分类</th><th>单位</th><th>销售价</th><th>状态</th><th>操作</th></tr></thead>
+        <thead><tr>${canExport ? `<th class="selection-cell"><input type="checkbox" title="选择当前页" ${pageAllSelected ? "checked" : ""} onchange="toggleCurrentProductPage(this.checked)" /></th>` : ""}<th>图片</th><th>商品名称</th><th>规格</th><th>一级分类</th><th>二级分类</th><th>单位</th><th>销售价</th><th>状态</th><th>操作</th></tr></thead>
         <tbody>${pageData.items.map((p) => `
           <tr>
-            <td class="selection-cell"><input type="checkbox" ${selected.has(p.id) ? "checked" : ""} onchange="toggleProductSelection(${jsArg(p.id)},this.checked)" /></td>
+            ${canExport ? `<td class="selection-cell"><input type="checkbox" ${selected.has(p.id) ? "checked" : ""} onchange="toggleProductSelection(${jsArg(p.id)},this.checked)" /></td>` : ""}
             <td>${productThumbnail(p, "small")}</td>
             <td><div class="product-name-cell"><strong>${html(p.name)}</strong><span>${html(p.code || p.id)}</span></div></td>
             <td>${html(p.spec || "-")}</td>
@@ -3722,6 +3808,7 @@ function downloadProductTemplate() {
 }
 
 async function exportProducts(mode) {
+  if (state.user?.role === "销售人员") return alert("销售人员不能导出商品表格");
   const ids = mode === "selected" ? state.selectedProductIds : [];
   if (mode === "selected" && !ids.length) {
     alert("请先勾选需要导出的商品。");
@@ -4614,7 +4701,12 @@ function removeCartItem(productId) {
 
 async function saveProduct(id) {
   const field = (fieldId) => document.getElementById(fieldId);
-  const imageFile = field("productImageFile")?.files?.[0] || null;
+  const imageFiles = Array.from(field("productImageFile")?.files || []);
+  const existingImageCount = id ? productImageUrls(byId(products, id) || {}).length : 0;
+  if (existingImageCount + imageFiles.length > 6) {
+    alert(`每个商品最多保存 6 张图片，当前还可以上传 ${Math.max(0, 6 - existingImageCount)} 张。`);
+    return;
+  }
   const cat2Select = field("productCat2Select");
   const cat2New = field("productCat2New");
   let cat2 = cat2Select?.value || "";
@@ -4639,6 +4731,8 @@ async function saveProduct(id) {
     return;
   }
   try {
+    const preparedImages = [];
+    for (const imageFile of imageFiles) preparedImages.push(await prepareProductImage(imageFile));
     const response = await fetch(id ? `/api/products/${encodeURIComponent(id)}` : "/api/products", {
       method: id ? "PUT" : "POST",
       headers: { "content-type": "application/json" },
@@ -4648,12 +4742,12 @@ async function saveProduct(id) {
     if (!response.ok) throw new Error(data.error || "保存商品失败");
     const savedId = data.product.id;
     let savedProduct = data.product;
-    let imageError = "";
-    if (imageFile) {
+    const imageErrors = [];
+    for (let index = 0; index < preparedImages.length; index += 1) {
       try {
-        savedProduct = await uploadProductImage(savedId, imageFile);
+        savedProduct = await uploadProductImage(savedId, preparedImages[index]);
       } catch (error) {
-        imageError = error.message || "商品图片上传失败";
+        imageErrors.push(`${imageFiles[index]?.name || `第 ${index + 1} 张图片`}：${error.message || "上传失败"}`);
       }
     }
     if (id) {
@@ -4663,8 +4757,8 @@ async function saveProduct(id) {
       products.unshift(savedProduct);
     }
     closeModal();
-    if (imageError) alert(`商品信息已保存，但图片上传失败：${imageError}`);
-    else showToast("商品信息已保存");
+    if (imageErrors.length) alert(`商品信息已保存，但以下图片上传失败：\n${imageErrors.join("\n")}`);
+    else showToast(preparedImages.length > 1 ? `商品信息及 ${preparedImages.length} 张图片已保存` : "商品信息已保存");
   } catch (error) {
     alert(error.message);
   }
@@ -5351,14 +5445,23 @@ function orderActionButton(title, type, action, orderId) {
   return `<button type="button" class="icon-btn order-tool-button order-action-${html(action)}" title="${html(title)}" aria-label="${html(title)}" onclick="handleOrderAction(${jsArg(action)}, ${jsArg(orderId)})">${svgIcon(type)}</button>`;
 }
 
+function canCurrentUserDeleteOrder(order) {
+  if (!order || !state.user) return false;
+  if (isAdmin()) return true;
+  return state.user.role === "销售人员"
+    && order.status === "待确认"
+    && order.salesUserId === state.user.id;
+}
+
 function orderMoreMenu(orderId) {
+  const order = byId(orders, orderId);
   return `<div class="order-more-menu order-popover-menu">
     <button type="button" class="icon-btn order-tool-button order-more-trigger" title="更多操作" aria-label="更多操作" onpointerdown="event.stopPropagation();this.parentElement.toggleAttribute('open')">${svgIcon("more")}</button>
     <div class="order-more-dropdown">
       <button type="button" class="mobile-only-order-action" onclick="handleOrderAction('edit',${jsArg(orderId)})"><span>${svgIcon("edit")}</span>编辑订单</button>
       <button type="button" onclick="repeatOrder(${jsArg(orderId)})"><span>${svgIcon("copy")}</span>再来一单</button>
       <button type="button" onclick="openModal('delivery',${jsArg(orderId)})"><span>${svgIcon("truck")}</span>开送货单</button>
-      ${isAdmin() ? `<button type="button" class="danger" onclick="deleteOrder(${jsArg(orderId)})"><span>${svgIcon("delete")}</span>删除订单</button>` : ""}
+      ${canCurrentUserDeleteOrder(order) ? `<button type="button" class="danger" onclick="deleteOrder(${jsArg(orderId)})"><span>${svgIcon("delete")}</span>删除订单</button>` : ""}
     </div>
   </div>`;
 }
@@ -5455,8 +5558,10 @@ function repeatOrder(orderId) {
 }
 
 async function deleteOrder(orderId) {
-  if (!isAdmin()) return alert("只有管理员可以删除订单");
   const order = byId(orders, orderId);
+  if (!canCurrentUserDeleteOrder(order)) {
+    return alert(state.user?.role === "销售人员" ? "销售人员只能删除自己名下的待确认订单" : "无权删除该订单");
+  }
   const customer = orderCustomerForDisplay(order || {});
   if (!order || !confirm(`确定删除订单 ${order.no} 吗？\n客户：${customer.name || "-"}\n金额：${money(order.amount)}\n\n删除后订单将从业务页面和统计中隐藏。`)) return;
   const response = await fetch(`/api/orders/${encodeURIComponent(orderId)}`, { method: "DELETE" });
@@ -5595,14 +5700,25 @@ function productCard(p) {
 function productModal(id) {
   const p = byId(products, id) || { cat1: "辅助商品", status: "在售", aliases: [] };
   const aliases = Array.isArray(p.aliases) ? p.aliases.join("，") : (p.aliases || "");
+  const imageUrls = productImageUrls(p);
   return `
     <div class="modal-backdrop">
       <div class="modal side">
         <div class="modal-head"><h3>${id ? "编辑商品" : "新增商品"}</h3><button class="icon-btn" onclick="closeModal()">×</button></div>
         <div class="modal-body">
           <div class="product-image-editor">
-            ${p.imageUrl ? `<img src="${html(p.imageUrl)}" alt="${html(p.name || "商品图片")}" />` : `<div class="product-image-placeholder">暂无商品图片</div>`}
-            <div><label class="btn" for="productImageFile">选择图片</label><input id="productImageFile" type="file" accept="image/png,image/jpeg,image/webp" hidden onchange="previewProductImage(this)" /><div class="hint">支持 PNG、JPG、WebP，文件不超过 3MB。保存商品时一并上传。</div></div>
+            <div class="product-existing-images">
+              ${imageUrls.length ? imageUrls.map((imageUrl, index) => `<div class="product-existing-image">
+                <img src="${html(imageUrl)}" alt="${html(p.name || "商品图片")} ${index + 1}" />
+                <button type="button" title="删除图片" onclick="deleteProductImage(this,${jsArg(id || "")},${jsArg(imageUrl)})">×</button>
+              </div>`).join("") : `<div class="product-image-placeholder">暂无商品图片</div>`}
+            </div>
+            <div class="product-image-upload">
+              <label class="btn" for="productImageFile">选择多张图片</label>
+              <input id="productImageFile" data-product-id="${html(id || "")}" type="file" accept="image/*" multiple hidden onchange="previewProductImage(this)" />
+              <div class="hint">每个商品最多 6 张；上传前会自动压缩，兼容手机拍摄的大图。现有 ${imageUrls.length} 张。</div>
+              <div class="product-image-selection"></div>
+            </div>
           </div>
           <div class="form-grid">
             <div class="field"><label>商品名称 *</label><input id="productName" class="input" value="${html(p.name || "")}" /></div>
