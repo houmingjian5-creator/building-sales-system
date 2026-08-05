@@ -16,6 +16,34 @@ assert.deepStrictEqual(
   '订单数量只能是正整数'
 );
 
+assert.deepStrictEqual(
+  server.invalidOrderPriceIndexes([
+    { price: 0 },
+    { price: 12.34 },
+    { price: -1 },
+    { price: 1.234 },
+    { price: '' },
+    { price: 'abc' },
+  ], false),
+  [2, 3, 4, 5],
+  '销售单价格必须非负且最多两位小数'
+);
+
+assert.deepStrictEqual(
+  server.invalidOrderPriceIndexes([{ price: -12.34 }, { price: 5 }], true),
+  [],
+  '退货单允许服务器接收规范化后的负数商品金额和正数费用'
+);
+
+assert.deepStrictEqual(
+  server.invalidOrderProductIds(
+    [{ productId: 'active' }, { productId: 'inactive' }, { productId: 'missing' }],
+    [{ id: 'active', status: '在售' }, { id: 'inactive', status: '停用' }]
+  ),
+  ['inactive', 'missing'],
+  '停用或不存在的商品不能用于生成订单'
+);
+
 const product = {
   id: 'p1',
   name: '测试管材',
@@ -61,5 +89,10 @@ const saveOrderEdits = appSource.slice(
   appSource.indexOf('function cartItemForProduct')
 );
 assert(saveOrderEdits.includes('!isPositiveInteger(item.quantity)'), '编辑订单保存前必须校验整数数量');
+assert(appSource.includes('function setCartPrice'), '购物车必须支持修改商品单价');
+assert(appSource.includes('pagehide'), '关闭页面时必须保存购物车');
+assert(appSource.includes('visibilitychange'), '页面隐藏或自动退出前必须保存购物车');
+assert(appSource.includes('...cartSnapshot(product)'), '购物车必须保存商品名称、规格和单位快照');
+assert(appSource.includes('clearPersistedCart(state.orderType)'), '订单成功后必须清除对应类型的持久化购物车');
 
 console.log('Order integer quantity regression tests passed');

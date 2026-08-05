@@ -689,10 +689,29 @@ function orderItemsFromPayload(items, products = []) {
 }
 
 function invalidOrderProductIds(items, products = []) {
-  const ids = new Set(products.map((product) => product.id));
+  const ids = new Set(products.filter(function (product) {
+    return product && product.status !== '停用';
+  }).map(function (product) {
+    return product.id;
+  }));
   return (Array.isArray(items) ? items : [])
     .map((item) => String((item && item.productId) || ''))
     .filter((id) => !id || !ids.has(id));
+}
+
+function invalidOrderPriceIndexes(items, allowNegative) {
+  return (Array.isArray(items) ? items : []).reduce(function (invalid, item, index) {
+    if (!item || item.price === undefined || item.price === null || item.price === '') {
+      invalid.push(index);
+      return invalid;
+    }
+    const price = Number(item.price);
+    const absolute = Math.abs(price);
+    const hasAtMostTwoDecimals = Number.isFinite(price)
+      && Math.abs(absolute * 100 - Math.round(absolute * 100)) < 0.0000001;
+    if (!hasAtMostTwoDecimals || (!allowNegative && price < 0)) invalid.push(index);
+    return invalid;
+  }, []);
 }
 
 function invalidOrderQuantityIndexes(items) {
@@ -3033,10 +3052,13 @@ async function handleApi(req, res) {
         return sendError(res, 403, "只能选择该销售人员名下的客户开单");
       }
       if (invalidOrderProductIds(payload.items, db.products).length) {
-        return sendError(res, 400, "订单包含产品库中不存在的商品，请重新选择");
+        return sendError(res, 400, "订单包含已停用或产品库中不存在的商品，请重新选择");
       }
       if (invalidOrderQuantityIndexes(payload.items).length) {
         return sendError(res, 400, "商品数量必须为大于 0 的整数，请检查后再保存");
+      }
+      if (invalidOrderPriceIndexes(payload.items, payload.type === "return").length) {
+        return sendError(res, 400, "商品单价必须为有效金额，销售单不得为负数且最多保留两位小数");
       }
       const order = {
         id: newId(),
@@ -3129,10 +3151,13 @@ async function handleApi(req, res) {
         }
       }
       if (payload.items !== undefined && invalidOrderProductIds(payload.items, db.products).length) {
-        return sendError(res, 400, "订单包含产品库中不存在的商品，请重新选择");
+        return sendError(res, 400, "订单包含已停用或产品库中不存在的商品，请重新选择");
       }
       if (payload.items !== undefined && invalidOrderQuantityIndexes(payload.items).length) {
         return sendError(res, 400, "商品数量必须为大于 0 的整数，请检查后再保存");
+      }
+      if (payload.items !== undefined && invalidOrderPriceIndexes(payload.items, order.type === "return" || String(order.no || '').startsWith('TH')).length) {
+        return sendError(res, 400, "商品单价必须为有效金额，销售单不得为负数且最多保留两位小数");
       }
       if (payload.customerId !== undefined) {
         const nextCustomer = db.customers.find(function (item) {
@@ -3234,6 +3259,8 @@ module.exports.buildAiRecommendationContext = buildAiRecommendationContext;
 module.exports.validateAiDraft = validateAiDraft;
 module.exports.recordAiLearning = recordAiLearning;
 module.exports.invalidOrderQuantityIndexes = invalidOrderQuantityIndexes;
+module.exports.invalidOrderPriceIndexes = invalidOrderPriceIndexes;
+module.exports.invalidOrderProductIds = invalidOrderProductIds;
 module.exports.customerBelongsToSalesperson = customerBelongsToSalesperson;
 module.exports.normalizeCustomerPhone = normalizeCustomerPhone;
 module.exports.customerPhoneExists = customerPhoneExists;

@@ -75,6 +75,7 @@ const state = {
   mobileMoreOpen: false,
   mobileCartOpen: false,
   mobileOrderDetailsOpen: false,
+  cartStorageWarningShown: false,
 };
 
 let inputRenderTimer = null;
@@ -127,13 +128,49 @@ function cartStorageKey(type = state.orderType) {
   return state.user?.id ? `building-sales-cart:${state.user.id}:${type === "return" ? "return" : "sale"}` : "";
 }
 
-function persistCart(type = state.orderType) {
+function cartSnapshot(product, fallback = {}) {
+  return {
+    name: String(product?.name || fallback.name || "未知商品"),
+    spec: String(product?.spec || fallback.spec || ""),
+    unit: String(product?.unit || fallback.unit || ""),
+    cat1: String(product?.cat1 || fallback.cat1 || ""),
+    cat2: String(product?.cat2 || fallback.cat2 || ""),
+  };
+}
+
+function normalizedCartPrice(value, fallback = 0) {
+  const number = Number(value);
+  if (!Number.isFinite(number) || number < 0 || !/^\d+(?:\.\d{1,2})?$/.test(String(value))) {
+    const fallbackNumber = Number(fallback);
+    return Number.isFinite(fallbackNumber) && fallbackNumber >= 0 ? Math.round(fallbackNumber * 100) / 100 : 0;
+  }
+  return Math.round(number * 100) / 100;
+}
+
+function cartStorageFailureMessage() {
+  if (state.cartStorageWarningShown) return;
+  state.cartStorageWarningShown = true;
+  alert("当前购物车无法在关闭页面后保存，请检查浏览器是否允许本地存储或清理浏览器空间。");
+}
+
+function persistCart(type = state.orderType, notifyFailure = false) {
   const key = cartStorageKey(type);
-  if (!key) return;
+  if (!key) return false;
   try {
-    localStorage.setItem(key, JSON.stringify(state.cart));
+    const stored = state.cart.map((item) => {
+      const product = byId(products, item.productId);
+      return {
+        productId: item.productId,
+        quantity: normalizeQuantity(item.quantity),
+        price: normalizedCartPrice(item.price, product?.price || 0),
+        ...cartSnapshot(product, item),
+      };
+    });
+    localStorage.setItem(key, JSON.stringify(stored));
+    return true;
   } catch (_) {
-    // The in-memory cart still works when browser storage is unavailable.
+    if (notifyFailure) cartStorageFailureMessage();
+    return false;
   }
 }
 
@@ -142,16 +179,18 @@ function restoreCart(type = state.orderType) {
   if (!key) return;
   try {
     const saved = JSON.parse(localStorage.getItem(key) || "[]");
-    state.cart = Array.isArray(saved) ? saved.filter((item) => {
+    state.cart = Array.isArray(saved) ? saved.filter((item) => item && item.productId && normalizeQuantity(item.quantity) > 0).map((item) => {
       const product = byId(products, item.productId);
-      return product && isProductActive(product) && normalizeQuantity(item.quantity) > 0;
-    }).map((item) => ({
-      productId: item.productId,
-      quantity: normalizeQuantity(item.quantity),
-      price: Number(item.price || 0),
-    })) : [];
+      return {
+        productId: item.productId,
+        quantity: normalizeQuantity(item.quantity),
+        price: normalizedCartPrice(item.price, product?.price || 0),
+        ...cartSnapshot(product, item),
+      };
+    }) : [];
   } catch (_) {
     state.cart = [];
+    cartStorageFailureMessage();
   }
 }
 
@@ -419,6 +458,7 @@ function toggleLoginPassword() {
 }
 
 function render() {
+  document.body.classList.toggle("cart-drawer-open", Boolean(state.user && state.mobileCartOpen));
   if (state.user && !state.loading) persistCart();
   if (state.loading) {
     app.innerHTML = `<div class="login-shell"><section class="login-panel"><div class="login-card"><div class="brand-row"><div class="brand-mark">建</div><div><h1 class="page-title">建材销售开单系统</h1><p class="page-subtitle">正在加载...</p></div></div></div></section><section class="login-visual"><div class="visual-board"></div></section></div>`;
@@ -546,6 +586,7 @@ async function boot() {
 }
 
 async function logout() {
+  persistCart(state.orderType, true);
   try {
     await fetch("/api/logout", { method: "POST" });
   } finally {
@@ -661,22 +702,23 @@ function mobileCartItemCount() {
 function renderMobileCart() {
   if (!["create", "returns"].includes(state.route)) return "";
   const itemCount = mobileCartItemCount();
+  const title = state.orderType === "return" ? "退货清单" : "购物车";
   return `
     <div class="mobile-cart-bar">
       <button type="button" class="mobile-cart-summary" onclick="toggleMobileCart()" aria-label="查看购物车，共 ${itemCount} 件商品">
         <span class="mobile-cart-icon">${svgIcon("orders")}${itemCount ? `<i>${itemCount}</i>` : ""}</span>
-        <span><small>${state.orderType === "return" ? "退货清单" : "购物车"}</small><strong>${money(cartTotal())}</strong></span>
+        <span><small>${title}</small><strong>${money(cartTotal())}</strong></span>
       </button>
       <button type="button" class="mobile-cart-open" onclick="toggleMobileCart()">查看并结算</button>
     </div>
     ${state.mobileCartOpen ? `
-      <div class="mobile-sheet-layer mobile-cart-layer" onclick="closeMobileCart()">
-        <section class="mobile-sheet mobile-cart-sheet" role="dialog" aria-modal="true" aria-label="${state.orderType === "return" ? "退货清单" : "购物车"}" onclick="event.stopPropagation()">
+      <div class="cart-drawer-layer mobile-sheet-layer mobile-cart-layer" onclick="closeMobileCart()">
+        <section class="cart-drawer mobile-sheet mobile-cart-sheet" role="dialog" aria-modal="true" aria-label="${title}" onclick="event.stopPropagation()">
           <div class="mobile-sheet-handle"></div>
-          <div class="mobile-sheet-head"><div><strong>${state.orderType === "return" ? "退货清单" : "购物车"}</strong><span>共 ${itemCount} 件商品</span></div><button type="button" class="icon-btn" onclick="closeMobileCart()" aria-label="关闭">×</button></div>
-          <div class="mobile-cart-lines">${state.cart.length ? state.cart.map(cartLine).join("") : `<div class="empty">还没有选择商品</div>`}</div>
-          <div class="mobile-cart-checkout">
-            <div><span>合计</span><strong>${money(cartTotal())}</strong></div>
+          <div class="cart-drawer-head mobile-sheet-head"><div><strong>${title}</strong><span>共 ${itemCount} 件商品</span></div><button type="button" class="icon-btn" onclick="closeMobileCart()" aria-label="关闭">×</button></div>
+          <div id="cartItemsScroller" class="cart-drawer-lines mobile-cart-lines">${state.cart.length ? state.cart.map(cartLine).join("") : `<div class="empty">还没有选择商品</div>`}</div>
+          <div class="cart-drawer-checkout mobile-cart-checkout">
+            <div><span>共 ${itemCount} 件 · 合计</span><strong>${money(cartTotal())}</strong></div>
             <button type="button" class="btn primary" onclick="saveOrder()">${state.orderType === "return" ? "生成退货单" : "提交订单"}</button>
           </div>
         </section>
@@ -694,6 +736,15 @@ function toggleMobileCart() {
 function closeMobileCart() {
   state.mobileCartOpen = false;
   render();
+}
+
+function desktopCartButton() {
+  const itemCount = mobileCartItemCount();
+  return `<button type="button" class="btn desktop-cart-trigger" onclick="toggleMobileCart()" aria-label="打开购物车，共 ${itemCount} 件">
+    <span class="desktop-cart-trigger-icon">${svgIcon("orders")}${itemCount ? `<i>${itemCount}</i>` : ""}</span>
+    <span>${state.orderType === "return" ? "退货清单" : "购物车"}</span>
+    <strong>${itemCount} 件 · ${money(cartTotal())}</strong>
+  </button>`;
 }
 
 function titleForRoute() {
@@ -892,7 +943,7 @@ function changeQty(productId, delta) {
 
 function cartTotal() {
   return state.cart.reduce((sum, item) => {
-    const product = byId(products, item.productId) || {};
+    const product = byId(products, item.productId) || item || {};
     return sum + Number(item.quantity || 0) * signedOrderPrice(product, item.price);
   }, 0);
 }
@@ -1038,7 +1089,7 @@ function addDraftLine(productId, quantity) {
   if (!isPositiveInteger(value)) return false;
   const line = state.cart.find((item) => item.productId === productId);
   if (line) line.quantity += value;
-  else state.cart.push({ productId, quantity: value, price: product.price });
+  else state.cart.push({ productId, quantity: value, price: product.price, ...cartSnapshot(product) });
   return true;
 }
 
@@ -3950,19 +4001,13 @@ function renderCreateOrder() {
           <div class="toolbar filter-toolbar">
             <input id="orderProductSearchInput" class="input" placeholder="搜索商品名称、规格、编码、别名..." value="${html(state.productQuery)}" oncompositionstart="this.dataset.composing='true'" oncompositionend="this.dataset.composing='false';updateProductQuery(this)" oninput="updateProductQuery(this)" />
             <button class="btn primary" onclick="openAiOrderModal()">AI 帮我开单</button>
+            ${desktopCartButton()}
           </div>
           ${categoryTabs()}
           ${subcategoryTabs()}
         </div>
         <div id="createProductResults">${createProductResultsHtml(productList, pageData)}</div>
       </div>
-      <aside class="card card-pad cart">
-        <h3>${state.orderType === "return" ? "退货清单" : "购物车"}</h3>
-        ${state.cart.length ? state.cart.map(cartLine).join("") : `<div class="empty">还没有选择商品</div>`}
-        <div class="summary-row"><span>共 ${state.cart.reduce((sum, item) => sum + item.quantity, 0)} 件</span><span>合计</span></div>
-        <div class="summary-row"><span></span><span class="summary-total">${money(cartTotal())}</span></div>
-        <button class="btn primary" style="width:100%" onclick="saveOrder()">${state.orderType === "return" ? "生成退货单" : "去结算"}</button>
-      </aside>
     </div>
   `;
 }
@@ -3975,6 +4020,20 @@ async function saveOrder() {
   }
   if (state.cart.some((item) => !isPositiveInteger(item.quantity))) {
     alert("商品数量必须为大于 0 的整数，请检查购物车后再结算。");
+    return;
+  }
+  const invalidPriceItems = state.cart.filter((item) => !isValidCartPrice(item.price));
+  if (invalidPriceItems.length) {
+    alert("商品单价必须为 0 或正数，且最多保留两位小数，请检查购物车后再结算。");
+    return;
+  }
+  const unavailableItems = state.cart.filter((item) => {
+    const product = byId(products, item.productId);
+    return !product || !isProductActive(product);
+  });
+  if (unavailableItems.length) {
+    const names = unavailableItems.slice(0, 3).map((item) => cartItemDisplay(item).name).join("、");
+    alert(`购物车中包含已停用或已不存在的商品（${names}${unavailableItems.length > 3 ? "等" : ""}），请先删除或更换后再结算。`);
     return;
   }
   const payload = {
@@ -3999,14 +4058,21 @@ async function saveOrder() {
       };
     }),
   };
-  const response = await fetch("/api/orders", {
-    method: "POST",
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify(payload),
-  });
-  const data = await response.json();
+  let response;
+  let data;
+  try {
+    response = await fetch("/api/orders", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+    data = await response.json();
+  } catch (_) {
+    alert("订单提交失败，请检查网络后重试。购物车内容已保留。");
+    return;
+  }
   if (!response.ok) {
-    alert(data.error || "保存订单失败");
+    alert(`${data.error || "保存订单失败"}。购物车内容已保留。`);
     return;
   }
   orders.unshift(data.order);
@@ -4032,7 +4098,6 @@ async function saveOrder() {
   state.createCustomerQuery = "";
   state.createCustomerPickerOpen = false;
   resetOrderDraft(null);
-  state.orderType = "sale";
   resetPage("orders");
   showToast(data.learnedAliases?.length ? `订单已生成，并新增 ${data.learnedAliases.length} 个商品关键词` : "订单已生成");
   setRoute("orders");
@@ -4631,6 +4696,37 @@ function normalizeQuantity(value) {
   return isPositiveInteger(value) ? Number(value) : 0;
 }
 
+function isValidCartPrice(value) {
+  const text = String(value).trim();
+  const price = Number(text);
+  return text !== "" && Number.isFinite(price) && price >= 0 && /^\d+(?:\.\d{1,2})?$/.test(text);
+}
+
+function cartItemDisplay(item) {
+  const product = byId(products, item.productId);
+  const snapshot = cartSnapshot(product, item);
+  return {
+    ...snapshot,
+    product,
+    available: Boolean(product && isProductActive(product)),
+    missing: !product,
+  };
+}
+
+function renderKeepingCartScroll(callback) {
+  const scrollX = window.scrollX;
+  const scrollY = window.scrollY;
+  const cartScroll = document.getElementById("cartItemsScroller")?.scrollTop || 0;
+  callback();
+  persistCart(state.orderType, true);
+  render();
+  requestAnimationFrame(() => {
+    window.scrollTo(scrollX, scrollY);
+    const scroller = document.getElementById("cartItemsScroller");
+    if (scroller) scroller.scrollTop = cartScroll;
+  });
+}
+
 function setQuantityInputValidity(input) {
   if (!input) return false;
   const valid = isPositiveInteger(input.value);
@@ -4649,12 +4745,26 @@ function setCartQuantity(productId, value) {
   const line = cartItemForProduct(productId);
   if (!line) return;
   if (!isPositiveInteger(value)) {
-    showToast("商品数量必须为大于 0 的整数");
-    render();
+    alert("商品数量必须为大于 0 的整数");
+    renderKeepingCartScroll(() => {});
     return;
   }
-  line.quantity = Number(value);
-  render();
+  renderKeepingCartScroll(() => {
+    line.quantity = Number(value);
+  });
+}
+
+function setCartPrice(productId, value) {
+  const line = cartItemForProduct(productId);
+  if (!line) return;
+  if (!isValidCartPrice(value)) {
+    alert("商品单价必须为 0 或正数，且最多保留两位小数。");
+    renderKeepingCartScroll(() => {});
+    return;
+  }
+  renderKeepingCartScroll(() => {
+    line.price = Math.round(Number(value) * 100) / 100;
+  });
 }
 
 function productCard(p) {
@@ -4691,32 +4801,36 @@ function addToCart(productId) {
   if (line) {
     line.quantity = normalizeQuantity(line.quantity) + 1;
   } else {
-    state.cart.push({ productId, quantity: 1, price: Number(product.price || 0) });
+    state.cart.push({ productId, quantity: 1, price: Number(product.price || 0), ...cartSnapshot(product) });
   }
+  persistCart(state.orderType, true);
   render();
   showToast("已加入购物车");
 }
 
 function cartLine(item) {
-  const p = byId(products, item.productId);
-  if (!p) return "";
+  const details = cartItemDisplay(item);
+  const p = details.product || { id: item.productId, name: details.name, spec: details.spec, unit: details.unit };
   const quantity = normalizeQuantity(item.quantity);
   const displayPrice = signedOrderPrice(p, item.price);
+  const availability = details.missing ? "商品已不存在" : (!details.available ? "商品已停用" : "");
   return `
-    <div class="cart-line">
+    <div class="cart-line ${availability ? "cart-line-unavailable" : ""}">
       <div class="cart-line-main">
-        <strong>${html(orderItemDetails(p).label)}</strong>
-        <div class="product-spec">${money(displayPrice)} / ${html(p.unit || "-")}</div>
+        <strong>${html(details.name)}${details.spec ? ` <span>${html(details.spec)}</span>` : ""}</strong>
+        <div class="product-spec">${html(details.unit || "未填写单位")}</div>
+        ${availability ? `<div class="cart-unavailable-badge">${availability} · 请删除或更换</div>` : ""}
       </div>
       <div class="cart-line-side">
+        <label class="cart-price-field"><span>单价 ¥</span><input type="number" min="0" step="0.01" inputmode="decimal" value="${normalizedCartPrice(item.price)}" onchange="setCartPrice(${jsArg(item.productId)},this.value)" onkeydown="if(event.key==='Enter')this.blur()" /></label>
         <div class="cart-line-controls">
-          <button type="button" onclick="changeQty(${jsArg(p.id)}, -1)">-</button>
-          <input class="qty-input" type="number" min="1" step="1" inputmode="numeric" value="${quantity}" onchange="setCartQuantity(${jsArg(p.id)}, this.value)" onkeydown="if(event.key==='Enter')this.blur()" />
-          <button type="button" onclick="changeQty(${jsArg(p.id)}, 1)">+</button>
+          <button type="button" onclick="changeQty(${jsArg(item.productId)}, -1)">-</button>
+          <input class="qty-input" type="number" min="1" step="1" inputmode="numeric" value="${quantity}" onchange="setCartQuantity(${jsArg(item.productId)}, this.value)" onkeydown="if(event.key==='Enter')this.blur()" />
+          <button type="button" onclick="changeQty(${jsArg(item.productId)}, 1)">+</button>
         </div>
         <div class="cart-line-bottom">
           <strong class="cart-line-total">${money(quantity * displayPrice)}</strong>
-          ${actionButton("从购物车删除", "delete", `removeCartItem(${JSON.stringify(p.id)})`)}
+          ${actionButton("从购物车删除", "delete", `removeCartItem(${JSON.stringify(item.productId)})`)}
         </div>
       </div>
     </div>
@@ -4730,12 +4844,9 @@ function changeQty(productId, delta) {
 }
 
 function removeCartItem(productId) {
-  const scrollX = window.scrollX;
-  const scrollY = window.scrollY;
-  state.cart = state.cart.filter((item) => item.productId !== productId);
-  persistCart();
-  render();
-  requestAnimationFrame(() => window.scrollTo(scrollX, scrollY));
+  renderKeepingCartScroll(() => {
+    state.cart = state.cart.filter((item) => item.productId !== productId);
+  });
 }
 
 async function saveProduct(id) {
@@ -5573,7 +5684,7 @@ function repeatOrder(orderId) {
       unavailable.push(orderItemDetails(item).label || item.productId);
       return null;
     }
-    return { productId: product.id, quantity: Number(item.quantity), price: Number(product.price || 0) };
+    return { productId: product.id, quantity: Number(item.quantity), price: Number(product.price || 0), ...cartSnapshot(product) };
   }).filter(Boolean);
   if (!nextCart.length) {
     state.orderType = previousType;
@@ -6185,6 +6296,22 @@ function openXiaocaiRoute(route) {
   setRoute(route);
 }
 
+function bindCartPersistenceGuards() {
+  if (window.__buildingSalesCartPersistenceBound) return;
+  const saveCurrentCart = () => {
+    if (state.user) persistCart(state.orderType, false);
+  };
+  window.addEventListener("pagehide", saveCurrentCart);
+  window.addEventListener("beforeunload", saveCurrentCart);
+  document.addEventListener("visibilitychange", () => {
+    if (document.visibilityState === "hidden") saveCurrentCart();
+  });
+  document.addEventListener("keydown", (event) => {
+    if (event.key === "Escape" && state.mobileCartOpen) closeMobileCart();
+  });
+  window.__buildingSalesCartPersistenceBound = true;
+}
+
 Object.assign(window, {
   setRoute,
   openOrderRoute,
@@ -6246,6 +6373,12 @@ Object.assign(window, {
   login,
   logout,
   toggleLoginPassword,
+  toggleMobileCart,
+  closeMobileCart,
+  setCartQuantity,
+  setCartPrice,
+  removeCartItem,
+  saveOrder,
   toggleXiaocai,
   openXiaocai,
   sendXiaocai,
@@ -6258,4 +6391,5 @@ Object.assign(window, {
 
 bindGlobalClickHandlers();
 bindTextCompositionGuards();
+bindCartPersistenceGuards();
 boot();

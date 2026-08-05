@@ -40,6 +40,7 @@ const mobileCartSource = appSource.slice(
 );
 assert(mobileCartSource.includes("state.cart.map(cartLine)"), "手机购物车必须复用现有购物车行");
 assert(mobileCartSource.includes('onclick="saveOrder()"'), "手机购物车必须复用现有订单保存流程");
+assert(mobileCartSource.includes('class="cart-drawer'), "电脑和手机必须复用同一购物车抽屉");
 assert(mobileCartSource.includes("env(") === false, "安全区应由样式处理而不是写入业务脚本");
 
 const finalCreateOrder = appSource.slice(
@@ -50,6 +51,8 @@ assert(finalCreateOrder.includes("mobile-product-filters"), "手机商品搜索�
 assert(finalCreateOrder.includes("create-product-layout"), "开单商品区必须提供手机布局挂载类");
 assert(finalCreateOrder.includes("create-order-meta-card"), "开单资料区必须提供紧凑手机布局挂载类");
 assert(finalCreateOrder.includes("create-order-summary"), "手机开单客户和配送信息必须提供可展开摘要");
+assert(finalCreateOrder.includes("desktopCartButton()"), "电脑商品搜索栏必须包含购物车按钮");
+assert(!finalCreateOrder.includes('<aside class="card card-pad cart">'), "电脑端不得继续显示常驻右侧购物车");
 
 const finalSetRoute = appSource.slice(
   appSource.lastIndexOf("function setRoute"),
@@ -62,6 +65,9 @@ const mobileStyles = stylesSource.slice(stylesSource.indexOf("/* Mobile sales wo
 assert(mobileStyles.includes("@media (max-width: 720px)"), "手机布局断点必须统一为 720px");
 assert(mobileStyles.includes("grid-template-columns: repeat(5"), "手机底部导航必须固定为五个入口");
 assert(mobileStyles.includes(".mobile-cart-bar"), "手机端必须提供固定购物车结算条");
+assert(stylesSource.includes("Shared cart drawer and resilient product cards"), "电脑端必须提供右侧购物车抽屉和响应式商品卡片");
+assert(stylesSource.includes("width: min(520px"), "电脑购物车抽屉宽度必须约为 520px");
+assert(stylesSource.includes("max-width: 1179px"), "中等宽度窗口必须在控件拥挤前切换单列商品卡");
 assert(mobileStyles.includes("env(safe-area-inset-bottom)"), "手机底部控件必须兼容全面屏安全区");
 assert(mobileStyles.includes(".modal-backdrop"), "手机弹层必须覆盖底部导航和结算条");
 assert(mobileStyles.includes(".dashboard-metric-grid.month-metrics"), "手机概览指标必须单独优化");
