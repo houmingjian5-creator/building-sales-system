@@ -73,6 +73,11 @@ assert(mobileStyles.includes(".modal-backdrop"), "手机弹层必须覆盖底部
 assert(mobileStyles.includes(".dashboard-metric-grid.month-metrics"), "手机概览指标必须单独优化");
 assert(mobileStyles.includes("grid-template-columns: repeat(2"), "手机概览指标必须采用两列布局");
 assert(renderShellSource.includes('class="side-assistant-entry'), "电脑侧栏必须包含固定的小材入口");
+assert(renderShellSource.includes('class="side-user-avatar"'), "窄屏电脑侧栏必须保留登录人头像标识");
+assert(renderShellSource.includes('title="小材 AI 业务助手"'), "窄屏小材入口必须提供可识别提示");
+assert(stylesSource.includes(".nav-label,"), "窄屏电脑侧栏只能隐藏导航文字，不能隐藏图标");
+assert(stylesSource.includes(".nav button .nav-icon"), "窄屏电脑侧栏必须明确显示导航图标");
+assert(stylesSource.includes(".side-user-avatar"), "窄屏电脑侧栏必须提供登录人缩写头像样式");
 assert(appSource.includes('if (!state.user || !state.assistantOpen) return "";'), "小材关闭时不得渲染悬浮入口");
 assert(!appSource.includes('class="xiaocai-launcher"'), "电脑和手机端不得继续渲染悬浮小材按钮");
 assert(mobileStyles.includes("height: 100dvh"), "手机 AI 对话和弹层必须使用动态视口高度");

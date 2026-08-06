@@ -484,13 +484,14 @@ function render() {
           ${isAdmin() ? navButton("users", "人员管理") : ""}
           ${isAdmin() ? navButton("costs", "成本控制") : ""}
         </nav>
-        <button type="button" class="side-assistant-entry ${state.assistantOpen ? "active" : ""}" onclick="openXiaocai()">
+        <button type="button" class="side-assistant-entry ${state.assistantOpen ? "active" : ""}" title="小材 AI 业务助手" aria-label="打开小材 AI 业务助手" onclick="openXiaocai()">
           <img src="./assets/xiaocai.png" alt="" />
           <span><strong>小材</strong><small>AI 业务助手</small></span>
         </button>
-        <div class="side-user">
-          <strong>${state.user.name}</strong>
-          <div class="hint" style="color: rgba(255,255,255,.75)">${state.user.role}</div>
+        <div class="side-user" title="${html(`${state.user.name} · ${state.user.role}`)}">
+          <span class="side-user-avatar" aria-hidden="true">${html(String(state.user.name || "人").slice(0, 1))}</span>
+          <div class="side-user-details"><strong>${state.user.name}</strong>
+          <div class="hint" style="color: rgba(255,255,255,.75)">${state.user.role}</div></div>
         </div>
       </aside>
       <main class="main">
@@ -5586,7 +5587,7 @@ function handleOrderRouteClick(type) {
 
 function navButton(route, label) {
   const activeClass = state.route === route ? "active" : "";
-  return `<button type="button" class="${activeClass}" onclick="handleRouteClick(${jsArg(route)})"><span class="nav-icon">${icon(route)}</span><span>${html(label)}</span></button>`;
+  return `<button type="button" class="${activeClass}" title="${html(label)}" aria-label="${html(label)}" onclick="handleRouteClick(${jsArg(route)})"><span class="nav-icon">${icon(route)}</span><span class="nav-label">${html(label)}</span></button>`;
 }
 
 function orderBadgeClass(status) {
