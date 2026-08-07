@@ -32,15 +32,19 @@ assert.strictEqual(ownershipDb.orders[0].customerPhone, "13800000000");
 assert.strictEqual(ownershipDb.orders[0].customerAddress, "测试地址");
 
 const appSource = fs.readFileSync(path.join(__dirname, "../public/app.js"), "utf8");
-const finalDashboard = appSource.slice(
-  appSource.lastIndexOf("function renderDashboard"),
-  appSource.indexOf("function businessDate", appSource.lastIndexOf("function renderDashboard"))
+const remoteDashboard = appSource.slice(
+  appSource.indexOf("function renderDashboardRemote"),
+  appSource.indexOf("function auditQuery", appSource.indexOf("function renderDashboardRemote"))
 );
-assert(finalDashboard.includes("dashboardFilteredOrders()"), "销售概览必须应用销售人员多选范围");
-assert(finalDashboard.includes("monthPerformanceOrders.length"), "本月订单数必须包含所有有效订单");
-assert(finalDashboard.includes("todayPerformanceOrders.length"), "今日订单数必须包含所有有效订单");
-assert(finalDashboard.includes("performanceOrderAmount(order)"), "概览金额必须使用有效订单实际金额口径");
-assert(finalDashboard.includes("firstValidCustomerOrderDate"), "新开客户必须按首次有效下单日期计算");
+const dashboardLoader = appSource.slice(
+  appSource.indexOf("async function loadDashboard"),
+  appSource.indexOf("async function loadCustomers", appSource.indexOf("async function loadDashboard"))
+);
+assert(dashboardLoader.includes('salesUserIds: state.dashboardSalesFilters.join(",")'), "销售概览必须把销售人员多选范围交给服务器");
+assert(remoteDashboard.includes("metrics.monthOrderCount"), "本月订单数必须使用服务器有效订单统计");
+assert(remoteDashboard.includes("metrics.todayOrderCount"), "今日订单数必须使用服务器有效订单统计");
+assert(remoteDashboard.includes("metrics.monthSales"), "概览金额必须使用服务器实际金额口径");
+assert(appSource.includes('data.newCustomers || []'), "新开客户必须使用服务器首次有效下单统计");
 assert(!appSource.includes("function customerOpenedDate"), "新开客户不能再优先按建档时间计算");
 
 const finalCreateOrder = appSource.slice(

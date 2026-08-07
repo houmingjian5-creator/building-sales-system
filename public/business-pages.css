@@ -1,0 +1,23 @@
+/* Business-page styles loaded after the shared desktop/mobile layout. */
+.audit-page { display: grid; gap: 14px; }
+.audit-filter-card { padding: 14px; }
+.audit-filter-grid { display: grid; grid-template-columns: repeat(2, minmax(145px, .75fr)) minmax(170px, 1fr) minmax(150px, .8fr) minmax(135px, .7fr) minmax(220px, 1.3fr) auto; gap: 10px; align-items: center; }
+.audit-table { overflow: auto; }
+.audit-table table { min-width: 1040px; }
+.audit-table td { vertical-align: top; }
+.audit-table td small { display: block; margin-top: 4px; color: var(--muted, #718096); }
+.audit-table code { font-size: 12px; white-space: nowrap; }
+.audit-change-detail summary { cursor: pointer; color: #3658db; white-space: nowrap; }
+.audit-change-detail pre { max-width: 420px; max-height: 260px; overflow: auto; margin: 8px 0 0; padding: 10px; border-radius: 8px; background: #f7f9fc; color: #334155; font: 12px/1.55 ui-monospace, SFMono-Regular, Consolas, monospace; white-space: pre-wrap; word-break: break-word; }
+.audit-error { color: #b42318; background: #fff5f5; border-color: #fecaca; }
+
+@media (max-width: 1280px) {
+  .audit-filter-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+}
+
+@media (max-width: 720px) {
+  .audit-filter-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+  .audit-filter-grid input[placeholder] { grid-column: 1 / -1; }
+  .audit-filter-grid .btn { grid-column: 1 / -1; }
+  .audit-table { margin-inline: 0; border-radius: 12px; }
+}

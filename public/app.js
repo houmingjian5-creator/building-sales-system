@@ -1,4 +1,4 @@
-const initialCostDateRange = costDatePresetRange("month");
+﻿const initialCostDateRange = costDatePresetRange("month");
 
 const state = {
   route: "dashboard",
@@ -63,6 +63,7 @@ const state = {
   costDateFrom: initialCostDateRange.from,
   costDateTo: initialCostDateRange.to,
   costSupplierFilters: [],
+  costSupplierOptions: [],
   costSalesInitialized: false,
   costSalesMenuOpen: false,
   costSupplierMenuOpen: false,
@@ -72,6 +73,15 @@ const state = {
   dashboardSalesFilters: [],
   dashboardSalesMenuOpen: false,
   dashboardCustomerDetail: "",
+  dashboardData: null,
+  dashboardLoading: false,
+  productCategories: {},
+  dataLoaded: { customers: false, products: false, createProducts: false, orders: false, dashboard: false },
+  remotePages: {},
+  auditItems: [],
+  auditLoading: false,
+  auditError: "",
+  auditFilters: { startDate: "", endDate: "", actorId: "", entityType: "", result: "", keyword: "" },
   mobileMoreOpen: false,
   mobileCartOpen: false,
   mobileOrderDetailsOpen: false,
@@ -121,7 +131,7 @@ const app = document.getElementById("app");
 
 const money = (value) => `¥${Number(value || 0).toLocaleString("zh-CN", { maximumFractionDigits: 2 })}`;
 const byId = (list, id) => list.find((item) => item.id === id);
-const icon = (name) => ({ dashboard: "概", customers: "客", products: "品", create: "开", orders: "单", returns: "退", users: "员" }[name] || "•");
+const icon = (name) => ({ dashboard: "概", customers: "客", products: "品", create: "开", orders: "单", returns: "退", users: "员", costs: "本", audit: "记" }[name] || "•");
 const isAdmin = () => state.user && ["超级管理员", "管理员"].includes(state.user.role);
 
 function cartStorageKey(type = state.orderType) {
@@ -291,9 +301,12 @@ function setOrderSalesperson(userId) {
   state.createCustomerPickerOpen = false;
   resetOrderDraft(null);
   render();
+  loadCustomers({ forCreate: true }).then(render).catch((error) => alert(error.message));
 }
 
 function customerOrderAddresses(customerId) {
+  const customer = byId(customers, customerId);
+  if (customer && Array.isArray(customer.orderAddresses)) return customer.orderAddresses;
   const seen = new Set();
   return orders
     .filter((order) => order.customerId === customerId && !order.deletedAt)
@@ -368,15 +381,6 @@ function orderItemDetails(item = {}) {
   return { name, spec, label: spec ? `${name}（${spec}）` : name, unit: item.unit || product.unit || "" };
 }
 
-function setRoute(route) {
-  state.route = route;
-  state.query = "";
-  state.modal = null;
-  if (route === "returns") state.orderType = "return";
-  if (route === "create") state.orderType = "sale";
-  render();
-}
-
 function showToast(text) {
   state.toast = text;
   render();
@@ -425,22 +429,11 @@ function bindTextCompositionGuards() {
 }
 
 function updatePageQuery(input) {
-  scheduleInputRender("query", input.value, input.id, input.selectionStart, input.selectionEnd);
-}
-
-function updateProductQuery(input) {
-  scheduleInputRender("productQuery", input.value, input.id, input.selectionStart, input.selectionEnd);
-}
-
-function setProductCategory(category) {
-  state.category = category;
-  state.productSubcategory = "";
-  render();
-}
-
-function setProductSubcategory(category) {
-  state.productSubcategory = category;
-  render();
+  state.query = input.value;
+  resetPage("customers");
+  if (input.dataset.composing === "true") return;
+  clearTimeout(inputRenderTimer);
+  inputRenderTimer = setTimeout(() => loadCustomers().then(render).catch((error) => alert(error.message)), 220);
 }
 
 function toggleLoginPassword() {
@@ -483,6 +476,7 @@ function render() {
           ${navButton("returns", "退货单")}
           ${isAdmin() ? navButton("users", "人员管理") : ""}
           ${isAdmin() ? navButton("costs", "成本控制") : ""}
+          ${isAdmin() ? navButton("audit", "操作日志") : ""}
         </nav>
         <button type="button" class="side-assistant-entry ${state.assistantOpen ? "active" : ""}" title="小材 AI 业务助手" aria-label="打开小材 AI 业务助手" onclick="openXiaocai()">
           <img src="./assets/xiaocai.png" alt="" />
@@ -516,63 +510,6 @@ function render() {
   `;
 }
 
-function renderLogin() {
-  app.innerHTML = `
-    <div class="login-shell">
-      <section class="login-panel">
-        <form class="login-card" onsubmit="event.preventDefault(); login()">
-          <div class="brand-row">
-            <div class="brand-mark">建</div>
-            <div><h1 class="page-title">建材销售开单系统</h1><p class="page-subtitle">手机号登录 · 客户产品订单一体化</p></div>
-          </div>
-          <div class="field"><label>手机号</label><input id="loginPhone" class="input" value="" placeholder="请输入已授权手机号" /></div>
-          <div class="field"><label>密码</label><div class="password-field"><input id="loginPassword" class="input" type="${state.loginPasswordVisible ? "text" : "password"}" value="" placeholder="请输入登录密码" /><button type="button" class="password-toggle ${state.loginPasswordVisible ? "active" : ""}" onclick="toggleLoginPassword()" title="${state.loginPasswordVisible ? "隐藏密码" : "显示密码"}" aria-label="${state.loginPasswordVisible ? "隐藏密码" : "显示密码"}"></button></div></div>
-          <button type="submit" class="btn primary" style="width:100%">登录系统</button>
-        </form>
-      </section>
-      <section class="login-visual"><div class="visual-board"></div></section>
-    </div>
-  `;
-}
-
-async function login() {
-  const phone = document.getElementById("loginPhone").value.trim();
-  const password = document.getElementById("loginPassword").value.trim();
-  try {
-    const response = await fetch("/api/login", {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ phone, password }),
-    });
-    const data = await response.json();
-    if (!response.ok) throw new Error(data.error || "登录失败");
-    state.user = data.user;
-    await loadBootstrap();
-    showToast("登录成功");
-  } catch (error) {
-    alert(error.message);
-  }
-}
-
-async function loadBootstrap() {
-  const response = await fetch("/api/bootstrap");
-  if (!response.ok) {
-    return;
-  }
-  const data = await response.json();
-  state.user = data.user;
-  salesUsers = data.users;
-  customers = data.customers;
-  products = data.products;
-  orders = data.orders;
-  state.selectedCustomerId = "";
-  state.createCustomerQuery = "";
-  state.createCustomerPickerOpen = false;
-  state.salesUserId = state.user?.id || salesUsers[0]?.id || "";
-  resetOrderDraft(null);
-  restoreCart(state.orderType);
-}
-
 async function boot() {
   state.loading = true;
   render();
@@ -589,11 +526,12 @@ async function boot() {
 async function logout() {
   persistCart(state.orderType, true);
   try {
-    await fetch("/api/logout", { method: "POST" });
+    await apiFetch("/api/logout", { method: "POST" });
   } finally {
     assistantAbortController?.abort();
     clearInterval(assistantStageTimer);
     state.user = null;
+    state.route = "dashboard";
     state.assistantOpen = false;
     state.assistantMessages = [];
     state.assistantLoaded = false;
@@ -615,6 +553,13 @@ async function logout() {
     state.costSupplierMenuOpen = false;
     state.costMobileFiltersOpen = false;
     state.costExpandedOrderId = "";
+    state.dashboardData = null;
+    state.dashboardError = "";
+    state.productCategories = {};
+    state.remotePages = {};
+    state.dataLoaded = { customers: false, products: false, createProducts: false, orders: false, dashboard: false };
+    state.auditItems = [];
+    state.auditError = "";
     state.mobileMoreOpen = false;
     state.mobileCartOpen = false;
     state.aiDraft = null;
@@ -630,26 +575,12 @@ async function logout() {
   }
 }
 
-function localLoginFallback(phone, password) {
-  const user = salesUsers.find((item) => item.phone === phone);
-  if (!user || user.password !== password || user.status !== "启用") {
-    alert("手机号或密码错误。");
-    return;
-  }
-  state.user = user;
-  showToast("登录成功");
-}
-
-function navButton(route, label) {
-  return `<button class="${state.route === route ? "active" : ""}" onclick="setRoute('${route}')"><span class="nav-icon">${icon(route)}</span><span>${label}</span></button>`;
-}
-
 function mobilePrimaryRouteButton(route, label) {
   return `<button type="button" class="${state.route === route ? "active" : ""}" onclick="setRoute(${jsArg(route)})"><span class="nav-icon">${icon(route)}</span><span>${html(label)}</span></button>`;
 }
 
 function renderMobileNavigation() {
-  const moreActive = ["products", "returns", "users", "costs"].includes(state.route) || state.mobileMoreOpen;
+  const moreActive = ["products", "returns", "users", "costs", "audit"].includes(state.route) || state.mobileMoreOpen;
   return `
     <nav class="mobile-bottom-nav" aria-label="手机端主导航">
       ${mobilePrimaryRouteButton("dashboard", "概览")}
@@ -678,6 +609,7 @@ function renderMobileMoreSheet() {
           ${mobileMoreRouteButton("returns", "退货开单")}
           ${isAdmin() ? mobileMoreRouteButton("users", "人员管理") : ""}
           ${isAdmin() ? mobileMoreRouteButton("costs", "成本控制") : ""}
+          ${isAdmin() ? mobileMoreRouteButton("audit", "操作日志") : ""}
         </div>
         <button type="button" class="mobile-logout-button" onclick="closeMobileMore();logout()"><span class="nav-icon">退</span><span>退出登录</span></button>
       </section>
@@ -749,73 +681,27 @@ function desktopCartButton() {
 }
 
 function titleForRoute() {
-  return ({ dashboard: "销售概览", customers: "客户管理", products: "产品管理", create: "销售开单", orders: "订单管理", returns: "退货单", users: "人员管理", costs: "成本控制" }[state.route]);
+  return ({ dashboard: "销售概览", customers: "客户管理", products: "产品管理", create: "销售开单", orders: "订单管理", returns: "退货单", users: "人员管理", costs: "成本控制", audit: "操作日志" }[state.route]);
 }
 
 function subtitleForRoute() {
-  return ({ dashboard: "查看本月与今日销售、客户和订单数据", customers: "管理客户信息和成交记录", products: "管理建材商品信息与价格", create: "选择客户和商品生成销售单", orders: "管理订单状态、打印和导出", returns: "从销售流程中创建退货单", users: "添加登录人员，维护手机号、密码和角色定位", costs: "核算订单材料成本、运输成本与实际盈利" }[state.route]);
+  return ({ dashboard: "查看本月与今日销售、客户和订单数据", customers: "管理客户信息和成交记录", products: "管理建材商品信息与价格", create: "选择客户和商品生成销售单", orders: "管理订单状态、打印和导出", returns: "从销售流程中创建退货单", users: "添加登录人员，维护手机号、密码和角色定位", costs: "核算订单材料成本、运输成本与实际盈利", audit: "查询关键业务操作与错误请求编号" }[state.route]);
 }
 
 function renderPage() {
-  if (state.route === "dashboard") return renderDashboard();
+  if (state.route === "dashboard") return renderDashboardRemote();
   if (state.route === "customers") return renderCustomers();
   if (state.route === "products") return renderProducts();
   if (state.route === "create" || state.route === "returns") return renderCreateOrder();
   if (state.route === "orders") return renderOrders();
   if (state.route === "users" && isAdmin()) return renderUsers();
   if (state.route === "costs" && isAdmin()) return renderCostControl();
+  if (state.route === "audit" && isAdmin()) return renderAuditCenter();
   return "";
-}
-
-function renderDashboard() {
-  const total = orders.reduce((sum, item) => sum + item.amount, 0);
-  const pending = orders.filter((item) => item.status === "待确认").length;
-  return `
-    <div class="grid kpi-grid">
-      ${kpi("今日销售额", money(total), "dashboard")}
-      ${kpi("客户数量", customers.length, "customers")}
-      ${kpi("在售商品", products.filter((p) => p.status === "在售").length, "products")}
-      ${kpi("待确认订单", pending, "orders")}
-    </div>
-    <div class="grid two-col" style="margin-top:16px">
-      <div class="card card-pad">
-        <h3>最近订单</h3>
-        <div class="order-list">${orders.slice(0, 4).map(orderCard).join("")}</div>
-      </div>
-      <div class="card card-pad">
-        <h3>高频建材分类</h3>
-        ${["水电", "木", "油", "瓦"].map((cat) => `<div class="summary-row"><span>${cat}</span><strong>${products.filter((p) => p.cat1 === cat).length} 件商品</strong></div>`).join("")}
-        <button class="btn primary" style="width:100%;margin-top:14px" onclick="setRoute('create')">开始开单</button>
-      </div>
-    </div>
-  `;
 }
 
 function kpi(label, value, type) {
   return `<div class="card card-pad kpi"><div><div class="hint">${label}</div><div class="kpi-value">${value}</div></div><div class="kpi-icon">${icon(type)}</div></div>`;
-}
-
-function renderCustomers() {
-  const q = state.query.trim();
-  const list = customers.filter((c) => !q || [c.name, c.contact, c.phone].some((v) => v.includes(q)));
-  return `
-    <div class="toolbar">
-      <input id="customerSearchInput" class="input" placeholder="搜索客户名称/联系人/电话" value="${state.query}" oninput="updatePageQuery(this)" />
-      <div class="spacer"></div>
-      <button class="btn primary" onclick="openModal('customer')">＋ 新增客户</button>
-    </div>
-    <div class="customer-list">${list.map(customerCard).join("")}</div>
-  `;
-}
-
-function customerStats(customerId) {
-  const list = orders.filter((order) => order.customerId === customerId && !String(order.no || "").startsWith("TH"));
-  const total = list.reduce((sum, order) => sum + Number(order.amount || 0), 0);
-  const last = list
-    .map((order) => order.date)
-    .filter(Boolean)
-    .sort((a, b) => new Date(b) - new Date(a))[0] || "-";
-  return { total, last, count: list.length };
 }
 
 function customerCard(c) {
@@ -839,107 +725,6 @@ function customerCard(c) {
       </div>
     </div>
   `;
-}
-
-function renderProducts() {
-  const q = state.productQuery.trim();
-  const list = products.filter((p) => (state.category === "全部" || p.cat1 === state.category) && (!q || [p.name, p.spec, p.brand].some((v) => v.includes(q))));
-  return `
-    <div class="toolbar">
-      <input id="productSearchInputLegacy" class="input" placeholder="搜索产品名称/编码/拼音" value="${state.productQuery}" oninput="updateProductQuery(this)" />
-      <div class="spacer"></div>
-      <button class="btn" onclick="showToast('产品列表已导出 CSV')">⇩ 下载</button>
-      <button class="btn primary" onclick="openModal('product')">＋ 新增</button>
-    </div>
-    ${categoryTabs()}
-    <div class="card table-wrap">
-      <table>
-        <thead><tr><th>品牌</th><th>类别</th><th>图片</th><th>商品名称</th><th>规格</th><th>单位</th><th>销售价</th><th>成本价</th><th>状态</th><th>操作</th></tr></thead>
-        <tbody>${list.map((p) => `<tr><td>${p.brand}</td><td>${p.cat2}</td><td><div class="material-thumb" style="width:42px;height:32px;--thumb:${p.color}"></div></td><td><strong>${p.name}</strong></td><td>${p.spec}</td><td>${p.unit}</td><td class="num">${money(p.price)}</td><td class="num">${money(p.cost)}</td><td><span class="badge success">${p.status}</span></td><td>${actionButton("编辑", "edit", `openModal('product','${p.id}')`)}${actionButton("删除", "delete", "showToast('演示中未删除真实数据')")}</td></tr>`).join("")}</tbody>
-      </table>
-    </div>
-  `;
-}
-
-function categoryTabs() {
-  return `<div class="category-tabs">${["全部", "木", "水电", "油", "瓦"].map((cat) => `<button class="${state.category === cat ? "active" : ""}" onclick="state.category='${cat}';render()">${cat}</button>`).join("")}</div>`;
-}
-
-function renderCreateOrder() {
-  const customer = byId(customers, state.selectedCustomerId) || customers[0];
-  const productList = products.filter((p) => (state.category === "全部" || p.cat1 === state.category) && (!state.productQuery || [p.name, p.spec, p.cat2].some((v) => v.includes(state.productQuery))));
-  return `
-    <div class="card card-pad" style="margin-bottom:16px">
-      <div class="form-grid">
-        <div class="field"><label>选择客户 *</label><select class="select" onchange="state.selectedCustomerId=this.value;render()">${customers.map((c) => `<option value="${c.id}" ${c.id === customer.id ? "selected" : ""}>${c.name} - ${c.phone}</option>`).join("")}</select></div>
-        <div class="field"><label>代下单销售人员</label><select class="select" onchange="state.salesUserId=this.value">${salesUsers.map((u) => `<option value="${u.id}" ${u.id === state.salesUserId ? "selected" : ""}>${u.name}</option>`).join("")}</select></div>
-        <div class="field"><label>送货地址 *</label><input class="input" value="${customer.address}" /></div>
-        <div class="field"><label>收货人手机号 *</label><input class="input" value="${customer.phone}" /></div>
-      </div>
-    </div>
-    <div class="product-layout">
-      <div>
-        <div class="toolbar">
-          <input id="orderProductSearchInput" class="input" placeholder="搜索商品名称、编码、拼音..." value="${state.productQuery}" oninput="updateProductQuery(this)" />
-          <button class="btn primary" onclick="openAiOrderModal()">AI 帮我开单</button>
-        </div>
-        ${categoryTabs()}
-        <div class="product-grid">${productList.map(productCard).join("")}</div>
-      </div>
-      <aside class="card card-pad cart">
-        <h3>${state.orderType === "return" ? "退货清单" : "购物车"}</h3>
-        ${state.cart.length ? state.cart.map(cartLine).join("") : `<div class="empty">还没有选择商品</div>`}
-        <div class="summary-row"><span>共 ${state.cart.reduce((s, i) => s + i.quantity, 0)} 件</span><span>合计</span></div>
-        <div class="summary-row"><span></span><span class="summary-total">${money(cartTotal())}</span></div>
-        <button class="btn primary" style="width:100%" onclick="saveOrder()">${state.orderType === "return" ? "生成退货单" : "去结算"}</button>
-      </aside>
-    </div>
-  `;
-}
-
-function productCard(p) {
-  return `
-    <article class="product-card">
-      <div class="material-thumb" style="--thumb:${p.color}"></div>
-      <div>
-        <h4 class="product-title">${p.name}</h4>
-        <div class="product-spec">${p.cat1} · ${p.cat2}<br />${p.spec}<br />单位：${p.unit}</div>
-        <div class="price">${money(p.price)}</div>
-      </div>
-      ${actionButton("加入购物车", "plus", `addToCart('${p.id}')`)}
-    </article>
-  `;
-}
-
-function addToCart(productId) {
-  const line = state.cart.find((item) => item.productId === productId);
-  if (line) line.quantity += 1;
-  else {
-    const p = byId(products, productId);
-    state.cart.push({ productId, quantity: 1, price: p.price });
-  }
-  showToast(`已添加 ${byId(products, productId).name}`);
-}
-
-function cartLine(item) {
-  const p = byId(products, item.productId);
-  return `
-    <div class="cart-line">
-      <div><strong>${p.name}</strong><div class="hint">${p.spec} · ${p.unit}</div><div class="num">${money(item.price)} / ${p.unit}</div></div>
-      <div>
-        <div class="qty"><button onclick="changeQty('${p.id}',-1)">−</button><strong>${item.quantity}</strong><button onclick="changeQty('${p.id}',1)">＋</button></div>
-        <div class="num" style="margin-top:8px;text-align:right">${money(item.quantity * item.price)}</div>
-      </div>
-    </div>
-  `;
-}
-
-function changeQty(productId, delta) {
-  const line = state.cart.find((item) => item.productId === productId);
-  if (!line) return;
-  line.quantity += delta;
-  if (line.quantity <= 0) state.cart = state.cart.filter((item) => item.productId !== productId);
-  render();
 }
 
 function cartTotal() {
@@ -1046,7 +831,7 @@ async function analyzeAiOrder() {
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), 55000);
   try {
-    const response = await fetch("/api/ai/order-draft", {
+    const response = await apiFetch("/api/ai/order-draft", {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ groups: validGroups, customerId: state.selectedCustomerId }),
@@ -1063,6 +848,16 @@ async function analyzeAiOrder() {
     const resultCount = [data.matched, data.needsQuantity, data.uncertain, data.unmatched]
       .reduce((sum, list) => sum + (Array.isArray(list) ? list.length : 0), 0);
     if (!resultCount) throw new Error("AI没有返回任何材料，请检查输入内容后重试");
+    const draftProducts = [];
+    [data.matched, data.needsQuantity, data.uncertain, data.unmatched].forEach((list) => {
+      (Array.isArray(list) ? list : []).forEach((item) => {
+        if (item && item.productId) draftProducts.push({ ...item, id: item.productId });
+        (Array.isArray(item && item.candidates) ? item.candidates : []).forEach((candidate) => {
+          if (candidate && candidate.productId) draftProducts.push({ ...candidate, id: candidate.productId });
+        });
+      });
+    });
+    mergeProductCache(draftProducts);
     state.aiDraft = data;
     state.aiDraftDirty = false;
     state.aiSourceDirty = false;
@@ -1311,6 +1106,7 @@ function aiCandidateOption(product, key, rawName, orderIndex = "", selectedProdu
 }
 
 function aiSearchSubcategories(cat1) {
+  if (cat1 && Array.isArray(state.productCategories[cat1])) return state.productCategories[cat1];
   return [...new Set(products.filter((product) => !cat1 || product.cat1 === cat1).map((product) => product.cat2).filter(Boolean))]
     .sort((a, b) => a.localeCompare(b, "zh-CN"));
 }
@@ -1349,7 +1145,7 @@ function aiManualCandidateScore(product, query) {
   return productSearchScore(product, query);
 }
 
-function updateAiManualSearch(input, key, rawName, cat1, cat2, orderIndex = "") {
+async function updateAiManualSearch(input, key, rawName, cat1, cat2, orderIndex = "") {
   const query = input.value.trim();
   const cat1Select = [...document.querySelectorAll("[data-ai-search-cat1]")]
     .find((element) => element.dataset.aiSearchCat1 === String(key));
@@ -1357,16 +1153,13 @@ function updateAiManualSearch(input, key, rawName, cat1, cat2, orderIndex = "") 
     .find((element) => element.dataset.aiSearchCat2 === String(key));
   const selectedCat1 = cat1Select ? cat1Select.value : cat1;
   const selectedCat2 = cat2Select ? cat2Select.value : cat2;
-  const candidates = products
-    .filter((product) => isProductActive(product))
-    .filter((product) => !selectedCat1 || product.cat1 === selectedCat1)
-    .filter((product) => !selectedCat2 || product.cat2 === selectedCat2)
-    .map((product) => ({ product, score: aiManualCandidateScore(product, query) }))
-    .filter((entry) => !query || entry.score > 0)
-    .sort((a, b) => b.score - a.score || String(a.product.name).localeCompare(String(b.product.name), "zh-CN"))
-    .slice(0, 16)
-    .map((entry) => entry.product)
-    .map(aiCandidateFromProduct);
+  const response = await latestApiFetch(`ai-products-${key}`, `/api/products${queryString({ page: 1, pageSize: 16, q: query, category1: selectedCat1, category2: selectedCat2, status: "在售" })}`);
+  if (!response) return;
+  const data = await response.json();
+  if (!response.ok) return;
+  const matchedProducts = data.items || [];
+  mergeProductCache(matchedProducts);
+  const candidates = matchedProducts.map(aiCandidateFromProduct);
   const results = [...document.querySelectorAll("[data-ai-manual-results]")]
     .find((element) => element.dataset.aiManualResults === String(key));
   if (results) {
@@ -1410,63 +1203,6 @@ function applyAiDraft() {
   const count = state.cart.reduce((sum, item) => sum + item.quantity, 0);
   closeModal();
   showToast(`AI 已填入 ${count} 件商品，请确认后保存订单`);
-}
-
-async function saveOrder() {
-  if (!state.cart.length) {
-    alert("请先添加商品。");
-    return;
-  }
-  try {
-    const response = await fetch("/api/orders", {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({
-        type: state.orderType,
-        customerId: state.selectedCustomerId,
-        salesUserId: state.salesUserId,
-        amount: cartTotal(),
-        items: state.cart.map((item) => ({ ...item })),
-        aiLearnPairs: state.aiLearnPairs,
-      }),
-    });
-    const data = await response.json();
-    if (!response.ok) throw new Error(data.error || "保存订单失败");
-    orders = [data.order, ...orders];
-    state.cart = [];
-    state.aiLearnPairs = [];
-    state.route = "orders";
-    state.modal = { type: "document", id: data.order.id };
-    showToast(state.orderType === "return" ? "退货单已生成" : "销售单已生成");
-  } catch (error) {
-    alert(error.message);
-  }
-}
-
-function renderOrders() {
-  const list = orders.filter((o) => state.orderStatus === "全部" || o.status === state.orderStatus);
-  return `
-    <div class="toolbar">
-      <input class="input" placeholder="搜索订单号/客户名称/手机号" />
-      <select class="select" style="max-width:150px" onchange="state.orderStatus=this.value;render()">${["全部", "待确认", "已确认", "已发货", "已完成", "已取消", "已退货"].map((s) => `<option ${state.orderStatus === s ? "selected" : ""}>${s}</option>`).join("")}</select>
-      <div class="spacer"></div>
-      <button class="btn" onclick="setRoute('create')">＋ 开销售单</button>
-      <button class="btn primary" onclick="state.orderType='sale';setRoute('create')">开单</button>
-    </div>
-    <div class="order-list">${list.map(orderCard).join("")}</div>
-  `;
-}
-
-function orderCard(order) {
-  const c = byId(customers, order.customerId);
-  const s = byId(salesUsers, order.salesUserId);
-  return `
-    <div class="order-card">
-      <div><div class="order-no">${order.no} ${statusBadge(order.status)} <span class="badge info">${order.payStatus}</span></div><div class="meta"><span>${c?.name}</span><span>${order.date}</span><span>销售：${s?.name}</span></div></div>
-      <div class="meta"><span>${order.items.length} 项商品</span><span>客户电话：${c?.phone}</span></div>
-      <div style="text-align:right"><div class="price">${money(order.amount)}</div>${actionButton("查看单据", "view", `openModal('document','${order.id}')`)}${actionButton("编辑", "edit", `openModal('editOrder','${order.id}')`)}${actionButton("改状态", "refresh", `cycleStatus('${order.id}')`)}</div>
-    </div>
-  `;
 }
 
 function statusBadge(status) {
@@ -1530,7 +1266,7 @@ async function toggleUserStatus(id) {
   }
   const nextStatus = user.status === "启用" ? "停用" : "启用";
   try {
-    const response = await fetch(`/api/users/${id}`, {
+    const response = await apiFetch(`/api/users/${id}`, {
       method: "PUT",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ status: nextStatus }),
@@ -1542,16 +1278,6 @@ async function toggleUserStatus(id) {
   } catch (error) {
     alert(error.message);
   }
-}
-
-function openModal(type, id = "") {
-  state.modal = { type, id };
-  render();
-}
-
-function closeModal() {
-  state.modal = null;
-  render();
 }
 
 function renderModal() {
@@ -1872,7 +1598,7 @@ async function saveCustomer(id) {
     return;
   }
   try {
-    const response = await fetch(id ? `/api/customers/${encodeURIComponent(id)}` : "/api/customers", {
+    const response = await apiFetch(id ? `/api/customers/${encodeURIComponent(id)}` : "/api/customers", {
       method: id ? "PATCH" : "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify(payload),
@@ -1891,6 +1617,9 @@ async function saveCustomer(id) {
     state.customerOwnerFilter = "全部";
     closeModal();
     showToast(id ? "客户信息已更新" : "客户已添加");
+    if (state.route === "customers") await loadCustomers();
+    if (state.route === "create" || state.route === "returns") await loadCustomers({ forCreate: true });
+    render();
   } catch (error) {
     alert(error.message);
   }
@@ -1905,7 +1634,7 @@ async function deleteCustomer(id) {
     ? `确定删除客户“${customer.name}”吗？\n\n该客户有 ${stats.count} 笔历史订单。删除后客户将从客户列表和开单选择中移除，历史订单仍会保留。`
     : `确定删除客户“${customer.name}”吗？\n电话：${customer.phone || "-"}\n\n删除后无法恢复。`;
   if (!confirm(message)) return;
-  const response = await fetch(`/api/customers/${encodeURIComponent(id)}`, { method: "DELETE" });
+  const response = await apiFetch(`/api/customers/${encodeURIComponent(id)}`, { method: "DELETE" });
   const data = await response.json().catch(() => ({}));
   if (!response.ok) return alert(data.error || "删除客户失败");
   orders.forEach((order) => {
@@ -1922,37 +1651,8 @@ async function deleteCustomer(id) {
     resetOrderDraft(null);
   }
   showToast("客户已删除");
+  await loadCustomers();
   render();
-}
-
-function productModal(id) {
-  const p = byId(products, id) || {};
-  return `
-    <div class="modal-backdrop">
-      <div class="modal side">
-        <div class="modal-head"><h3>${id ? "编辑产品" : "新增产品"}</h3><button class="icon-btn" onclick="closeModal()">×</button></div>
-        <div class="modal-body">
-          <div class="product-image-editor">
-            ${p.imageUrl ? `<img src="${html(p.imageUrl)}" alt="${html(p.name || "商品图片")}" />` : `<div class="product-image-placeholder">暂无商品图片</div>`}
-            <div><label class="btn" for="productImageFile">选择图片</label><input id="productImageFile" type="file" accept="image/png,image/jpeg,image/webp" hidden onchange="previewProductImage(this)" /><div class="hint">支持 PNG、JPG、WebP，文件不超过 3MB。保存商品时一并上传。</div></div>
-          </div>
-          <div class="form-grid">
-            ${field("产品品牌 *", p.brand || "")}
-            ${field("产品名称 *", p.name || "")}
-            ${field("规格型号", p.spec || "")}
-            ${selectField("一级分类 *", ["木", "水电", "油", "瓦"], p.cat1)}
-            ${field("二级分类 *", p.cat2 || "")}
-            ${field("单位", p.unit || "")}
-            ${field("销售价 *", p.price || "")}
-            ${field("成本价", p.cost || "")}
-          </div>
-          <div class="field"><label>描述</label><textarea class="textarea" placeholder="请输入产品描述"></textarea></div>
-          <div class="card card-pad"><div class="hint">产品图片：演示原型中以建材纹理缩略图代替，正式版会支持图片上传。</div></div>
-        </div>
-        <div class="modal-foot"><button class="btn" onclick="closeModal()">取消</button><button class="btn primary" onclick="showToast('产品信息已保存');closeModal()">确认</button></div>
-      </div>
-    </div>
-  `;
 }
 
 function productImageModal(id) {
@@ -2015,7 +1715,7 @@ function fileAsDataUrl(file) {
 
 async function uploadProductImage(productId, file) {
   if (!file) return null;
-  const response = await fetch(`/api/products/${encodeURIComponent(productId)}/image`, {
+  const response = await apiFetch(`/api/products/${encodeURIComponent(productId)}/image`, {
     method: "PUT",
     headers: { "content-type": "application/json" },
     body: JSON.stringify({ image: await fileAsDataUrl(file) }),
@@ -2081,7 +1781,7 @@ async function deleteProductImage(button, productId, imageUrl) {
   if (!isAdmin()) return alert("只有管理员可以删除商品图片");
   if (!confirm("确定删除这张商品图片吗？")) return;
   const filename = decodeURIComponent(String(imageUrl || "").split("/").pop() || "");
-  const response = await fetch(`/api/products/${encodeURIComponent(productId)}/images/${encodeURIComponent(filename)}`, { method: "DELETE" });
+  const response = await apiFetch(`/api/products/${encodeURIComponent(productId)}/images/${encodeURIComponent(filename)}`, { method: "DELETE" });
   const data = await response.json().catch(() => ({}));
   if (!response.ok) return alert(data.error || "删除商品图片失败");
   const index = products.findIndex((item) => item.id === productId);
@@ -2096,17 +1796,6 @@ function customerOrdersModal(id) {
   const c = byId(customers, id);
   const list = orders.filter((o) => o.customerId === id);
   return modalShell(`${c.name} 的历史订单`, `<div class="order-list">${list.length ? list.map(orderCard).join("") : "<div class='empty'>暂无订单</div>"}</div>`, "关闭", "closeModal()");
-}
-
-function editOrderModal(id) {
-  const order = byId(orders, id);
-  return modalShell("编辑订单", `
-    <div class="form-grid">
-      ${selectField("客户", customers.map((c) => c.name), byId(customers, order.customerId)?.name)}
-      ${selectField("订单状态", ["待确认", "已确认", "已发货", "已完成", "已取消"], order.status)}
-    </div>
-    <div class="card table-wrap" style="margin-top:14px"><table><thead><tr><th>商品</th><th>数量</th><th>单价</th><th>小计</th></tr></thead><tbody>${order.items.map((item) => { const p = byId(products, item.productId); return `<tr><td>${p.name}</td><td>${item.quantity}</td><td>${money(item.price)}</td><td>${money(item.price * item.quantity)}</td></tr>`; }).join("")}</tbody></table></div>
-  `, "保存修改", "showToast('订单已保存');closeModal()");
 }
 
 function deliveryModal(id) {
@@ -2215,10 +1904,6 @@ function selectField(label, options, value) {
   return `<div class="field"><label>${label}</label><select class="select">${options.map((o) => `<option ${o === value ? "selected" : ""}>${o}</option>`).join("")}</select></div>`;
 }
 
-function actionButton(title, type, onclick) {
-  return `<button class="icon-btn ${type === "delete" ? "danger-soft" : ""}" title="${title}" aria-label="${title}" onclick="${onclick}">${svgIcon(type)}</button>`;
-}
-
 function svgIcon(type) {
   const icons = {
     view: `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M2.06 12.35a1 1 0 0 1 0-.7C3.72 7.75 7.55 5 12 5s8.28 2.75 9.94 6.65a1 1 0 0 1 0 .7C20.28 16.25 16.45 19 12 19s-8.28-2.75-9.94-6.65Z"/><circle cx="12" cy="12" r="3"/></svg>`,
@@ -2258,7 +1943,7 @@ async function savePerson(id) {
   try {
     const payload = { name, phone, role, status };
     if (password) payload.password = password;
-    const response = await fetch(id ? `/api/users/${id}` : "/api/users", {
+    const response = await apiFetch(id ? `/api/users/${id}` : "/api/users", {
       method: id ? "PUT" : "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify(payload),
@@ -2714,159 +2399,16 @@ function productMeta(p) {
   return [p.cat1, p.cat2].filter(Boolean).join(" / ") || "-";
 }
 
-function categoryTabs() {
-  return `<div class="category-tabs">${PRODUCT_CATEGORIES.map((cat) => `<button class="${state.category === cat ? "active" : ""}" onclick="setProductCategory('${cat}')">${cat}</button>`).join("")}</div>`;
-}
-
 function productSubcategories() {
   if (state.category === "全部") return [];
+  if (state.productCategories && Array.isArray(state.productCategories[state.category])) {
+    return state.productCategories[state.category];
+  }
   return [...new Set(products
     .filter((p) => p.cat1 === state.category)
     .map((p) => p.cat2)
     .filter(Boolean))]
     .sort((a, b) => a.localeCompare(b, "zh-CN"));
-}
-
-function subcategoryTabs() {
-  const list = productSubcategories();
-  if (!list.length) return "";
-  return `
-    <div class="subcategory-tabs">
-      <button class="${!state.productSubcategory ? "active" : ""}" onclick="setProductSubcategory('')">全部二级分类</button>
-      ${list.map((cat) => `<button class="${state.productSubcategory === cat ? "active" : ""}" onclick="setProductSubcategory(${JSON.stringify(cat)})">${html(cat)}</button>`).join("")}
-    </div>
-  `;
-}
-
-function filteredProducts() {
-  const q = state.productQuery.trim().toLowerCase();
-  const normalized = normalizeProductSearchQuery(q);
-  return products.filter((p) => {
-    const categoryOk = state.category === "全部" || p.cat1 === state.category;
-    const subcategoryOk = !state.productSubcategory || p.cat2 === state.productSubcategory;
-    const searchText = productSearchText(p);
-    return categoryOk && subcategoryOk && (!q || searchText.includes(q) || searchText.includes(normalized));
-  });
-}
-
-function renderProducts() {
-  const list = filteredProducts();
-  const visible = list.slice(0, 220);
-  return `
-    <div class="toolbar">
-      <input id="productSearchInput" class="input" placeholder="搜索商品名称 / 规格 / 编码 / 别名" value="${html(state.productQuery)}" oninput="updateProductQuery(this)" />
-      <div class="spacer"></div>
-      <button class="btn primary" onclick="openModal('product')">新增商品</button>
-    </div>
-    ${categoryTabs()}
-    ${subcategoryTabs()}
-    <div class="hint" style="margin:8px 0 12px">共 ${list.length} 个商品${list.length > visible.length ? `，当前显示前 ${visible.length} 个，请用搜索缩小范围` : ""}</div>
-    <div class="card table-wrap product-table">
-      <table>
-        <thead><tr><th>商品名称</th><th>规格</th><th>一级分类</th><th>二级分类</th><th>单位</th><th>销售价</th><th>状态</th><th>操作</th></tr></thead>
-        <tbody>${visible.map((p) => `
-          <tr>
-            <td><div class="product-name-cell"><strong>${html(p.name)}</strong><span>${html(p.code || p.id)}</span></div></td>
-            <td>${html(p.spec || "-")}</td>
-            <td>${html(p.cat1 || "-")}</td>
-            <td>${html(p.cat2 || "-")}</td>
-            <td>${html(p.unit)}</td>
-            <td class="num">${money(p.price)}</td>
-            <td><span class="badge ${isProductActive(p) ? "success" : "danger"}">${html(p.status || "在售")}</span></td>
-            <td>${actionButton("编辑", "edit", `openModal('product',${JSON.stringify(p.id)})`)}</td>
-          </tr>
-        `).join("")}</tbody>
-      </table>
-    </div>
-  `;
-}
-
-function productCard(p) {
-  return `
-    <article class="product-card ${isProductActive(p) ? "" : "disabled"}">
-      <div class="material-thumb" style="--thumb:${p.color || "#dbe4ef"}"></div>
-      <div>
-        <h4 class="product-title">${html(p.name)}</h4>
-        <div class="product-spec">${html(p.spec || "无规格")}<br />${html(productMeta(p))} · ${html(p.unit)}</div>
-        <div class="price">${money(p.price)}</div>
-      </div>
-      ${isProductActive(p) ? actionButton("加入购物车", "plus", `addToCart(${JSON.stringify(p.id)})`) : `<span class="badge danger">停用</span>`}
-    </article>
-  `;
-}
-
-function productModal(id) {
-  const p = byId(products, id) || { cat1: "辅助商品", status: "在售", aliases: [] };
-  const aliases = Array.isArray(p.aliases) ? p.aliases.join("，") : (p.aliases || "");
-  return `
-    <div class="modal-backdrop">
-      <div class="modal side">
-        <div class="modal-head"><h3>${id ? "编辑商品" : "新增商品"}</h3><button class="icon-btn" onclick="closeModal()">×</button></div>
-        <div class="modal-body">
-          <div class="product-image-editor">
-            ${p.imageUrl ? `<img src="${html(p.imageUrl)}" alt="${html(p.name || "商品图片")}" />` : `<div class="product-image-placeholder">暂无商品图片</div>`}
-            <div><label class="btn" for="productImageFile">选择图片</label><input id="productImageFile" type="file" accept="image/png,image/jpeg,image/webp" hidden onchange="previewProductImage(this)" /><div class="hint">支持 PNG、JPG、WebP，文件不超过 3MB。保存商品时一并上传。</div></div>
-          </div>
-          <div class="form-grid">
-            <div class="field"><label>商品名称 *</label><input id="productName" class="input" value="${html(p.name || "")}" /></div>
-            <div class="field"><label>规格 *</label><input id="productSpec" class="input" value="${html(p.spec || "")}" placeholder="必须写清楚规格，便于开单选择" /></div>
-            <div class="field"><label>一级分类 *</label><select id="productCat1" class="select">${PRODUCT_CATEGORIES.filter((cat) => cat !== "全部").map((cat) => `<option ${p.cat1 === cat ? "selected" : ""}>${cat}</option>`).join("")}</select></div>
-            <div class="field"><label>二级分类</label><input id="productCat2" class="input" value="${html(p.cat2 || "")}" /></div>
-            <div class="field"><label>单位 *</label><input id="productUnit" class="input" value="${html(p.unit || "")}" /></div>
-            <div class="field"><label>销售价 *</label><input id="productPrice" class="input" type="number" step="0.01" value="${Number(p.price || 0)}" /></div>
-            <div class="field"><label>成本价</label><input id="productCost" class="input" type="number" step="0.01" value="${Number(p.cost || 0)}" /></div>
-            <div class="field"><label>状态</label><select id="productStatus" class="select">${["在售", "停用"].map((item) => `<option ${p.status === item ? "selected" : ""}>${item}</option>`).join("")}</select></div>
-          </div>
-          <details class="advanced-box">
-            <summary>高级设置</summary>
-            <div class="form-grid" style="margin-top:12px">
-              <div class="field"><label>商品编码</label><input id="productCode" class="input" value="${html(p.code || p.id || "")}" ${id ? "disabled" : ""} /></div>
-              <div class="field" style="grid-column:1/-1"><label>别名 / 关键词</label><textarea id="productAliases" class="textarea" placeholder="例如：付骨，副骨，副龙骨。多个别名用逗号隔开">${html(aliases)}</textarea><div class="hint">AI 开单会使用这里的别名，但开单显示仍以商品库名称、规格、单位、价格为准。</div></div>
-            </div>
-          </details>
-        </div>
-        <div class="modal-foot"><button class="btn" onclick="closeModal()">取消</button><button class="btn primary" onclick="saveProduct(${jsArg(id || "")})">保存商品</button></div>
-      </div>
-    </div>
-  `;
-}
-
-async function saveProduct(id) {
-  const payload = {
-    code: document.getElementById("productCode")?.value.trim(),
-    name: document.getElementById("productName").value.trim(),
-    spec: document.getElementById("productSpec").value.trim(),
-    cat1: document.getElementById("productCat1").value,
-    cat2: document.getElementById("productCat2").value.trim(),
-    unit: document.getElementById("productUnit").value.trim(),
-    price: Number(document.getElementById("productPrice").value || 0),
-    cost: Number(document.getElementById("productCost").value || 0),
-    status: document.getElementById("productStatus").value,
-    aliases: document.getElementById("productAliases").value.split(/[,，、;\n]/).map((item) => item.trim()).filter(Boolean),
-  };
-  if (!payload.name || !payload.unit) {
-    alert("商品名称和单位必填。");
-    return;
-  }
-  try {
-    const response = await fetch(id ? `/api/products/${encodeURIComponent(id)}` : "/api/products", {
-      method: id ? "PUT" : "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify(payload),
-    });
-    const data = await response.json();
-    if (!response.ok) throw new Error(data.error || "保存商品失败");
-    if (id) {
-      const index = products.findIndex((item) => item.id === id);
-      if (index >= 0) products[index] = data.product;
-    } else {
-      products.unshift(data.product);
-    }
-    closeModal();
-    showToast("商品信息已保存");
-  } catch (error) {
-    alert(error.message);
-  }
 }
 
 function jsArg(value) {
@@ -2890,20 +2432,6 @@ function salesFilterOptions(selected) {
     <option value="全部" ${selected === "全部" ? "selected" : ""}>全部</option>
     ${activeSalesUsers().map((user) => `<option value="${html(user.id)}" ${selected === user.id ? "selected" : ""}>${html(user.name)}</option>`).join("")}
   `;
-}
-
-function updateCustomerOwnerFilter(value) {
-  state.customerOwnerFilter = value;
-  render();
-}
-
-function updateOrderSalesFilter(value) {
-  state.orderSalesFilter = value;
-  render();
-}
-
-function updateOrderQuery(input) {
-  scheduleInputRender("orderQuery", input.value, input.id, input.selectionStart, input.selectionEnd);
 }
 
 function categoryTabs() {
@@ -2940,138 +2468,6 @@ function filteredProducts() {
     .filter((entry) => entry.score > 0)
     .sort((a, b) => b.score - a.score || a.index - b.index)
     .map((entry) => entry.product);
-}
-
-function renderCustomers() {
-  const q = state.query.trim();
-  const list = customers.filter((c) => {
-    const queryOk = !q || [c.name, c.contact, c.phone].some((v) => String(v || "").includes(q));
-    const ownerOk = state.customerOwnerFilter === "全部" || c.ownerId === state.customerOwnerFilter;
-    return queryOk && ownerOk;
-  });
-  return `
-    <div class="toolbar filter-toolbar">
-      <input id="customerSearchInput" class="input" placeholder="搜索客户名称/联系人/电话" value="${html(state.query)}" oninput="updatePageQuery(this)" />
-      <select class="select compact-select" onchange="updateCustomerOwnerFilter(this.value)">
-        ${salesFilterOptions(state.customerOwnerFilter)}
-      </select>
-      <button class="btn primary" onclick="openModal('customer')">＋ 新增客户</button>
-    </div>
-    <div class="customer-list">${list.length ? list.map(customerCard).join("") : `<div class="empty">没有符合条件的客户</div>`}</div>
-  `;
-}
-
-function renderProducts() {
-  const list = filteredProducts();
-  const visible = list.slice(0, 220);
-  return `
-    <div class="toolbar filter-toolbar">
-      <input id="productSearchInput" class="input" placeholder="搜索商品名称 / 规格 / 编码 / 别名" value="${html(state.productQuery)}" oninput="updateProductQuery(this)" />
-      <div class="spacer"></div>
-      <button class="btn primary" onclick="openModal('product')">新增商品</button>
-    </div>
-    ${categoryTabs()}
-    ${subcategoryTabs()}
-    <div class="hint product-count-hint">共 ${list.length} 个商品${list.length > visible.length ? `，当前显示前 ${visible.length} 个，请用搜索缩小范围` : ""}</div>
-    <div class="card table-wrap product-table">
-      <table>
-        <thead><tr><th>商品名称</th><th>规格</th><th>一级分类</th><th>二级分类</th><th>单位</th><th>销售价</th><th>状态</th><th>操作</th></tr></thead>
-        <tbody>${visible.map((p) => `
-          <tr>
-            <td><div class="product-name-cell"><strong>${html(p.name)}</strong><span>${html(p.code || p.id)}</span></div></td>
-            <td>${html(p.spec || "-")}</td>
-            <td>${html(p.cat1 || "-")}</td>
-            <td>${html(p.cat2 || "-")}</td>
-            <td>${html(p.unit || "-")}</td>
-            <td class="num">${money(p.price)}</td>
-            <td><span class="badge ${isProductActive(p) ? "success" : "danger"}">${html(p.status || "在售")}</span></td>
-            <td>${actionButton("编辑", "edit", `openModal('product',${JSON.stringify(p.id)})`)}</td>
-          </tr>
-        `).join("")}</tbody>
-      </table>
-    </div>
-  `;
-}
-
-function productCard(p) {
-  return `
-    <article class="product-card ${isProductActive(p) ? "" : "disabled"}">
-      <div class="material-thumb" style="--thumb:${html(p.color || "#dbe4ef")}"></div>
-      <div>
-        <h4 class="product-title">${html(p.name)}</h4>
-        <div class="product-spec">${html(p.spec || "无规格")}<br />${html(productMeta(p))} · ${html(p.unit || "-")}</div>
-        <div class="price">${money(p.price)}</div>
-      </div>
-      ${isProductActive(p) ? `<button class="icon-btn product-add-btn" title="加入购物车" aria-label="加入购物车" onclick="addToCart(${jsArg(p.id)})">${svgIcon("plus")}</button>` : `<span class="badge danger">停用</span>`}
-    </article>
-  `;
-}
-
-function addToCart(productId) {
-  const product = byId(products, productId);
-  if (!product || !isProductActive(product)) return;
-  const line = state.cart.find((item) => item.productId === productId);
-  if (line) line.quantity += 1;
-  else state.cart.push({ productId, quantity: 1, price: product.price });
-  showToast(`已添加 ${product.name}`);
-}
-
-function renderCreateOrder() {
-  const customer = byId(customers, state.selectedCustomerId) || customers[0];
-  const productList = filteredProducts();
-  const visible = productList.slice(0, 120);
-  return `
-    <div class="card card-pad" style="margin-bottom:16px">
-      <div class="form-grid">
-        <div class="field"><label>选择客户 *</label><select class="select" onchange="state.selectedCustomerId=this.value;render()">${customers.map((c) => `<option value="${html(c.id)}" ${c.id === customer?.id ? "selected" : ""}>${html(c.name)} - ${html(c.phone)}</option>`).join("")}</select></div>
-        <div class="field"><label>代下单销售人员</label><select class="select" onchange="state.salesUserId=this.value">${activeSalesUsers().map((u) => `<option value="${html(u.id)}" ${u.id === state.salesUserId ? "selected" : ""}>${html(u.name)}</option>`).join("")}</select></div>
-        <div class="field"><label>送货地址 *</label><input class="input" value="${html(customer?.address || "")}" /></div>
-        <div class="field"><label>收货人手机号 *</label><input class="input" value="${html(customer?.phone || "")}" /></div>
-      </div>
-    </div>
-    <div class="product-layout">
-      <div>
-        <div class="toolbar filter-toolbar">
-          <input id="orderProductSearchInput" class="input" placeholder="搜索商品名称、编码、拼音..." value="${html(state.productQuery)}" oninput="updateProductQuery(this)" />
-          <button class="btn primary" onclick="openAiOrderModal()">AI 帮我开单</button>
-        </div>
-        ${categoryTabs()}
-        ${subcategoryTabs()}
-        <div class="hint product-count-hint">共 ${productList.length} 个商品${productList.length > visible.length ? `，当前显示前 ${visible.length} 个，请用搜索缩小范围` : ""}</div>
-        <div class="product-grid">${visible.map(productCard).join("")}</div>
-      </div>
-      <aside class="card card-pad cart">
-        <h3>${state.orderType === "return" ? "退货清单" : "购物车"}</h3>
-        ${state.cart.length ? state.cart.map(cartLine).join("") : `<div class="empty">还没有选择商品</div>`}
-        <div class="summary-row"><span>共 ${state.cart.reduce((s, i) => s + i.quantity, 0)} 件</span><span>合计</span></div>
-        <div class="summary-row"><span></span><span class="summary-total">${money(cartTotal())}</span></div>
-        <button class="btn primary" style="width:100%" onclick="saveOrder()">${state.orderType === "return" ? "生成退货单" : "去结算"}</button>
-      </aside>
-    </div>
-  `;
-}
-
-function renderOrders() {
-  const q = state.orderQuery.trim();
-  const list = orders.filter((order) => {
-    const customer = orderCustomerForDisplay(order);
-    const statusOk = state.orderStatus === "全部" || order.status === state.orderStatus;
-    const salesOk = state.orderSalesFilter === "全部" || order.salesUserId === state.orderSalesFilter;
-    const queryOk = !q || [order.no, customer?.name, customer?.phone].some((value) => String(value || "").includes(q));
-    return statusOk && salesOk && queryOk;
-  });
-  return `
-    <div class="toolbar filter-toolbar">
-      <input id="orderSearchInput" class="input" placeholder="搜索订单号/客户名称/手机号" value="${html(state.orderQuery)}" oninput="updateOrderQuery(this)" />
-      <select class="select compact-select" onchange="state.orderStatus=this.value;render()">${["全部", "待确认", "已确认", "已发货", "已完成", "已取消", "已退货"].map((s) => `<option ${state.orderStatus === s ? "selected" : ""}>${s}</option>`).join("")}</select>
-      <select class="select compact-select" onchange="updateOrderSalesFilter(this.value)">
-        ${salesFilterOptions(state.orderSalesFilter)}
-      </select>
-      <div class="spacer"></div>
-      <button class="btn primary" onclick="state.orderType='sale';setRoute('create')">开单</button>
-    </div>
-    <div class="order-list">${list.length ? list.map(orderCard).join("") : `<div class="empty">没有符合条件的订单</div>`}</div>
-  `;
 }
 
 const LOGIN_MEMORY_KEY = "caidajia_last_login";
@@ -3138,16 +2534,6 @@ function ensureSalesScope() {
   if (!state.createCustomerPickerOpen) state.createCustomerQuery = orderCustomerLabel(selectedCustomer);
 }
 
-function setRoute(route) {
-  state.route = route;
-  state.query = "";
-  state.modal = null;
-  if (route === "returns") state.orderType = "return";
-  if (route === "create") state.orderType = "sale";
-  ensureSalesScope();
-  render();
-}
-
 function renderLogin() {
   const remembered = getRememberedLogin();
   const phone = html(remembered.phone || "");
@@ -3190,7 +2576,7 @@ async function login() {
   const phone = document.getElementById("loginPhone").value.trim();
   const password = document.getElementById("loginPassword").value.trim();
   try {
-    const response = await fetch("/api/login", {
+    const response = await apiFetch("/api/login", {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ phone, password }),
@@ -3211,19 +2597,134 @@ function localLoginFallback(phone, password) {
 }
 
 async function loadBootstrap() {
-  const response = await fetch("/api/bootstrap");
+  const response = await apiFetch("/api/bootstrap?mode=summary");
   if (!response.ok) return;
   const data = await response.json();
   state.user = data.user;
-  salesUsers = data.users;
-  customers = data.customers;
-  products = data.products;
-  orders = data.orders;
+  salesUsers = data.users || [];
+  customers = [];
+  products = [];
+  orders = [];
+  state.productCategories = data.categories || {};
+  state.bootstrapCounts = data.counts || {};
+  state.dataLoaded = { customers: false, products: false, createProducts: false, orders: false, dashboard: false };
+  state.remotePages = {};
   state.salesUserId = isSalesRole() ? state.user.id : state.user?.id || activeSalesUsers()[0]?.id || "";
   state.dashboardSalesFilters = [];
   state.dashboardSalesMenuOpen = false;
   state.dashboardCustomerDetail = "";
   ensureSalesScope();
+  await loadRouteData(state.route, true);
+}
+
+function queryString(params) {
+  const search = new URLSearchParams();
+  Object.entries(params || {}).forEach(([key, value]) => {
+    if (value !== undefined && value !== null && value !== "" && value !== "全部") search.set(key, value);
+  });
+  const text = search.toString();
+  return text ? `?${text}` : "";
+}
+
+function mergeProductCache(items) {
+  const map = new Map(products.map((item) => [item.id, item]));
+  (items || []).forEach((item) => map.set(item.id, item));
+  products = Array.from(map.values());
+}
+
+async function hydrateCartProducts() {
+  const ids = Array.from(new Set(state.cart.map((item) => item.productId).filter(Boolean)));
+  if (!ids.length) return;
+  const response = await apiFetch(`/api/products${queryString({ ids: ids.join(","), page: 1, pageSize: Math.min(200, ids.length) })}`);
+  if (!response.ok) return;
+  const data = await response.json();
+  mergeProductCache(data.items || data.products || []);
+}
+
+async function loadDashboard(force = false) {
+  if ((state.dashboardLoading && !force) || (state.dataLoaded.dashboard && !force)) return;
+  state.dashboardLoading = true;
+  try {
+    const response = await latestApiFetch("dashboard", `/api/dashboard${queryString({ salesUserIds: state.dashboardSalesFilters.join(",") })}`);
+    if (!response) return;
+    const data = await response.json();
+    if (!response.ok) throw new Error(data.error || "销售概览加载失败");
+    state.dashboardData = data;
+    orders = data.recentOrders || [];
+    state.dataLoaded.dashboard = true;
+  } catch (error) {
+    state.dashboardError = error.message;
+  } finally {
+    state.dashboardLoading = false;
+    if (state.route === "dashboard") render();
+  }
+}
+
+async function loadCustomers(options = {}) {
+  const forCreate = Boolean(options.forCreate);
+  const page = forCreate ? 1 : currentPage("customers");
+  const params = forCreate ? { page: 1, pageSize: 200, salesUserId: canChooseSalesperson() ? (options.salesUserId || state.salesUserId) : "" } : {
+    page, pageSize: 30, q: state.query,
+    salesUserId: canChooseSalesperson() ? state.customerOwnerFilter : "",
+  };
+  const response = await latestApiFetch(forCreate ? "create-customers" : "customers", `/api/customers${queryString(params)}`);
+  if (!response) return;
+  const data = await response.json();
+  if (!response.ok) throw new Error(data.error || "客户数据加载失败");
+  customers = data.items || data.customers || [];
+  if (!forCreate) state.remotePages.customers = data.items ? data : { items: customers, page: 1, pageSize: customers.length, total: customers.length, totalPages: 1 };
+  state.dataLoaded.customers = true;
+}
+
+async function loadProductsForRoute(route = state.route) {
+  const key = route === "products" ? "products" : "createProducts";
+  const params = {
+    page: currentPage(key), pageSize: EDIT_PAGE_SIZES[key], q: state.productQuery,
+    category1: state.category === "全部" ? "" : state.category,
+    category2: state.productSubcategory,
+    status: route === "products" ? "" : "在售",
+  };
+  const response = await latestApiFetch(key, `/api/products${queryString(params)}`);
+  if (!response) return;
+  const data = await response.json();
+  if (!response.ok) throw new Error(data.error || "商品数据加载失败");
+  state.remotePages[key] = data;
+  mergeProductCache(data.items || []);
+  state.dataLoaded[key] = true;
+}
+
+async function loadOrders() {
+  const params = {
+    page: currentPage("orders"), pageSize: EDIT_PAGE_SIZES.orders, q: state.orderQuery,
+    status: state.orderStatus, payStatus: state.orderPayStatus,
+    salesUserId: canChooseSalesperson() ? state.orderSalesFilter : "",
+  };
+  const response = await latestApiFetch("orders", `/api/orders${queryString(params)}`);
+  if (!response) return;
+  const data = await response.json();
+  if (!response.ok) throw new Error(data.error || "订单数据加载失败");
+  orders = data.items || data.orders || [];
+  state.remotePages.orders = data.items ? data : { items: orders, page: 1, pageSize: orders.length, total: orders.length, totalPages: 1 };
+  state.dataLoaded.orders = true;
+}
+
+async function loadRouteData(route, force = false) {
+  try {
+    if (route === "dashboard") return await loadDashboard(force);
+    if (route === "customers") await loadCustomers();
+    if (route === "products") await loadProductsForRoute("products");
+    if (route === "orders") await loadOrders();
+    if (route === "create" || route === "returns") {
+      await Promise.all([loadCustomers({ forCreate: true }), loadProductsForRoute(route)]);
+      restoreCart(state.orderType);
+      await hydrateCartProducts();
+    }
+    if (route === "audit" && isAdmin()) await loadAuditLogs();
+    if (state.user && state.route === route) render();
+  } catch (error) {
+    state.routeLoadError = error.message;
+    if (state.user) render();
+  }
 }
 
 function renderDashboard() {
@@ -3320,12 +2821,14 @@ function toggleDashboardSalesperson(userId) {
   state.dashboardSalesFilters = Array.from(selected);
   state.dashboardCustomerDetail = "";
   render();
+  loadDashboard(true);
 }
 
 function clearDashboardSalespeople() {
   state.dashboardSalesFilters = [];
   state.dashboardCustomerDetail = "";
   render();
+  loadDashboard(true);
 }
 
 function toggleDashboardCustomerDetail(type) {
@@ -3434,12 +2937,8 @@ function customerStats(customerId) {
 }
 
 function renderCustomers() {
-  const q = state.query.trim();
-  const list = visibleCustomers().filter((c) => {
-    const queryOk = !q || [c.name, c.contact, c.phone].some((v) => String(v || "").includes(q));
-    const ownerOk = isSalesRole() || state.customerOwnerFilter === "全部" || c.ownerId === state.customerOwnerFilter;
-    return queryOk && ownerOk;
-  });
+  const remote = state.remotePages.customers;
+  const list = remote ? remote.items : visibleCustomers();
   return `
     <div class="toolbar filter-toolbar">
       <input id="customerSearchInput" class="input" placeholder="搜索客户名称/联系人/电话" value="${html(state.query)}" oninput="updatePageQuery(this)" />
@@ -3448,68 +2947,7 @@ function renderCustomers() {
     </div>
     <div class="mobile-table-head customer-mobile-head"><span>客户 / 联系方式</span><span>成交数据</span><span>操作</span></div>
     <div class="customer-list">${list.length ? list.map(customerCard).join("") : `<div class="empty">没有符合条件的客户</div>`}</div>
-  `;
-}
-
-function renderCreateOrder() {
-  ensureSalesScope();
-  const customerList = orderCustomerChoices();
-  const customer = byId(customerList, state.selectedCustomerId) || null;
-  ensureOrderDraft(customer);
-  const productList = filteredProducts();
-  const visible = productList.slice(0, 120);
-  const salespersonField = canChooseSalesperson()
-    ? `<div class="field"><label>代下单销售人员</label><select class="select" onchange="setOrderSalesperson(this.value)">${activeSalesUsers().map((u) => `<option value="${html(u.id)}" ${u.id === state.salesUserId ? "selected" : ""}>${html(u.name)}</option>`).join("")}</select></div>`
-    : "";
-  return `
-    <div class="card card-pad" style="margin-bottom:16px">
-      <div class="form-grid">
-        <div class="field"><label>选择客户 *</label><select class="select" onchange="state.selectedCustomerId=this.value;render()">${customerList.map((c) => `<option value="${html(c.id)}" ${c.id === customer?.id ? "selected" : ""}>${html(c.name)} - ${html(c.phone)}</option>`).join("")}</select></div>
-        ${salespersonField}
-        <div class="field"><label>送货地址 *</label><input class="input" value="${html(customer?.address || "")}" /></div>
-        <div class="field"><label>收货人手机号 *</label><input class="input" value="${html(customer?.phone || "")}" /></div>
-      </div>
-    </div>
-    <div class="product-layout">
-      <div>
-        <div class="toolbar filter-toolbar">
-          <input id="orderProductSearchInput" class="input" placeholder="搜索商品名称、编码、拼音..." value="${html(state.productQuery)}" oninput="updateProductQuery(this)" />
-          <button class="btn primary" onclick="openAiOrderModal()">AI 帮我开单</button>
-        </div>
-        ${categoryTabs()}
-        ${subcategoryTabs()}
-        <div class="hint product-count-hint">共 ${productList.length} 个商品${productList.length > visible.length ? `，当前显示前 ${visible.length} 个，请用搜索缩小范围` : ""}</div>
-        <div class="product-grid">${visible.map(productCard).join("")}</div>
-      </div>
-      <aside class="card card-pad cart">
-        <h3>${state.orderType === "return" ? "退货清单" : "购物车"}</h3>
-        ${state.cart.length ? state.cart.map(cartLine).join("") : `<div class="empty">还没有选择商品</div>`}
-        <div class="summary-row"><span>共 ${state.cart.reduce((s, i) => s + i.quantity, 0)} 件</span><span>合计</span></div>
-        <div class="summary-row"><span></span><span class="summary-total">${money(cartTotal())}</span></div>
-        <button class="btn primary" style="width:100%" onclick="saveOrder()">${state.orderType === "return" ? "生成退货单" : "去结算"}</button>
-      </aside>
-    </div>
-  `;
-}
-
-function renderOrders() {
-  const q = state.orderQuery.trim();
-  const list = visibleOrders().filter((order) => {
-    const customer = byId(customers, order.customerId);
-    const statusOk = state.orderStatus === "全部" || order.status === state.orderStatus;
-    const salesOk = isSalesRole() || state.orderSalesFilter === "全部" || order.salesUserId === state.orderSalesFilter;
-    const queryOk = !q || [order.no, customer?.name, customer?.phone].some((value) => String(value || "").includes(q));
-    return statusOk && salesOk && queryOk;
-  });
-  return `
-    <div class="toolbar filter-toolbar">
-      <input id="orderSearchInput" class="input" placeholder="搜索订单号/客户名称/手机号" value="${html(state.orderQuery)}" oninput="updateOrderQuery(this)" />
-      <select class="select compact-select" onchange="state.orderStatus=this.value;render()">${["全部", "待确认", "已确认", "已发货", "已完成", "已取消", "已退货"].map((s) => `<option ${state.orderStatus === s ? "selected" : ""}>${s}</option>`).join("")}</select>
-      ${canChooseSalesperson() ? `<select class="select compact-select" onchange="updateOrderSalesFilter(this.value)">${salesFilterOptions(state.orderSalesFilter)}</select>` : ""}
-      <div class="spacer"></div>
-      <button class="btn primary" onclick="state.orderType='sale';setRoute('create')">开单</button>
-    </div>
-    <div class="order-list">${list.length ? list.map(orderCard).join("") : `<div class="empty">没有符合条件的订单</div>`}</div>
+    ${remote ? paginationControls("customers", remote.page, remote.totalPages, remote.total) : ""}
   `;
 }
 
@@ -3537,6 +2975,11 @@ function setPage(key, page) {
   ensurePageState();
   state.pages[key] = Math.max(1, Number(page || 1));
   render();
+  if (key === "products") loadProductsForRoute("products").then(render).catch((error) => alert(error.message));
+  else if (key === "createProducts") loadProductsForRoute(state.route).then(render).catch((error) => alert(error.message));
+  else if (key === "orders") loadOrders().then(render).catch((error) => alert(error.message));
+  else if (key === "customers") loadCustomers().then(render).catch((error) => alert(error.message));
+  else if (key === "audit") loadAuditLogs(state.pages[key]);
 }
 
 function resetPage(key) {
@@ -3593,6 +3036,9 @@ function optionList(values, selected) {
 }
 
 function subcategoriesForCat(cat1) {
+  if (state.productCategories && Array.isArray(state.productCategories[cat1])) {
+    return state.productCategories[cat1];
+  }
   const values = products
     .filter((product) => product.cat1 === cat1 && product.cat2)
     .map((product) => product.cat2);
@@ -3630,18 +3076,11 @@ function updateProductQuery(input) {
   state.productQuery = input.value;
   resetPage("products");
   resetPage("createProducts");
-  if (state.route === "products") {
-    renderProductTableResults();
-    return;
-  }
-  if (state.route === "create" || state.route === "returns") {
-    renderCreateProductResults();
-    return;
-  }
-  if (input.dataset.composing !== "true") {
-    clearTimeout(inputRenderTimer);
-    inputRenderTimer = setTimeout(() => renderKeepingInput(input.id, input.selectionStart || 0, input.selectionEnd || 0), 80);
-  }
+  if (input.dataset.composing === "true") return;
+  if (state.route === "products") renderProductTableResults();
+  if (state.route === "create" || state.route === "returns") renderCreateProductResults();
+  clearTimeout(inputRenderTimer);
+  inputRenderTimer = setTimeout(() => loadProductsForRoute(state.route).then(render).catch((error) => alert(error.message)), 220);
 }
 
 function setProductCategory(category) {
@@ -3650,6 +3089,7 @@ function setProductCategory(category) {
   resetPage("products");
   resetPage("createProducts");
   render();
+  loadProductsForRoute(state.route).then(render).catch((error) => alert(error.message));
 }
 
 function setProductSubcategory(category) {
@@ -3657,39 +3097,49 @@ function setProductSubcategory(category) {
   resetPage("products");
   resetPage("createProducts");
   render();
+  loadProductsForRoute(state.route).then(render).catch((error) => alert(error.message));
 }
 
 function updateOrderQuery(input) {
-  scheduleInputValue(input, "orderQuery", "orderSearchInput");
+  state.orderQuery = input.value;
   resetPage("orders");
+  if (input.dataset.composing === "true") return;
+  clearTimeout(inputRenderTimer);
+  inputRenderTimer = setTimeout(() => loadOrders().then(render).catch((error) => alert(error.message)), 220);
 }
 
 function updateOrderSalesFilter(value) {
   state.orderSalesFilter = value;
   resetPage("orders");
   render();
+  loadOrders().then(render).catch((error) => alert(error.message));
 }
 
 function updateOrderPayFilter(value) {
   state.orderPayStatus = value;
   resetPage("orders");
   render();
+  loadOrders().then(render).catch((error) => alert(error.message));
 }
 
 function updateOrderStatusFilter(value) {
   state.orderStatus = value;
   resetPage("orders");
   render();
+  loadOrders().then(render).catch((error) => alert(error.message));
 }
 
 function updateCustomerOwnerFilter(value) {
   state.customerOwnerFilter = value;
+  resetPage("customers");
   render();
+  loadCustomers().then(render).catch((error) => alert(error.message));
 }
 
 function renderProducts() {
-  const list = filteredProducts();
-  const pageData = paginateList(list, "products", EDIT_PAGE_SIZES.products);
+  const remote = state.remotePages.products;
+  const list = remote ? remote.items : filteredProducts();
+  const pageData = remote ? { items: remote.items, page: remote.page, pageSize: remote.pageSize, total: remote.total, totalPages: remote.totalPages, start: (remote.page - 1) * remote.pageSize } : paginateList(list, "products", EDIT_PAGE_SIZES.products);
   const canManage = isAdmin();
   const canExport = state.user?.role !== "销售人员";
   return `
@@ -3719,7 +3169,7 @@ function productTableResultsHtml(list, pageData, canManage = isAdmin(), canExpor
   const pageAllSelected = pageData.items.length && pageData.items.every((product) => selected.has(product.id));
   const productActions = (product) => `${actionButton("查看图片", "view", `openModal('productImage',${JSON.stringify(product.id)})`)}${canManage ? `${actionButton("编辑", "edit", `openModal('product',${JSON.stringify(product.id)})`)}${actionButton("删除", "delete", `deleteProduct(${JSON.stringify(product.id)})`)}` : ""}`;
   return `
-    <div class="product-list-summary"><span>共 ${list.length} 个商品，当前显示 ${pageData.items.length} 个</span>${canExport ? `<span>已选 ${selected.size} 个</span>` : ""}</div>
+    <div class="product-list-summary"><span>共 ${pageData.total} 个商品，当前显示 ${pageData.items.length} 个</span>${canExport ? `<span>已选 ${selected.size} 个</span>` : ""}</div>
     <div class="card table-wrap product-table">
       <table>
         <thead><tr>${canExport ? `<th class="selection-cell"><input type="checkbox" title="选择当前页" ${pageAllSelected ? "checked" : ""} onchange="toggleCurrentProductPage(this.checked)" /></th>` : ""}<th>图片</th><th>商品名称</th><th>规格</th><th>一级分类</th><th>二级分类</th><th>单位</th><th>销售价</th><th>状态</th><th>操作</th></tr></thead>
@@ -3794,96 +3244,6 @@ function syncProductExportButton() {
   if (button) button.disabled = !state.selectedProductIds.length;
 }
 
-function productModal(id) {
-  const p = byId(products, id) || { cat1: "辅助商品", status: "在售", aliases: [] };
-  const aliases = Array.isArray(p.aliases) ? p.aliases.join("，") : (p.aliases || "");
-  return `
-    <div class="modal-backdrop">
-      <div class="modal side">
-        <div class="modal-head"><h3>${id ? "编辑商品" : "新增商品"}</h3><button class="icon-btn" onclick="closeModal()">×</button></div>
-        <div class="modal-body">
-          <div class="form-grid">
-            <div class="field"><label>商品名称 *</label><input id="productName" class="input" value="${html(p.name || "")}" /></div>
-            <div class="field"><label>规格</label><input id="productSpec" class="input" value="${html(p.spec || "")}" placeholder="可不填，有规格时建议写清楚" /></div>
-            <div class="field"><label>一级分类 *</label><select id="productCat1" class="select" onchange="refreshProductCat2Options()">${PRODUCT_CATEGORIES.filter((cat) => cat !== "全部").map((cat) => `<option ${p.cat1 === cat ? "selected" : ""}>${html(cat)}</option>`).join("")}</select></div>
-            <div class="field"><label>二级分类</label><div id="productCat2Wrap" class="stacked-field">${productCat2Control(p.cat1 || "辅助商品", p.cat2 || "")}</div></div>
-            <div class="field"><label>单位 *</label><input id="productUnit" class="input" value="${html(p.unit || "")}" /></div>
-            <div class="field"><label>销售价 *</label><input id="productPrice" class="input" type="number" step="0.01" value="${Number(p.price || 0)}" /></div>
-            <div class="field"><label>成本价</label><input id="productCost" class="input" type="number" step="0.01" value="${Number(p.cost || 0)}" /></div>
-            <div class="field"><label>状态</label><select id="productStatus" class="select">${["在售", "停用"].map((item) => `<option ${p.status === item ? "selected" : ""}>${item}</option>`).join("")}</select></div>
-          </div>
-          <details class="advanced-box">
-            <summary>高级设置</summary>
-            <div class="form-grid" style="margin-top:12px">
-              <div class="field"><label>商品编码</label><input id="productCode" class="input" value="${html(p.code || p.id || "")}" ${id ? "disabled" : ""} /></div>
-              <div class="field" style="grid-column:1/-1"><label>别名 / 关键词</label><textarea id="productAliases" class="textarea" placeholder="多个别名用逗号或换行隔开">${html(aliases)}</textarea><div class="hint">AI 开单会使用别名辅助匹配，开单显示仍以商品库名称、规格、单位、价格为准。</div></div>
-            </div>
-          </details>
-        </div>
-        <div class="modal-foot"><button class="btn" onclick="closeModal()">取消</button><button class="btn primary" onclick="saveProduct(${jsArg(id || "")})">保存商品</button></div>
-      </div>
-    </div>
-  `;
-}
-
-async function saveProduct(id) {
-  const cat2Select = document.getElementById("productCat2Select");
-  const cat2New = document.getElementById("productCat2New");
-  let cat2 = cat2Select?.value || "";
-  if (cat2 === "__new__") cat2 = cat2New?.value.trim() || "";
-  const payload = {
-    code: document.getElementById("productCode")?.value.trim(),
-    name: document.getElementById("productName").value.trim(),
-    spec: document.getElementById("productSpec").value.trim(),
-    cat1: document.getElementById("productCat1").value,
-    cat2,
-    unit: document.getElementById("productUnit").value.trim(),
-    price: Number(document.getElementById("productPrice").value || 0),
-    cost: Number(document.getElementById("productCost").value || 0),
-    status: document.getElementById("productStatus").value,
-    aliases: document.getElementById("productAliases").value.split(/[,，、\n]/).map((item) => item.trim()).filter(Boolean),
-  };
-  if (!payload.name || !payload.unit) {
-    alert("商品名称和单位必填。");
-    return;
-  }
-  try {
-    const response = await fetch(id ? `/api/products/${encodeURIComponent(id)}` : "/api/products", {
-      method: id ? "PUT" : "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify(payload),
-    });
-    const data = await response.json();
-    if (!response.ok) throw new Error(data.error || "保存商品失败");
-    if (id) {
-      const index = products.findIndex((item) => item.id === id);
-      if (index >= 0) products[index] = data.product;
-    } else {
-      products.unshift(data.product);
-    }
-    closeModal();
-    showToast("商品信息已保存");
-  } catch (error) {
-    alert(error.message);
-  }
-}
-
-async function deleteProduct(id) {
-  const product = byId(products, id);
-  if (!product || !confirm(`确定删除“${product.name}”吗？历史订单不会受影响。`)) return;
-  try {
-    const response = await fetch(`/api/products/${encodeURIComponent(id)}`, { method: "DELETE" });
-    const data = await response.json();
-    if (!response.ok) throw new Error(data.error || "删除商品失败");
-    const index = products.findIndex((item) => item.id === id);
-    if (index >= 0) products[index] = data.product;
-    showToast("商品已删除");
-    render();
-  } catch (error) {
-    alert(error.message);
-  }
-}
-
 function downloadProductTemplate() {
   const anchor = document.createElement("a");
   anchor.href = "/api/products/template";
@@ -3901,7 +3261,7 @@ async function exportProducts(mode) {
     return;
   }
   try {
-    const response = await fetch("/api/products/export", {
+    const response = await apiFetch("/api/products/export", {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ ids }),
@@ -3938,16 +3298,16 @@ async function importProducts(input) {
     return;
   }
   try {
-    const response = await fetch("/api/products/import", {
+    const response = await apiFetch("/api/products/import", {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ file: await fileAsDataUrl(file) }),
     });
     const data = await response.json();
     if (!response.ok) throw new Error(data.error || "批量导入失败");
-    products = data.products;
     state.selectedProductIds = [];
     input.value = "";
+    await loadProductsForRoute("products");
     render();
     showToast(`批量导入完成：新增 ${data.created} 个，更新 ${data.updated} 个`);
   } catch (error) {
@@ -3958,7 +3318,7 @@ async function importProducts(input) {
 
 function createProductResultsHtml(productList, pageData) {
   return `
-    <div class="hint product-count-hint">共 ${productList.length} 个商品，当前显示 ${pageData.items.length} 个</div>
+    <div class="hint product-count-hint">共 ${pageData.total} 个商品，当前显示 ${pageData.items.length} 个</div>
     ${pageData.items.length ? `<div class="product-grid">${pageData.items.map(productCard).join("")}</div>` : `<div class="empty">没有匹配的商品，请尝试商品名称、规格、编码或别名。</div>`}
     ${paginationControls("createProducts", pageData.page, pageData.totalPages, pageData.total)}
   `;
@@ -3967,8 +3327,9 @@ function createProductResultsHtml(productList, pageData) {
 function renderCreateProductResults() {
   const container = document.getElementById("createProductResults");
   if (!container) return;
-  const productList = filteredProducts().filter(isProductActive);
-  const pageData = paginateList(productList, "createProducts", EDIT_PAGE_SIZES.createProducts);
+  const remote = state.remotePages.createProducts;
+  const productList = remote ? remote.items : filteredProducts().filter(isProductActive);
+  const pageData = remote ? { items: remote.items, page: remote.page, pageSize: remote.pageSize, total: remote.total, totalPages: remote.totalPages, start: (remote.page - 1) * remote.pageSize } : paginateList(productList, "createProducts", EDIT_PAGE_SIZES.createProducts);
   container.innerHTML = createProductResultsHtml(productList, pageData);
 }
 
@@ -3977,8 +3338,9 @@ function renderCreateOrder() {
   const customerList = orderCustomerChoices();
   const customer = byId(customerList, state.selectedCustomerId) || null;
   ensureOrderDraft(customer);
-  const productList = filteredProducts().filter(isProductActive);
-  const pageData = paginateList(productList, "createProducts", EDIT_PAGE_SIZES.createProducts);
+  const remote = state.remotePages.createProducts;
+  const productList = remote ? remote.items : filteredProducts().filter(isProductActive);
+  const pageData = remote ? { items: remote.items, page: remote.page, pageSize: remote.pageSize, total: remote.total, totalPages: remote.totalPages, start: (remote.page - 1) * remote.pageSize } : paginateList(productList, "createProducts", EDIT_PAGE_SIZES.createProducts);
   const salespersonField = canChooseSalesperson()
     ? `<div class="field order-salesperson-field"><label>代下单销售人员</label><select class="select" onchange="setOrderSalesperson(this.value)">${activeSalesUsers().map((u) => `<option value="${html(u.id)}" ${u.id === state.salesUserId ? "selected" : ""}>${html(u.name)}</option>`).join("")}</select></div>`
     : "";
@@ -4062,7 +3424,7 @@ async function saveOrder() {
   let response;
   let data;
   try {
-    response = await fetch("/api/orders", {
+    response = await apiFetch("/api/orders", {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify(payload),
@@ -4105,17 +3467,10 @@ async function saveOrder() {
 }
 
 function renderOrders() {
-  const q = state.orderQuery.trim();
   const payFilter = state.orderPayStatus || "全部";
-  const list = visibleOrders().filter((order) => {
-    const customer = orderCustomerForDisplay(order);
-    const statusOk = state.orderStatus === "全部" || order.status === state.orderStatus;
-    const payOk = payFilter === "全部" || normalizeClientPayStatus(order.payStatus) === payFilter;
-    const salesOk = isSalesRole() || state.orderSalesFilter === "全部" || order.salesUserId === state.orderSalesFilter;
-    const queryOk = !q || [order.no, customer?.name, customer?.phone].some((value) => String(value || "").includes(q));
-    return statusOk && payOk && salesOk && queryOk;
-  });
-  const pageData = paginateList(list, "orders", EDIT_PAGE_SIZES.orders);
+  const remote = state.remotePages.orders;
+  const list = remote ? remote.items : visibleOrders();
+  const pageData = remote ? { items: remote.items, page: remote.page, pageSize: remote.pageSize, total: remote.total, totalPages: remote.totalPages, start: (remote.page - 1) * remote.pageSize } : paginateList(list, "orders", EDIT_PAGE_SIZES.orders);
   return `
     <div class="toolbar filter-toolbar order-filter-toolbar">
       <input id="orderSearchInput" class="input" placeholder="搜索订单号/客户名称/手机号" value="${html(state.orderQuery)}" oninput="updateOrderQuery(this)" />
@@ -4131,41 +3486,8 @@ function renderOrders() {
   `;
 }
 
-function orderCard(order) {
-  const customer = orderCustomerForDisplay(order);
-  const salesperson = byId(salesUsers, order.salesUserId) || {};
-  const payStatus = normalizeClientPayStatus(order.payStatus);
-  return `
-    <div class="order-card">
-      <div>
-        <h3>${html(order.no)}</h3>
-        <div class="order-meta">
-          <span>${html(customer.name || "-")}</span>
-          <span>${html(order.date || "-")}</span>
-          <span>销售：${html(salesperson.name || "-")}</span>
-          <span>${(order.items || []).length} 项商品</span>
-          <span>客户电话：${html(customer.phone || "-")}</span>
-        </div>
-      </div>
-      <div class="order-right">
-        <strong>${money(order.amount)}</strong>
-        <div class="order-badges"><span class="badge warning">${html(order.status || "待确认")}</span><span class="badge ${payStatus === "已付款" ? "success" : "info"}">${payStatus}</span></div>
-        <div class="order-status-controls">
-          <select class="select inline-select" title="订单状态" onchange="updateOrderStatus(${jsArg(order.id)}, this.value)">${optionList(ORDER_STATUS_CHOICES, order.status || "待确认")}</select>
-          <select class="select inline-select" title="付款状态" onchange="updateOrderPayment(${jsArg(order.id)}, this.value)">${optionList(["未付款", "已付款"], payStatus)}</select>
-        </div>
-        <div class="order-actions">
-          ${actionButton("查看", "view", `openModal('order',${JSON.stringify(order.id)})`)}
-          ${actionButton("编辑", "edit", `openModal('editOrder',${JSON.stringify(order.id)})`)}
-          ${actionButton("导出图片", "refresh", `exportOrderImage(${JSON.stringify(order.id)})`)}
-        </div>
-      </div>
-    </div>
-  `;
-}
-
 async function patchOrder(id, payload, successText) {
-  const response = await fetch(`/api/orders/${encodeURIComponent(id)}`, {
+  const response = await apiFetch(`/api/orders/${encodeURIComponent(id)}`, {
     method: "PATCH",
     headers: { "content-type": "application/json" },
     body: JSON.stringify(payload),
@@ -4179,6 +3501,7 @@ async function patchOrder(id, payload, successText) {
   const index = orders.findIndex((item) => item.id === id);
   if (index >= 0) orders[index] = data.order;
   showToast(successText || "订单已更新");
+  await loadOrders();
   render();
 }
 
@@ -4247,7 +3570,7 @@ async function saveActualPaymentAmount(orderId) {
     return;
   }
 
-  const response = await fetch(`/api/orders/${encodeURIComponent(orderId)}`, {
+  const response = await apiFetch(`/api/orders/${encodeURIComponent(orderId)}`, {
     method: "PATCH",
     headers: { "content-type": "application/json" },
     body: JSON.stringify({ actualPaidAmount: amount, paymentAdjustmentReason: reason }),
@@ -4290,17 +3613,26 @@ function orderLineSnapshot(item = {}) {
   };
 }
 
+async function loadProductDetail(productId) {
+  const response = await latestApiFetch(`product-detail-${productId}`, `/api/products/${encodeURIComponent(productId)}`);
+  if (!response) return;
+  const data = await response.json();
+  if (!response.ok || !data.product) return;
+  mergeProductCache([data.product]);
+  if (state.modal && state.modal.id === productId) render();
+}
+
 function openModal(type, id) {
   state.modal = { type, id };
   if (type === "editOrder") {
     const order = byId(orders, id);
-    const customer = byId(customers, order?.customerId);
+    const customer = orderCustomerForDisplay(order);
     state.editOrderDraft = {
       orderId: id,
       customerId: order?.customerId || "",
       date: order?.date || "",
-      phone: order?.phone || byId(customers, order?.customerId)?.phone || "",
-      address: order?.address || byId(customers, order?.customerId)?.address || "",
+      phone: order?.phone || customer?.phone || "",
+      address: order?.address || customer?.address || "",
       remark: order?.remark || "",
       items: (order?.items || []).map(orderLineSnapshot),
     };
@@ -4312,6 +3644,11 @@ function openModal(type, id) {
     state.editCustomerPickerOpen = false;
   }
   render();
+  if ((type === "product" || type === "productImage") && id) loadProductDetail(id);
+  if (type === "editOrder") {
+    const order = byId(orders, id);
+    loadCustomers({ forCreate: true, salesUserId: order?.salesUserId }).then(render).catch((error) => alert(error.message));
+  }
 }
 
 function closeModal() {
@@ -4476,6 +3813,7 @@ function toggleEditProductPicker() {
   if (slot) slot.innerHTML = editProductPickerSlotHtml();
   if (modalBody) modalBody.scrollTop = scrollTop;
   if (state.editProductPickerOpen) {
+    loadEditProductPicker();
     requestAnimationFrame(() => {
       const picker = document.querySelector(".edit-product-picker");
       picker?.scrollIntoView({ block: "start", behavior: "smooth" });
@@ -4487,8 +3825,10 @@ function toggleEditProductPicker() {
 function renderEditProductPicker() {
   const query = state.editProductQuery.trim().toLowerCase();
   const category = state.editProductCategory || "全部";
-  const subcategories = ["全部", ...new Set(products.filter((p) => category === "全部" || p.cat1 === category).map((p) => p.cat2).filter(Boolean))];
-  const matches = products.filter(isProductActive).filter((p) => {
+  const categorySubcategories = category === "全部" ? [] : (state.productCategories[category] || []);
+  const subcategories = ["全部", ...categorySubcategories];
+  const remote = state.remotePages.editProducts;
+  const matches = remote ? remote.items : products.filter(isProductActive).filter((p) => {
     const queryOk = !query || [p.name, p.spec, p.brand, p.cat1, p.cat2, p.code].some((value) => String(value || "").toLowerCase().includes(query));
     return queryOk && (category === "全部" || p.cat1 === category) && (state.editProductSubcategory === "全部" || p.cat2 === state.editProductSubcategory);
   }).slice(0, 60);
@@ -4512,7 +3852,24 @@ function updateEditProductFilter(type, value, input = null) {
   if (type === "subcategory") state.editProductSubcategory = value;
   if (input?.dataset.composing === "true") return;
   clearTimeout(inputRenderTimer);
-  inputRenderTimer = setTimeout(() => refreshEditProductPicker(type === "query"), type === "query" ? 180 : 0);
+  inputRenderTimer = setTimeout(() => loadEditProductPicker(type === "query"), type === "query" ? 220 : 0);
+}
+
+async function loadEditProductPicker(restoreSearchFocus = false) {
+  const response = await latestApiFetch("edit-products", `/api/products${queryString({
+    page: 1,
+    pageSize: 60,
+    q: state.editProductQuery,
+    category1: state.editProductCategory === "全部" ? "" : state.editProductCategory,
+    category2: state.editProductSubcategory === "全部" ? "" : state.editProductSubcategory,
+    status: "在售",
+  })}`);
+  if (!response) return;
+  const data = await response.json();
+  if (!response.ok) return alert(data.error || "商品库加载失败");
+  state.remotePages.editProducts = data;
+  mergeProductCache(data.items || []);
+  refreshEditProductPicker(restoreSearchFocus);
 }
 
 function refreshEditProductPicker(restoreSearchFocus = false) {
@@ -4668,7 +4025,7 @@ async function saveOrderEdits(id) {
     items,
     amount,
   };
-  const response = await fetch(`/api/orders/${encodeURIComponent(id)}`, {
+  const response = await apiFetch(`/api/orders/${encodeURIComponent(id)}`, {
     method: "PATCH",
     headers: { "content-type": "application/json" },
     body: JSON.stringify(payload),
@@ -4768,33 +4125,6 @@ function setCartPrice(productId, value) {
   });
 }
 
-function productCard(p) {
-  const selectedLine = cartItemForProduct(p.id);
-  const selected = Boolean(selectedLine);
-  const active = isProductActive(p);
-  const quantityControl = selected
-    ? `<div class="product-card-qty" title="已选数量">
-        <button type="button" onclick="event.stopPropagation();changeQty(${jsArg(p.id)}, -1)">-</button>
-        <input class="qty-input" type="number" min="1" step="1" inputmode="numeric" value="${Number(selectedLine.quantity || 0)}" onclick="event.stopPropagation()" onchange="setCartQuantity(${jsArg(p.id)}, this.value)" onkeydown="if(event.key==='Enter')this.blur()" />
-        <button type="button" onclick="event.stopPropagation();changeQty(${jsArg(p.id)}, 1)">+</button>
-      </div>`
-    : active
-      ? `<button class="icon-btn product-add-btn" title="加入购物车" onclick="addToCart(${jsArg(p.id)})">${svgIcon("plus")}</button>`
-      : `<span class="badge danger">停用</span>`;
-  return `
-    <article class="product-card ${active ? "" : "disabled"} ${selected ? "selected" : ""}">
-      <div class="material-thumb"></div>
-      <div>
-        <h4 class="product-title">${html(p.name)}</h4>
-        <div class="product-spec">${html(p.spec || "无规格")}</div>
-        <div class="product-spec">${html(productMeta(p))} · ${html(p.unit || "-")}</div>
-        <div class="price">${money(p.price)}</div>
-      </div>
-      ${quantityControl}
-    </article>
-  `;
-}
-
 function addToCart(productId) {
   const product = byId(products, productId);
   if (!product || !isProductActive(product)) return;
@@ -4884,7 +4214,7 @@ async function saveProduct(id) {
   try {
     const preparedImages = [];
     for (const imageFile of imageFiles) preparedImages.push(await prepareProductImage(imageFile));
-    const response = await fetch(id ? `/api/products/${encodeURIComponent(id)}` : "/api/products", {
+    const response = await apiFetch(id ? `/api/products/${encodeURIComponent(id)}` : "/api/products", {
       method: id ? "PUT" : "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify(payload),
@@ -4910,6 +4240,8 @@ async function saveProduct(id) {
     closeModal();
     if (imageErrors.length) alert(`商品信息已保存，但以下图片上传失败：\n${imageErrors.join("\n")}`);
     else showToast(preparedImages.length > 1 ? `商品信息及 ${preparedImages.length} 张图片已保存` : "商品信息已保存");
+    if (state.route === "products") await loadProductsForRoute("products");
+    render();
   } catch (error) {
     alert(error.message);
   }
@@ -4919,7 +4251,7 @@ async function deleteProduct(id) {
   const product = byId(products, id);
   if (!product || !confirm(`确定删除“${product.name}”吗？历史订单不会受影响。`)) return;
   try {
-    const response = await fetch(`/api/products/${encodeURIComponent(id)}`, { method: "DELETE" });
+    const response = await apiFetch(`/api/products/${encodeURIComponent(id)}`, { method: "DELETE" });
     let data = {};
     try {
       data = await response.json();
@@ -4930,6 +4262,7 @@ async function deleteProduct(id) {
     products = products.filter((item) => item.id !== id);
     state.cart = state.cart.filter((item) => item.productId !== id);
     showToast("商品已删除");
+    await loadProductsForRoute("products");
     render();
   } catch (error) {
     alert(error.message);
@@ -5159,11 +4492,13 @@ function toggleCostSalesperson(name) {
   else selected.add(name);
   state.costSalesFilters = Array.from(selected);
   rerenderCostControl();
+  loadCostControl(true);
 }
 
 function clearCostSalespeople() {
   state.costSalesFilters = [];
   rerenderCostControl();
+  loadCostControl(true);
 }
 
 function defaultCostSalesFilters() {
@@ -5183,17 +4518,20 @@ function toggleCostSupplierFilter(name) {
   else selected.add(name);
   state.costSupplierFilters = Array.from(selected);
   rerenderCostControl();
+  loadCostControl(true);
 }
 
 function clearCostSupplierFilters() {
   state.costSupplierFilters = [];
   rerenderCostControl();
+  loadCostControl(true);
 }
 
 function setCostDateFilter(field, value) {
   if (field === "from") state.costDateFrom = value;
   if (field === "to") state.costDateTo = value;
   render();
+  loadCostControl(true);
 }
 
 function setCostDatePreset(preset) {
@@ -5201,6 +4539,7 @@ function setCostDatePreset(preset) {
   state.costDateFrom = range.from;
   state.costDateTo = range.to;
   render();
+  loadCostControl(true);
 }
 
 function costDatePresetActive(preset) {
@@ -5226,26 +4565,44 @@ function resetCostFilters() {
   state.costSupplierMenuOpen = false;
   state.costExpandedOrderId = "";
   rerenderCostControl();
+  loadCostControl(true);
 }
 
 function setCostReconcileFilter(value) {
   state.costReconcileFilter = value;
   render();
+  loadCostControl(true);
 }
 
 async function loadCostControl(force = false) {
-  if (!isAdmin() || state.costLoading || (state.costLoaded && !force)) return;
+  if (!isAdmin() || (state.costLoading && !force) || (state.costLoaded && !force)) return;
+  if (state.costDateFrom && state.costDateTo && state.costDateFrom > state.costDateTo) {
+    if (state.route === "costs") render();
+    return;
+  }
   state.costLoading = true;
   state.costError = "";
   if (state.route === "costs") render();
   try {
-    const response = await fetch("/api/cost-control");
+    const selectedSalesIds = state.costSalesFilters.map((name) => salesUsers.find((user) => user.name === name)?.id).filter(Boolean);
+    const selectedSuppliers = state.costSupplierFilters.map((name) => name === COST_UNASSIGNED_SUPPLIER ? "__EMPTY__" : name);
+    const response = await latestApiFetch("cost-control", `/api/cost-control${queryString({
+      q: state.costQuery,
+      startDate: state.costDateFrom,
+      endDate: state.costDateTo,
+      suppliers: selectedSuppliers.join(","),
+      salesUserIds: selectedSalesIds.join(","),
+      status: state.costStatusFilter,
+      reconciliationStatus: state.costReconcileFilter,
+    })}`);
+    if (!response) return;
     const data = await response.json();
     if (!response.ok) throw new Error(data.error || "成本数据加载失败");
     state.costOrders = (data.orders || []).map((order) => ({
       ...order,
       costControl: cloneCostControl(order.costControl),
     }));
+    state.costSupplierOptions = data.suppliers || state.costSupplierOptions;
     if (!state.costSalesInitialized) {
       state.costSalesFilters = defaultCostSalesFilters();
       state.costSalesInitialized = true;
@@ -5265,7 +4622,7 @@ async function saveCostControl(orderId) {
   state.costSavingId = orderId;
   rerenderCostControl();
   try {
-    const response = await fetch(`/api/cost-control/${encodeURIComponent(orderId)}`, {
+    const response = await apiFetch(`/api/cost-control/${encodeURIComponent(orderId)}`, {
       method: "PATCH",
       headers: { "content-type": "application/json" },
       body: JSON.stringify(order.costControl),
@@ -5288,12 +4645,15 @@ async function saveCostControl(orderId) {
 
 function setCostQuery(input) {
   state.costQuery = input.value;
-  scheduleInputValue(input, "costQuery", "costSearchInput");
+  if (input.dataset.composing === "true") return;
+  clearTimeout(inputRenderTimer);
+  inputRenderTimer = setTimeout(() => loadCostControl(true), 220);
 }
 
 function setCostStatusFilter(value) {
   state.costStatusFilter = value;
   render();
+  loadCostControl(true);
 }
 
 function renderCostControl() {
@@ -5314,7 +4674,7 @@ function renderCostControl() {
       if (name) supplierNameSet.add(name);
     });
   });
-  const supplierNames = Array.from(supplierNameSet).sort((a, b) => a.localeCompare(b, "zh-CN"));
+  const supplierNames = Array.from(new Set([...(state.costSupplierOptions || []), ...supplierNameSet])).sort((a, b) => a.localeCompare(b, "zh-CN"));
   const dateError = state.costDateFrom && state.costDateTo && state.costDateFrom > state.costDateTo
     ? "开始日期不能晚于结束日期，请调整日期范围。"
     : "";
@@ -5557,10 +4917,11 @@ function openOrderRoute(type = "sale") {
   if (typeof resetPage === "function") resetPage("createProducts");
   ensureSalesScope();
   render();
+  loadRouteData(state.route, true);
 }
 
 function setRoute(route) {
-  if (route === "costs" && !isAdmin()) return;
+  if (["costs", "audit"].includes(route) && !isAdmin()) return;
   const previousType = state.orderType;
   persistCart(previousType);
   state.route = route;
@@ -5575,6 +4936,7 @@ function setRoute(route) {
   ensureSalesScope();
   render();
   if (route === "costs") loadCostControl();
+  else loadRouteData(route, true);
 }
 
 function handleRouteClick(route) {
@@ -5717,11 +5079,12 @@ async function deleteOrder(orderId) {
   }
   const customer = orderCustomerForDisplay(order || {});
   if (!order || !confirm(`确定删除订单 ${order.no} 吗？\n客户：${customer.name || "-"}\n金额：${money(order.amount)}\n\n删除后订单将从业务页面和统计中隐藏。`)) return;
-  const response = await fetch(`/api/orders/${encodeURIComponent(orderId)}`, { method: "DELETE" });
+  const response = await apiFetch(`/api/orders/${encodeURIComponent(orderId)}`, { method: "DELETE" });
   const data = await response.json().catch(() => ({}));
   if (!response.ok) return alert(data.error || "删除订单失败");
   orders = orders.filter((item) => item.id !== orderId);
   showToast("订单已删除");
+  await loadOrders();
   render();
 }
 
@@ -6087,7 +5450,7 @@ function scrollXiaocaiToBottom() {
 async function loadXiaocaiHistory() {
   if (state.assistantLoaded) return;
   try {
-    const response = await fetch("/api/assistant/history");
+    const response = await apiFetch("/api/assistant/history");
     const data = await response.json();
     if (!response.ok) throw new Error(data.error || "聊天记录加载失败");
     state.assistantMessages = Array.isArray(data.messages) ? data.messages : [];
@@ -6210,7 +5573,7 @@ async function sendXiaocai(prompt = "") {
   startAssistantStages();
   assistantAbortController = new AbortController();
   try {
-    const response = await fetch("/api/assistant/chat/stream", {
+    const response = await apiFetch("/api/assistant/chat/stream", {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ message }),
@@ -6268,7 +5631,7 @@ async function resetXiaocaiConversation(confirmMessage) {
   if (state.assistantLoading) return;
   if (confirmMessage && !confirm(confirmMessage)) return;
   try {
-    const response = await fetch("/api/assistant/history", { method: "DELETE" });
+    const response = await apiFetch("/api/assistant/history", { method: "DELETE" });
     const data = await response.json();
     if (!response.ok) throw new Error(data.error || "新对话创建失败");
     state.assistantMessages = [];
@@ -6295,6 +5658,140 @@ function openXiaocaiRoute(route) {
   if (!["dashboard", "customers", "products", "orders"].includes(route)) return;
   state.assistantOpen = false;
   setRoute(route);
+}
+
+function dashboardCustomerRowsHtml(rows) {
+  return rows.length ? `<div class="dashboard-customer-table">
+    <div class="dashboard-customer-row dashboard-customer-row-head"><span>客户</span><span>电话</span><span>销售人员</span><span>本月订单</span><span>本月金额</span><span>首次下单</span></div>
+    ${rows.map((item) => `<div class="dashboard-customer-row">
+      <strong>${html(item.name || "未知客户")}</strong><span>${html(item.phone || "-")}</span>
+      <span>${html((item.salesNames || []).join("、") || "-")}</span><span>${item.orderCount || 0} 单</span>
+      <span>${money(item.amount || 0)}</span><span>${html(item.firstOrderDate ? item.firstOrderDate.replace(/-/g, "/") : "-")}</span>
+    </div>`).join("")}
+  </div>` : `<div class="empty">暂无符合条件的客户</div>`;
+}
+
+function dashboardRemoteDetail(data) {
+  const type = state.dashboardCustomerDetail;
+  if (!type) return "";
+  const rows = type === "new" ? (data.newCustomers || []) : (data.monthCustomers || []);
+  const title = type === "new" ? "本月新开客户明细" : "本月下单客户明细";
+  return `<section class="dashboard-customer-detail">
+    <div class="dashboard-customer-detail-head"><strong>${title}</strong><button type="button" onclick="toggleDashboardCustomerDetail(${jsArg(type)})">收起</button></div>
+    ${dashboardCustomerRowsHtml(rows)}
+  </section>`;
+}
+
+function renderDashboardRemote() {
+  const data = state.dashboardData;
+  if (!data) return `<div class="card card-pad"><div class="empty">${html(state.dashboardError || (state.dashboardLoading ? "正在加载销售概览…" : "销售概览尚未加载"))}</div></div>`;
+  const metrics = data.metrics || {};
+  const generatedAt = new Date(data.generatedAt || Date.now());
+  const counts = data.categoryCounts || {};
+  return `<section class="dashboard-metrics">
+    ${dashboardSalesFilterHtml()}
+    <div class="dashboard-section-head"><strong>本月经营</strong><span>${generatedAt.getFullYear()} 年 ${generatedAt.getMonth() + 1} 月</span></div>
+    <div class="dashboard-metric-grid month-metrics">
+      ${dashboardMetric("本月销售额", money(metrics.monthSales || 0), "¥", "blue", "除待确认、已取消外，按实际订单金额汇总")}
+      ${dashboardMetric("本月下单客户数", metrics.monthCustomerCount || 0, "客", "violet", "本月有效销售单客户去重 · 点击查看", "month")}
+      ${dashboardMetric("本月新开客户数", metrics.monthNewCustomerCount || 0, "新", "orange", "首次有效下单发生在本月 · 点击查看", "new")}
+      ${dashboardMetric("本月订单数量", metrics.monthOrderCount || 0, "单", "cyan", "除待确认和已取消外的全部订单")}
+    </div>
+    ${dashboardRemoteDetail(data)}
+    <div class="dashboard-section-head today-head"><strong>今日动态</strong><span>${generatedAt.getMonth() + 1} 月 ${generatedAt.getDate()} 日</span></div>
+    <div class="dashboard-metric-grid today-metrics">
+      ${dashboardMetric("今日销售额", money(metrics.todaySales || 0), "¥", "green", "按今日有效订单实际金额汇总")}
+      ${dashboardMetric("今日下单客户数", metrics.todayCustomerCount || 0, "客", "gold", "今日有效销售单客户去重")}
+      ${dashboardMetric("今日订单数量", metrics.todayOrderCount || 0, "单", "red", "除待确认和已取消外的全部订单")}
+    </div>
+  </section>
+  <div class="grid two-col" style="margin-top:16px">
+    <div class="card card-pad"><h3>最近订单</h3><div class="order-list">${(data.recentOrders || []).map(orderCard).join("") || `<div class="empty">暂无订单</div>`}</div></div>
+    <div class="card card-pad"><h3>高频建材分类</h3>${["水电", "木", "油", "瓦"].map((cat) => `<div class="summary-row"><span>${cat}</span><strong>${Number(counts[cat] || 0)} 件商品</strong></div>`).join("")}<button class="btn primary" style="width:100%;margin-top:14px" onclick="setRoute('create')">开始开单</button></div>
+  </div>`;
+}
+
+function auditQuery() {
+  const page = state.remotePages.audit?.page || 1;
+  return queryString({ ...state.auditFilters, page, pageSize: 30 });
+}
+
+async function loadAuditLogs(page) {
+  if (!isAdmin()) return;
+  if (page) state.remotePages.audit = { ...(state.remotePages.audit || {}), page };
+  state.auditLoading = true;
+  state.auditError = "";
+  try {
+    const response = await latestApiFetch("audit", `/api/audit-logs${auditQuery()}`);
+    if (!response) return;
+    const data = await response.json();
+    if (!response.ok) throw new Error(data.error || "操作日志加载失败");
+    state.auditItems = data.items || [];
+    state.remotePages.audit = data;
+  } catch (error) {
+    state.auditError = error.message;
+  } finally {
+    state.auditLoading = false;
+    if (state.route === "audit") render();
+  }
+}
+
+function updateAuditFilter(key, value) {
+  state.auditFilters[key] = value;
+  state.remotePages.audit = { ...(state.remotePages.audit || {}), page: 1 };
+  clearTimeout(inputRenderTimer);
+  inputRenderTimer = setTimeout(() => loadAuditLogs(1), key === "keyword" ? 220 : 0);
+}
+
+function auditSummaryText(item) {
+  const fields = (item.changedFields || []).join("、");
+  return fields || item.message || "-";
+}
+
+function auditSummaryHtml(item) {
+  const summary = auditSummaryText(item);
+  if (!item.before && !item.after) return html(summary);
+  return `<details class="audit-change-detail"><summary>${html(summary)}</summary><pre>修改前：${html(JSON.stringify(item.before || {}, null, 2))}\n修改后：${html(JSON.stringify(item.after || {}, null, 2))}</pre></details>`;
+}
+
+function renderAuditCenter() {
+  const page = state.remotePages.audit || { page: 1, totalPages: 0, total: 0 };
+  return `<section class="audit-page">
+    <div class="card card-pad audit-filter-card">
+      <div class="audit-filter-grid">
+        <input class="input" type="date" value="${html(state.auditFilters.startDate)}" onchange="updateAuditFilter('startDate',this.value)" title="开始日期" />
+        <input class="input" type="date" value="${html(state.auditFilters.endDate)}" onchange="updateAuditFilter('endDate',this.value)" title="结束日期" />
+        <select class="select" onchange="updateAuditFilter('actorId',this.value)"><option value="">全部操作人员</option>${salesUsers.map((user) => `<option value="${html(user.id)}" ${state.auditFilters.actorId === user.id ? "selected" : ""}>${html(user.name)}</option>`).join("")}</select>
+        <select class="select" onchange="updateAuditFilter('entityType',this.value)"><option value="">全部业务类型</option>${optionList(["账号", "客户", "商品", "订单", "成本", "人员", "操作日志", "批量数据"], state.auditFilters.entityType)}</select>
+        <select class="select" onchange="updateAuditFilter('result',this.value)"><option value="">全部结果</option><option ${state.auditFilters.result === "成功" ? "selected" : ""}>成功</option><option ${state.auditFilters.result === "失败" ? "selected" : ""}>失败</option></select>
+        <input class="input" placeholder="关键词、编号或请求编号" value="${html(state.auditFilters.keyword)}" oninput="updateAuditFilter('keyword',this.value)" />
+        <button class="btn" onclick="exportAuditLogs()">导出 CSV</button>
+      </div>
+    </div>
+    ${state.auditError ? `<div class="card card-pad audit-error">${html(state.auditError)}</div>` : ""}
+    <div class="card table-wrap audit-table"><table><thead><tr><th>时间</th><th>操作人员</th><th>操作</th><th>业务 / 编号</th><th>修改摘要</th><th>结果</th><th>请求编号</th></tr></thead><tbody>
+      ${state.auditItems.map((item) => `<tr><td>${html(String(item.createdAt || "").replace("T", " ").slice(0, 19))}</td><td><strong>${html(item.actorName || "-")}</strong><small>${html(item.actorRole || "")}</small></td><td>${html(item.action || "-")}</td><td>${html(item.entityType || "-")}<small>${html(item.entityId || "")}</small></td><td>${auditSummaryHtml(item)}</td><td><span class="badge ${item.result === "成功" ? "success" : "danger"}">${html(item.result || "-")}</span></td><td><code>${html(item.requestId || "-")}</code></td></tr>`).join("") || `<tr><td colspan="7"><div class="empty">${state.auditLoading ? "正在加载…" : "暂无操作日志"}</div></td></tr>`}
+    </tbody></table></div>
+    ${paginationControls("audit", page.page, page.totalPages, page.total)}
+  </section>`;
+}
+
+async function exportAuditLogs() {
+  try {
+    const response = await apiFetch(`/api/audit-logs/export${queryString(state.auditFilters)}`);
+    if (!response.ok) {
+      const data = await response.json();
+      throw new Error(data.error || "日志导出失败");
+    }
+    const blob = await response.blob();
+    const link = document.createElement("a");
+    link.href = URL.createObjectURL(blob);
+    link.download = `操作日志-${new Date().toISOString().slice(0, 10)}.csv`;
+    link.click();
+    setTimeout(() => URL.revokeObjectURL(link.href), 1000);
+  } catch (error) {
+    alert(error.message);
+  }
 }
 
 function bindCartPersistenceGuards() {
