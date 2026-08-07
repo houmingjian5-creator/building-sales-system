@@ -11,6 +11,8 @@ const DATA_DIR = path.join(ROOT, "data");
 const DB_PATH = path.join(DATA_DIR, "db.json");
 const DB_PREVIOUS_PATH = path.join(DATA_DIR, "db.previous.json");
 const ASSISTANT_CHAT_PATH = path.join(DATA_DIR, "assistant-chats.json");
+const SESSION_PATH = process.env.RUNTIME_SESSION_PATH || path.join(DATA_DIR, "runtime-sessions.json");
+const AUDIT_LOG_DIR = process.env.AUDIT_LOG_DIR || path.join(DATA_DIR, "audit-logs");
 const PRODUCT_IMAGE_DIR = path.join(DATA_DIR, "product-images");
 const PORT = Number(process.env.PORT || 3000);
 const DEEPSEEK_API_KEY = process.env.DEEPSEEK_API_KEY || "";
@@ -29,6 +31,9 @@ const loginFailures = new Map();
 const PASSWORD_PREFIX = "scrypt";
 const LOGIN_WINDOW_MS = 15 * 60 * 1000;
 const LOGIN_MAX_FAILURES = 5;
+const SESSION_TTL_MS = 7 * 24 * 60 * 60 * 1000;
+const AUDIT_RETENTION_MS = 180 * 24 * 60 * 60 * 1000;
+let dbMutationQueue = Promise.resolve();
 
 function newId() {
   if (crypto.randomUUID) return crypto.randomUUID();
@@ -80,6 +85,415 @@ function atomicWriteJson(filePath, data, previousPath) {
 
 function writeDb(db) {
   atomicWriteJson(DB_PATH, db, DB_PREVIOUS_PATH);
+}
+
+function sessionTokenHash(token) {
+  return crypto.createHash("sha256").update(String(token || "")).digest("hex");
+}
+
+function persistSessions() {
+  const records = [];
+  sessions.forEach((value, tokenHash) => {
+    records.push({
+      tokenHash,
+      userId: value.userId,
+      createdAt: value.createdAt,
+      expiresAt: value.expiresAt,
+    });
+  });
+  atomicWriteJson(SESSION_PATH, { version: 1, sessions: records });
+}
+
+function cleanupRuntimeState(persist) {
+  const now = Date.now();
+  let changed = false;
+  sessions.forEach((value, tokenHash) => {
+    if (!value || Number(value.expiresAt || 0) <= now) {
+      sessions.delete(tokenHash);
+      changed = true;
+    }
+  });
+  loginFailures.forEach((value, key) => {
+    if (!value || now - Number(value.startedAt || 0) >= LOGIN_WINDOW_MS) loginFailures.delete(key);
+  });
+  if (persist && changed) persistSessions();
+}
+
+function loadSessions() {
+  if (!fs.existsSync(SESSION_PATH)) return;
+  try {
+    const stored = JSON.parse(fs.readFileSync(SESSION_PATH, "utf8"));
+    const records = Array.isArray(stored) ? stored : stored.sessions;
+    (Array.isArray(records) ? records : []).forEach((record) => {
+      if (!record || !record.tokenHash || !record.userId) return;
+      sessions.set(record.tokenHash, {
+        userId: record.userId,
+        createdAt: Number(record.createdAt || Date.now()),
+        expiresAt: Number(record.expiresAt || 0),
+      });
+    });
+    cleanupRuntimeState(true);
+  } catch (error) {
+    console.error("Unable to load persisted sessions:", error.message);
+  }
+}
+
+function createSession(userId) {
+  const token = crypto.randomBytes(32).toString("hex");
+  const now = Date.now();
+  sessions.set(sessionTokenHash(token), {
+    userId,
+    createdAt: now,
+    expiresAt: now + SESSION_TTL_MS,
+  });
+  persistSessions();
+  return token;
+}
+
+function deleteSession(token) {
+  if (!token) return false;
+  const removed = sessions.delete(sessionTokenHash(token));
+  if (removed) persistSessions();
+  return removed;
+}
+
+function invalidateUserSessions(userId) {
+  let changed = false;
+  sessions.forEach((value, tokenHash) => {
+    if (value && value.userId === userId) {
+      sessions.delete(tokenHash);
+      changed = true;
+    }
+  });
+  if (changed) persistSessions();
+  return changed;
+}
+
+function auditMonth(value) {
+  return new Date(value || Date.now()).toISOString().slice(0, 7);
+}
+
+function cleanAuditValue(value, key) {
+  const name = String(key || "").toLowerCase();
+  if (/(password|hash|token|secret|cookie|authorization|apikey|api_key|session)/.test(name)) return "[已隐藏]";
+  if (Array.isArray(value)) return value.slice(0, 20).map((item) => cleanAuditValue(item, key));
+  if (value && typeof value === "object") {
+    const result = {};
+    Object.keys(value).slice(0, 30).forEach((childKey) => {
+      result[childKey] = cleanAuditValue(value[childKey], childKey);
+    });
+    return result;
+  }
+  if (typeof value === "string" && value.length > 300) return `${value.slice(0, 300)}…`;
+  return value;
+}
+
+function compactAuditEntity(collection, item) {
+  if (!item) return null;
+  if (collection === "users") return cleanAuditValue({
+    id: item.id, name: item.name, phone: item.phone, role: item.role, status: item.status,
+  });
+  if (collection === "customers") return cleanAuditValue({
+    id: item.id, name: item.name, contact: item.contact, phone: item.phone,
+    email: item.email, ownerId: item.ownerId, status: item.status, address: item.address,
+  });
+  if (collection === "products") return cleanAuditValue({
+    id: item.id, name: item.name, code: item.code, spec: item.spec,
+    category1: item.category1, category2: item.category2, unit: item.unit,
+    price: item.price, cost: item.cost, status: item.status,
+    aliases: splitAliases(item.aliases),
+    imageCount: productImageFiles(item).length,
+  });
+  if (collection === "orders") {
+    const cost = item.costControl || {};
+    return cleanAuditValue({
+      id: item.id, no: item.no, type: item.type, customerId: item.customerId,
+      customerName: item.customerName, salesUserId: item.salesUserId, date: item.date,
+      status: item.status, payStatus: item.payStatus, amount: item.amount,
+      actualPaidAmount: item.actualPaidAmount, deletedAt: item.deletedAt,
+      itemCount: Array.isArray(item.items) ? item.items.length : 0,
+      items: (Array.isArray(item.items) ? item.items : []).slice(0, 40).map((line) => ({
+        productId: line.productId, name: line.name, quantity: line.quantity, price: line.price,
+      })),
+      reconciliationStatus: cost.reconciliationStatus,
+      suppliers: cost.suppliers, deliveryPerson: cost.deliveryPerson,
+      materialCost: (Array.isArray(cost.suppliers) ? cost.suppliers : []).reduce((sum, supplier) => sum + Number(supplier.materialCost || 0), 0),
+      transportCost: cost.transportCost, remark: cost.remark,
+    });
+  }
+  return cleanAuditValue(item);
+}
+
+function auditChangedFields(before, after) {
+  const keys = new Set(Object.keys(before || {}).concat(Object.keys(after || {})));
+  return Array.from(keys).filter((key) => JSON.stringify(before && before[key]) !== JSON.stringify(after && after[key]));
+}
+
+function appendAuditLog(entry) {
+  const createdAt = entry.createdAt || new Date().toISOString();
+  const record = Object.assign({
+    id: newId(),
+    createdAt,
+    actorId: "",
+    actorName: "未登录用户",
+    actorRole: "",
+    action: "操作",
+    entityType: "系统",
+    entityId: "",
+    before: null,
+    after: null,
+    changedFields: [],
+    requestId: "",
+    result: "成功",
+    message: "",
+  }, cleanAuditValue(entry || {}));
+  fs.mkdirSync(AUDIT_LOG_DIR, { recursive: true });
+  fs.appendFileSync(path.join(AUDIT_LOG_DIR, `${auditMonth(createdAt)}.jsonl`), `${JSON.stringify(record)}\n`, { encoding: "utf8", mode: 0o600 });
+}
+
+function cleanupAuditLogs() {
+  if (!fs.existsSync(AUDIT_LOG_DIR)) return;
+  const cutoff = Date.now() - AUDIT_RETENTION_MS;
+  fs.readdirSync(AUDIT_LOG_DIR).forEach((name) => {
+    if (!/^\d{4}-\d{2}\.jsonl$/.test(name)) return;
+    const filePath = path.join(AUDIT_LOG_DIR, name);
+    const lines = fs.readFileSync(filePath, "utf8").split(/\r?\n/).filter(Boolean);
+    const kept = lines.filter((line) => {
+      try {
+        return Date.parse(JSON.parse(line).createdAt || "") >= cutoff;
+      } catch (_) {
+        return true;
+      }
+    });
+    if (kept.length === lines.length) return;
+    if (!kept.length) {
+      fs.unlinkSync(filePath);
+      return;
+    }
+    const tempPath = path.join(AUDIT_LOG_DIR, `.${name}.${process.pid}.tmp`);
+    fs.writeFileSync(tempPath, `${kept.join("\n")}\n`, { encoding: "utf8", mode: 0o600 });
+    fs.renameSync(tempPath, filePath);
+  });
+}
+
+function auditActor(user) {
+  return {
+    actorId: user && user.id || "",
+    actorName: user && user.name || "未登录用户",
+    actorRole: user && user.role || "",
+  };
+}
+
+function auditDatabaseChanges(beforeDb, afterDb, user, req) {
+  const collectionNames = { users: "人员", customers: "客户", products: "商品", orders: "订单" };
+  const changes = [];
+  Object.keys(collectionNames).forEach((collection) => {
+    const beforeItems = Array.isArray(beforeDb && beforeDb[collection]) ? beforeDb[collection] : [];
+    const afterItems = Array.isArray(afterDb && afterDb[collection]) ? afterDb[collection] : [];
+    const beforeMap = new Map(beforeItems.map((item) => [item.id, item]));
+    const afterMap = new Map(afterItems.map((item) => [item.id, item]));
+    const ids = new Set(Array.from(beforeMap.keys()).concat(Array.from(afterMap.keys())));
+    ids.forEach((id) => {
+      const rawBefore = beforeMap.get(id);
+      const rawAfter = afterMap.get(id);
+      const before = compactAuditEntity(collection, rawBefore);
+      const after = compactAuditEntity(collection, rawAfter);
+      const passwordChanged = collection === "users" && rawBefore && rawAfter && String(rawBefore.passwordHash || rawBefore.password || "") !== String(rawAfter.passwordHash || rawAfter.password || "");
+      if (JSON.stringify(before) === JSON.stringify(after) && !passwordChanged) return;
+      let action = before && after ? "编辑" : (after ? "新增" : "删除");
+      if (collection === "orders" && before && after) {
+        if (!before.deletedAt && after.deletedAt) action = "删除";
+        else if (before.status !== after.status) action = "状态修改";
+        else if (before.payStatus !== after.payStatus || before.actualPaidAmount !== after.actualPaidAmount) action = "回款修改";
+        else if (before.materialCost !== after.materialCost || before.transportCost !== after.transportCost || before.reconciliationStatus !== after.reconciliationStatus || JSON.stringify(before.suppliers) !== JSON.stringify(after.suppliers) || before.deliveryPerson !== after.deliveryPerson || before.remark !== after.remark) action = "成本修改";
+      }
+      changes.push({ collection, entityType: collectionNames[collection], entityId: id, action, before, after, passwordChanged });
+    });
+  });
+  if (changes.length > 30) {
+    appendAuditLog(Object.assign(auditActor(user), {
+      action: "批量操作", entityType: "批量数据", entityId: "",
+      after: { changedCount: changes.length }, changedFields: ["changedCount"],
+      requestId: req.requestId, message: `${req.method} ${new URL(req.url, "http://localhost").pathname}`,
+    }));
+    return;
+  }
+  changes.forEach((change) => {
+    appendAuditLog(Object.assign(auditActor(user), {
+      action: change.action,
+      entityType: change.entityType,
+      entityId: change.entityId,
+      before: change.before,
+      after: change.after,
+      changedFields: auditChangedFields(change.before, change.after).concat(change.passwordChanged ? ["password"] : []),
+      requestId: req.requestId,
+    }));
+  });
+}
+
+function readAuditLogs(filters) {
+  if (!fs.existsSync(AUDIT_LOG_DIR)) return [];
+  const start = String(filters.startDate || "");
+  const end = String(filters.endDate || "");
+  const actorId = String(filters.actorId || "");
+  const entityType = String(filters.entityType || "");
+  const result = String(filters.result || "");
+  const keyword = String(filters.keyword || "").trim().toLowerCase();
+  const records = [];
+  fs.readdirSync(AUDIT_LOG_DIR).filter((name) => /^\d{4}-\d{2}\.jsonl$/.test(name)).sort().reverse().forEach((name) => {
+    const lines = fs.readFileSync(path.join(AUDIT_LOG_DIR, name), "utf8").split(/\r?\n/).filter(Boolean);
+    lines.forEach((line) => {
+      try {
+        const item = JSON.parse(line);
+        const day = String(item.createdAt || "").slice(0, 10);
+        if (start && day < start) return;
+        if (end && day > end) return;
+        if (actorId && item.actorId !== actorId) return;
+        if (entityType && item.entityType !== entityType) return;
+        if (result && item.result !== result) return;
+        if (keyword && JSON.stringify(item).toLowerCase().indexOf(keyword) < 0) return;
+        records.push(item);
+      } catch (_) {
+        // Ignore a single malformed line; the remaining monthly log stays queryable.
+      }
+    });
+  });
+  return records.sort((a, b) => String(b.createdAt).localeCompare(String(a.createdAt)));
+}
+
+function pageOptions(url, defaultSize) {
+  const page = Math.max(1, Number.parseInt(url.searchParams.get("page") || "1", 10) || 1);
+  const pageSize = Math.max(1, Math.min(200, Number.parseInt(url.searchParams.get("pageSize") || String(defaultSize || 20), 10) || (defaultSize || 20)));
+  return { page, pageSize };
+}
+
+function pagedResult(items, url, defaultSize) {
+  const options = pageOptions(url, defaultSize);
+  const total = items.length;
+  const totalPages = total ? Math.ceil(total / options.pageSize) : 0;
+  const safePage = totalPages ? Math.min(options.page, totalPages) : 1;
+  const start = (safePage - 1) * options.pageSize;
+  return {
+    items: items.slice(start, start + options.pageSize),
+    page: safePage,
+    pageSize: options.pageSize,
+    total,
+    totalPages,
+  };
+}
+
+function dateInRange(value, startDate, endDate) {
+  const day = String(value || "").replace(/\//g, "-").slice(0, 10);
+  if (startDate && day < startDate) return false;
+  if (endDate && day > endDate) return false;
+  return true;
+}
+
+function queryTextMatch(values, keyword) {
+  const query = String(keyword || "").trim().toLowerCase();
+  if (!query) return true;
+  return values.some((value) => String(value || "").toLowerCase().indexOf(query) >= 0);
+}
+
+function dashboardOrderDate(value) {
+  const match = String(value || "").match(/(\d{4})[\/-](\d{1,2})[\/-](\d{1,2})/);
+  if (match) return new Date(Number(match[1]), Number(match[2]) - 1, Number(match[3]));
+  const parsed = new Date(value);
+  return Number.isNaN(parsed.getTime()) ? null : parsed;
+}
+
+function dashboardIsReturn(order) {
+  return Boolean(order && (order.type === "return" || String(order.no || "").startsWith("TH") || order.status === "已退货"));
+}
+
+function dashboardIsPerformanceOrder(order) {
+  return Boolean(order && !order.deletedAt && ["待确认", "已取消"].indexOf(order.status) < 0);
+}
+
+function dashboardPerformanceAmount(order) {
+  if (!dashboardIsReturn(order)) return effectiveOrderAmount(order);
+  if (!Array.isArray(order.items) || !order.items.length) return -Math.abs(Number(order.amount || 0));
+  return order.items.reduce((sum, item) => {
+    const amount = Math.abs(Number(item.quantity || 0) * Number(item.price || 0));
+    return sum + (isPositiveReturnCharge(item) ? amount : -amount);
+  }, 0);
+}
+
+function sameDashboardMonth(value, target) {
+  const date = dashboardOrderDate(value);
+  return Boolean(date && date.getFullYear() === target.getFullYear() && date.getMonth() === target.getMonth());
+}
+
+function sameDashboardDay(value, target) {
+  const date = dashboardOrderDate(value);
+  return Boolean(date && date.getFullYear() === target.getFullYear() && date.getMonth() === target.getMonth() && date.getDate() === target.getDate());
+}
+
+function dashboardPayload(db, user, salesFilters) {
+  const now = new Date();
+  const visibleOrders = db.orders.filter((order) => !order.deletedAt && (user.role !== "销售人员" || order.salesUserId === user.id));
+  const scopedOrders = user.role === "销售人员" || !salesFilters.length
+    ? visibleOrders
+    : visibleOrders.filter((order) => salesFilters.indexOf(order.salesUserId) >= 0);
+  const validOrders = scopedOrders.filter(dashboardIsPerformanceOrder);
+  const validSalesOrders = validOrders.filter((order) => !dashboardIsReturn(order));
+  const allValidSalesOrders = visibleOrders.filter((order) => dashboardIsPerformanceOrder(order) && !dashboardIsReturn(order));
+  const monthPerformance = validOrders.filter((order) => sameDashboardMonth(order.date, now));
+  const todayPerformance = validOrders.filter((order) => sameDashboardDay(order.date, now));
+  const monthOrders = validSalesOrders.filter((order) => sameDashboardMonth(order.date, now));
+  const todayOrders = validSalesOrders.filter((order) => sameDashboardDay(order.date, now));
+  const monthCustomerIds = Array.from(new Set(monthOrders.map((order) => order.customerId).filter(Boolean)));
+  const todayCustomerIds = Array.from(new Set(todayOrders.map((order) => order.customerId).filter(Boolean)));
+  const firstDates = {};
+  allValidSalesOrders.forEach((order) => {
+    const date = dashboardOrderDate(order.date);
+    if (date && (!firstDates[order.customerId] || date < firstDates[order.customerId])) firstDates[order.customerId] = date;
+  });
+  const newCustomerIds = monthCustomerIds.filter((id) => {
+    const date = firstDates[id];
+    return date && date.getFullYear() === now.getFullYear() && date.getMonth() === now.getMonth();
+  });
+  function customerRows(ids) {
+    return ids.map((customerId) => {
+      const customer = db.customers.find((item) => item.id === customerId) || {};
+      const customerOrders = monthOrders.filter((order) => order.customerId === customerId);
+      const salesNames = Array.from(new Set(customerOrders.map((order) => {
+        const salesperson = db.users.find((item) => item.id === order.salesUserId);
+        return salesperson && salesperson.name;
+      }).filter(Boolean)));
+      const snapshot = customerOrders[0] || {};
+      return {
+        id: customerId,
+        name: customer.name || snapshot.customerName || "未知客户",
+        phone: customer.phone || snapshot.customerPhone || snapshot.phone || "",
+        salesNames,
+        orderCount: customerOrders.length,
+        amount: customerOrders.reduce((sum, order) => sum + effectiveOrderAmount(order), 0),
+        firstOrderDate: firstDates[customerId] ? firstDates[customerId].toISOString().slice(0, 10) : "",
+      };
+    }).sort((a, b) => a.name.localeCompare(b.name, "zh-CN"));
+  }
+  const categoryCounts = {};
+  db.products.forEach((product) => {
+    const category = String(product.cat1 || "");
+    if (category) categoryCounts[category] = (categoryCounts[category] || 0) + 1;
+  });
+  return {
+    metrics: {
+      monthSales: monthPerformance.reduce((sum, order) => sum + dashboardPerformanceAmount(order), 0),
+      monthCustomerCount: monthCustomerIds.length,
+      monthNewCustomerCount: newCustomerIds.length,
+      monthOrderCount: monthPerformance.length,
+      todaySales: todayPerformance.reduce((sum, order) => sum + dashboardPerformanceAmount(order), 0),
+      todayCustomerCount: todayCustomerIds.length,
+      todayOrderCount: todayPerformance.length,
+    },
+    monthCustomers: customerRows(monthCustomerIds),
+    newCustomers: customerRows(newCustomerIds),
+    recentOrders: scopedOrders.slice().sort((a, b) => String(b.date || b.createdAt || "").localeCompare(String(a.date || a.createdAt || ""))).slice(0, 4).map(publicOrder),
+    categoryCounts,
+    generatedAt: now.toISOString(),
+  };
 }
 
 function hashPassword(password) {
@@ -165,7 +579,13 @@ function sendJson(res, status, data) {
 }
 
 function sendError(res, status, message) {
-  sendJson(res, status, { error: message });
+  res.errorMessage = message;
+  const payload = { error: message, message };
+  if (res.requestId) {
+    payload.requestId = res.requestId;
+    payload.error = `${message}（请求编号：${res.requestId}）`;
+  }
+  sendJson(res, status, payload);
 }
 
 function sendBuffer(res, status, buffer, contentType, filename) {
@@ -209,10 +629,22 @@ function getToken(req) {
 
 function getCurrentUser(req) {
   const token = getToken(req);
-  const userId = sessions.get(token);
-  if (!userId) return null;
+  if (!token) return null;
+  const tokenHash = sessionTokenHash(token);
+  const session = sessions.get(tokenHash);
+  if (!session) return null;
+  if (Number(session.expiresAt || 0) <= Date.now()) {
+    sessions.delete(tokenHash);
+    persistSessions();
+    return null;
+  }
   const db = readDb();
-  return db.users.find((user) => user.id === userId && user.status === "启用") || null;
+  const user = db.users.find((item) => item.id === session.userId && item.status === "启用") || null;
+  if (!user) {
+    sessions.delete(tokenHash);
+    persistSessions();
+  }
+  return user;
 }
 
 function requireUser(req, res) {
@@ -312,7 +744,8 @@ function productImageFiles(product) {
 
 function publicProduct(product, options) {
   const imageFiles = productImageFiles(product);
-  const imageUrls = imageFiles.map(function (file) {
+  const publicImageFiles = options && options.listOnly ? imageFiles.slice(0, 1) : imageFiles;
+  const imageUrls = publicImageFiles.map(function (file) {
     return `/api/product-images/${encodeURIComponent(file)}`;
   });
   const result = {
@@ -2524,7 +2957,17 @@ function serveStatic(req, res) {
       ".jpg": "image/jpeg",
       ".svg": "image/svg+xml",
     }[ext] || "application/octet-stream";
-    res.writeHead(200, { "content-type": contentType });
+    const etag = `"${crypto.createHash("sha1").update(data).digest("hex")}"`;
+    const cacheControl = ext === ".html"
+      ? "no-cache, no-store, must-revalidate"
+      : ((ext === ".js" || ext === ".css") && url.searchParams.has("v")
+        ? "public, max-age=31536000, immutable"
+        : ([".png", ".jpg", ".svg"].includes(ext) ? "public, max-age=604800" : "no-cache"));
+    if (req.headers["if-none-match"] === etag) {
+      res.writeHead(304, { etag, "cache-control": cacheControl });
+      return res.end();
+    }
+    res.writeHead(200, { "content-type": contentType, etag, "cache-control": cacheControl });
     res.end(data);
   });
 }
@@ -2533,29 +2976,46 @@ async function handleApi(req, res) {
   const url = new URL(req.url, `http://${req.headers.host}`);
   const method = req.method;
 
+  if (method === "GET" && url.pathname === "/api/health") {
+    return sendJson(res, 200, {
+      status: "ok",
+      time: new Date().toISOString(),
+      uptimeSeconds: Math.floor(process.uptime()),
+    });
+  }
+
   if (method === "POST" && url.pathname === "/api/login") {
     const { phone, password } = await readBody(req);
     const rateKey = loginRateKey(req, phone);
-    if (isLoginBlocked(rateKey)) return sendError(res, 429, "登录尝试次数过多，请 15 分钟后再试");
+    if (isLoginBlocked(rateKey)) {
+      appendAuditLog({ action: "登录", entityType: "账号", entityId: String(phone || ""), requestId: req.requestId, result: "失败", message: "登录尝试次数过多" });
+      return sendError(res, 429, "登录尝试次数过多，请 15 分钟后再试");
+    }
     const db = readDb();
     const user = db.users.find((item) => item.phone === phone);
     if (!user || !verifyPassword(user, password)) {
       recordLoginFailure(rateKey);
+      appendAuditLog(Object.assign(auditActor(user), { action: "登录", entityType: "账号", entityId: user && user.id || String(phone || ""), requestId: req.requestId, result: "失败", message: "手机号或密码错误" }));
       return sendError(res, 401, "手机号或密码错误");
     }
-    if (user.status !== "启用") return sendError(res, 403, "账号已停用");
+    if (user.status !== "启用") {
+      appendAuditLog(Object.assign(auditActor(user), { action: "登录", entityType: "账号", entityId: user.id, requestId: req.requestId, result: "失败", message: "账号已停用" }));
+      return sendError(res, 403, "账号已停用");
+    }
     clearLoginFailures(rateKey);
-    if (!user.passwordHash) setUserPassword(user, password);
-    const token = crypto.randomBytes(24).toString("hex");
-    sessions.set(token, user.id);
-    db.loginLogs.unshift({ id: newId(), userId: user.id, phone: user.phone, createdAt: new Date().toISOString() });
-    writeDb(db);
-    res.setHeader("set-cookie", sessionCookie(req, token));
+    const passwordMigrated = !user.passwordHash;
+    if (passwordMigrated) setUserPassword(user, password);
+    const token = createSession(user.id);
+    if (passwordMigrated) writeDb(db);
+    appendAuditLog(Object.assign(auditActor(user), { action: "登录", entityType: "账号", entityId: user.id, requestId: req.requestId, result: "成功" }));
+    res.setHeader("set-cookie", sessionCookie(req, token, Math.floor(SESSION_TTL_MS / 1000)));
     return sendJson(res, 200, { user: sanitizeUser(user) });
   }
 
   if (method === "POST" && url.pathname === "/api/logout") {
-    sessions.delete(getToken(req));
+    const logoutUser = getCurrentUser(req);
+    deleteSession(getToken(req));
+    appendAuditLog(Object.assign(auditActor(logoutUser), { action: "退出", entityType: "账号", entityId: logoutUser && logoutUser.id || "", requestId: req.requestId, result: "成功" }));
     res.setHeader("set-cookie", sessionCookie(req, "", 0));
     return sendJson(res, 200, { ok: true });
   }
@@ -2693,6 +3153,27 @@ async function handleApi(req, res) {
     const user = requireUser(req, res);
     if (!user) return;
     const db = readDb();
+    if (url.searchParams.get("mode") === "summary") {
+      const categoryMap = {};
+      db.products.forEach((product) => {
+        const category1 = String(product.cat1 || product.category1 || "").trim();
+        const category2 = String(product.cat2 || product.category2 || "").trim();
+        if (!category1) return;
+        if (!categoryMap[category1]) categoryMap[category1] = [];
+        if (category2 && categoryMap[category1].indexOf(category2) < 0) categoryMap[category1].push(category2);
+      });
+      Object.keys(categoryMap).forEach((key) => categoryMap[key].sort((a, b) => a.localeCompare(b, "zh-CN")));
+      return sendJson(res, 200, {
+        user: sanitizeUser(user),
+        users: db.users.map(sanitizeUser),
+        categories: categoryMap,
+        counts: {
+          customers: db.customers.filter((customer) => user.role !== "销售人员" || customer.ownerId === user.id).length,
+          products: db.products.length,
+          orders: db.orders.filter((order) => !order.deletedAt && (user.role !== "销售人员" || order.salesUserId === user.id)).length,
+        },
+      });
+    }
     return sendJson(res, 200, {
       user: sanitizeUser(user),
       users: db.users.map(sanitizeUser),
@@ -2700,6 +3181,52 @@ async function handleApi(req, res) {
       products: db.products.map((product) => publicProduct(product, { includeCost: canViewProductCost(user) })),
       orders: db.orders.filter((order) => !order.deletedAt && (user.role !== "销售人员" || order.salesUserId === user.id)).map(publicOrder),
     });
+  }
+
+  if (method === "GET" && url.pathname === "/api/dashboard") {
+    const user = requireUser(req, res);
+    if (!user) return;
+    const salesFilters = user.role === "销售人员"
+      ? [user.id]
+      : String(url.searchParams.get("salesUserIds") || "").split(",").filter(Boolean);
+    return sendJson(res, 200, dashboardPayload(readDb(), user, salesFilters));
+  }
+
+  if (method === "GET" && url.pathname === "/api/audit-logs") {
+    if (!requireAdmin(req, res)) return;
+    const records = readAuditLogs({
+      startDate: url.searchParams.get("startDate"),
+      endDate: url.searchParams.get("endDate"),
+      actorId: url.searchParams.get("actorId"),
+      entityType: url.searchParams.get("entityType"),
+      result: url.searchParams.get("result"),
+      keyword: url.searchParams.get("keyword"),
+    });
+    return sendJson(res, 200, pagedResult(records, url, 30));
+  }
+
+  if (method === "GET" && url.pathname === "/api/audit-logs/export") {
+    const admin = requireAdmin(req, res);
+    if (!admin) return;
+    const records = readAuditLogs({
+      startDate: url.searchParams.get("startDate"),
+      endDate: url.searchParams.get("endDate"),
+      actorId: url.searchParams.get("actorId"),
+      entityType: url.searchParams.get("entityType"),
+      result: url.searchParams.get("result"),
+      keyword: url.searchParams.get("keyword"),
+    });
+    function csvCell(value) {
+      return `"${String(value === undefined || value === null ? "" : value).replace(/"/g, '""')}"`;
+    }
+    const rows = [["操作时间", "操作人员", "角色", "操作类型", "业务类型", "数据编号", "修改字段", "请求编号", "结果", "说明"]];
+    records.forEach((item) => rows.push([
+      item.createdAt, item.actorName, item.actorRole, item.action, item.entityType,
+      item.entityId, (item.changedFields || []).join("、"), item.requestId, item.result, item.message,
+    ]));
+    const csv = Buffer.from(`\uFEFF${rows.map((row) => row.map(csvCell).join(",")).join("\r\n")}`, "utf8");
+    appendAuditLog(Object.assign(auditActor(admin), { action: "导出", entityType: "操作日志", requestId: req.requestId, result: "成功", after: { count: records.length } }));
+    return sendBuffer(res, 200, csv, "text/csv; charset=utf-8", `操作日志-${new Date().toISOString().slice(0, 10)}.csv`);
   }
 
   if (url.pathname === "/api/users") {
@@ -2738,11 +3265,13 @@ async function handleApi(req, res) {
       if (payload.phone && db.users.some((item) => item.phone === payload.phone && item.id !== id)) {
         return sendError(res, 409, "手机号已存在");
       }
+      const invalidatesSessions = payload.password || (payload.status !== undefined && payload.status !== user.status);
       ["name", "phone", "role", "status"].forEach((key) => {
         if (payload[key] !== undefined) user[key] = payload[key];
       });
       if (payload.password) setUserPassword(user, payload.password);
       writeDb(db);
+      if (invalidatesSessions) invalidateUserSessions(user.id);
       return sendJson(res, 200, { user: sanitizeUser(user) });
     }
   }
@@ -2752,7 +3281,26 @@ async function handleApi(req, res) {
     if (!user) return;
     const db = readDb();
     if (method === "GET") {
-      const list = db.customers.filter((customer) => user.role !== "销售人员" || customer.ownerId === user.id);
+      const keyword = url.searchParams.get("q") || url.searchParams.get("search") || "";
+      const ownerId = url.searchParams.get("salesUserId") || url.searchParams.get("ownerId") || "";
+      let list = db.customers.filter((customer) => user.role !== "销售人员" || customer.ownerId === user.id);
+      if (ownerId && user.role !== "销售人员") list = list.filter((customer) => customer.ownerId === ownerId);
+      if (keyword) list = list.filter((customer) => queryTextMatch([customer.name, customer.contact, customer.phone, customer.address], keyword));
+      list = list.map((customer) => {
+        const customerOrders = db.orders.filter((order) => !order.deletedAt && order.customerId === customer.id && !dashboardIsReturn(order));
+        const dates = customerOrders.map((order) => order.date).filter(Boolean).sort((a, b) => String(b).localeCompare(String(a)));
+        return Object.assign({}, customer, {
+          orderAddresses: Array.from(new Set(customerOrders.map((order) => String(order.address || "").trim()).filter(Boolean))).slice(0, 20),
+          stats: {
+            total: customerOrders.reduce((sum, order) => sum + effectiveOrderAmount(order), 0),
+            last: dates[0] || "-",
+            count: customerOrders.length,
+          },
+        });
+      });
+      if (url.searchParams.has("page") || url.searchParams.has("pageSize") || keyword || ownerId) {
+        return sendJson(res, 200, pagedResult(list, url, 20));
+      }
       return sendJson(res, 200, { customers: list });
     }
     if (method === "POST") {
@@ -2846,6 +3394,7 @@ async function handleApi(req, res) {
     if (!selected.length) return sendError(res, 400, "没有可导出的商品");
     const buffer = await buildProductWorkbook(selected, { includeCost: canViewProductCost(user) });
     const filename = ids && ids.size ? `已选产品-${selected.length}项.xlsx` : `全部产品-${selected.length}项.xlsx`;
+    appendAuditLog(Object.assign(auditActor(user), { action: "导出", entityType: "商品", requestId: req.requestId, result: "成功", after: { count: selected.length } }));
     return sendBuffer(res, 200, buffer, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", filename);
   }
 
@@ -2873,7 +3422,7 @@ async function handleApi(req, res) {
         }
       });
       writeDb(db);
-      return sendJson(res, 200, { created, updated, products: db.products.map((product) => publicProduct(product, { includeCost: true })) });
+      return sendJson(res, 200, { created, updated, total: db.products.length });
     } catch (error) {
       return sendError(res, 400, error.message || "产品表格解析失败");
     }
@@ -2935,9 +3484,24 @@ async function handleApi(req, res) {
     if (!user) return;
     const db = readDb();
     if (method === "GET") {
-      return sendJson(res, 200, {
-        products: db.products.map((product) => publicProduct(product, { includeCost: canViewProductCost(user) })),
-      });
+      const keyword = url.searchParams.get("q") || url.searchParams.get("search") || "";
+      const category1 = url.searchParams.get("category1") || url.searchParams.get("cat1") || "";
+      const category2 = url.searchParams.get("category2") || url.searchParams.get("cat2") || "";
+      const status = url.searchParams.get("status") || "";
+      const ids = String(url.searchParams.get("ids") || "").split(",").filter(Boolean);
+      let list = db.products.slice();
+      if (ids.length) list = list.filter((product) => ids.indexOf(String(product.id)) >= 0);
+      if (keyword) list = list.filter((product) => queryTextMatch([product.name, product.code, product.spec, product.brand, product.aliases], keyword));
+      if (category1) list = list.filter((product) => String(product.cat1 || "") === category1);
+      if (category2) list = list.filter((product) => String(product.cat2 || "") === category2);
+      if (status) list = list.filter((product) => String(product.status || "在售") === status);
+      const usePaging = url.searchParams.has("page") || url.searchParams.has("pageSize") || keyword || category1 || category2 || status || ids.length;
+      if (usePaging) {
+        const result = pagedResult(list, url, 24);
+        result.items = result.items.map((product) => publicProduct(product, { includeCost: canViewProductCost(user), listOnly: true }));
+        return sendJson(res, 200, result);
+      }
+      return sendJson(res, 200, { products: list.map((product) => publicProduct(product, { includeCost: canViewProductCost(user) })) });
     }
     if (method === "POST") {
       if (!requireAdmin(req, res)) return;
@@ -2959,6 +3523,9 @@ async function handleApi(req, res) {
     const productIndex = db.products.findIndex((item) => item.id === id);
     const product = db.products[productIndex];
     if (!product) return sendError(res, 404, "商品不存在");
+    if (method === "GET") {
+      return sendJson(res, 200, { product: publicProduct(product, { includeCost: canViewProductCost(user) }) });
+    }
     if (method === "PUT") {
       if (!requireAdmin(req, res)) return;
       const payload = await readBody(req);
@@ -3001,15 +3568,52 @@ async function handleApi(req, res) {
     const user = requireAdmin(req, res);
     if (!user) return;
     const db = readDb();
-    const orders = db.orders
-      .filter(isCostControlOrder)
+    const keyword = url.searchParams.get("q") || url.searchParams.get("search") || "";
+    const startDate = url.searchParams.get("startDate") || "";
+    const endDate = url.searchParams.get("endDate") || "";
+    const supplierValues = String(url.searchParams.get("suppliers") || "").split(",").filter(Boolean);
+    const salesValues = String(url.searchParams.get("salesUserIds") || "").split(",").filter(Boolean);
+    const orderStatus = url.searchParams.get("status") || "";
+    const reconciliationStatus = url.searchParams.get("reconciliationStatus") || "";
+    const baseOrders = db.orders.filter(isCostControlOrder);
+    const supplierOptions = Array.from(new Set(baseOrders.reduce((names, order) => {
+      const control = normalizeCostControl(order.costControl || {});
+      control.suppliers.forEach((supplier) => {
+        const name = String(supplier.name || "").trim();
+        if (name) names.push(name);
+      });
+      return names;
+    }, []))).sort((a, b) => a.localeCompare(b, "zh-CN"));
+    let orders = baseOrders
+      .filter(function (order) {
+        if (!dateInRange(order.date || order.createdAt, startDate, endDate)) return false;
+        if (salesValues.length && salesValues.indexOf(String(order.salesUserId || "")) < 0) return false;
+        if (orderStatus === "已完成" && order.status !== "已完成") return false;
+        if (orderStatus === "进行中" && order.status === "已完成") return false;
+        if (orderStatus && orderStatus !== "进行中" && orderStatus !== "已完成" && order.status !== orderStatus) return false;
+        const control = normalizeCostControl(order.costControl || {});
+        if (reconciliationStatus && control.reconciliationStatus !== reconciliationStatus) return false;
+        if (supplierValues.length) {
+          const names = (control.suppliers || []).map((supplier) => String(supplier.name || "").trim()).filter(Boolean);
+          const matchesBlank = supplierValues.indexOf("__EMPTY__") >= 0 && !names.length;
+          if (!matchesBlank && !supplierValues.some((name) => name !== "__EMPTY__" && names.indexOf(name) >= 0)) return false;
+        }
+        const salesperson = db.users.find((item) => item.id === order.salesUserId);
+        if (keyword && !queryTextMatch([order.no, order.customerName, order.customerPhone, order.phone, order.address, order.salesUserId, salesperson && salesperson.name], keyword)) return false;
+        return true;
+      })
       .sort(function (a, b) {
         return String(b.date || b.createdAt || "").localeCompare(String(a.date || a.createdAt || ""));
       })
       .map(function (order) {
         return publicCostControlOrder(order, db);
       });
-    return sendJson(res, 200, { orders: orders });
+    if (url.searchParams.has("page") || url.searchParams.has("pageSize")) {
+      const result = pagedResult(orders, url, 30);
+      result.suppliers = supplierOptions;
+      return sendJson(res, 200, result);
+    }
+    return sendJson(res, 200, { orders: orders, suppliers: supplierOptions });
   }
 
   if (url.pathname.startsWith("/api/cost-control/") && method === "PATCH") {
@@ -3041,7 +3645,25 @@ async function handleApi(req, res) {
     if (!user) return;
     const db = readDb();
     if (method === "GET") {
-      return sendJson(res, 200, { orders: db.orders.filter((order) => !order.deletedAt && (user.role !== "销售人员" || order.salesUserId === user.id)).map(publicOrder) });
+      const keyword = url.searchParams.get("q") || url.searchParams.get("search") || "";
+      const status = url.searchParams.get("status") || "";
+      const payStatus = url.searchParams.get("payStatus") || "";
+      const salesUserId = url.searchParams.get("salesUserId") || "";
+      const startDate = url.searchParams.get("startDate") || "";
+      const endDate = url.searchParams.get("endDate") || "";
+      let list = db.orders.filter((order) => !order.deletedAt && (user.role !== "销售人员" || order.salesUserId === user.id));
+      if (status) list = list.filter((order) => order.status === status);
+      if (payStatus) list = list.filter((order) => normalizePayStatus(order.payStatus) === normalizePayStatus(payStatus));
+      if (salesUserId && user.role !== "销售人员") list = list.filter((order) => order.salesUserId === salesUserId);
+      if (startDate || endDate) list = list.filter((order) => dateInRange(order.date || order.createdAt, startDate, endDate));
+      if (keyword) list = list.filter((order) => queryTextMatch([order.no, order.customerName, order.customerPhone, order.phone, order.address], keyword));
+      const usePaging = url.searchParams.has("page") || url.searchParams.has("pageSize") || keyword || status || payStatus || salesUserId || startDate || endDate;
+      if (usePaging) {
+        const result = pagedResult(list, url, 20);
+        result.items = result.items.map(publicOrder);
+        return sendJson(res, 200, result);
+      }
+      return sendJson(res, 200, { orders: list.map(publicOrder) });
     }
     if (method === "POST") {
       const payload = await readBody(req);
@@ -3231,7 +3853,65 @@ async function handleApi(req, res) {
   sendError(res, 404, "接口不存在");
 }
 
+function isSerializedMutation(req) {
+  if (["GET", "HEAD", "OPTIONS"].includes(req.method)) return false;
+  const pathname = new URL(req.url, `http://${req.headers.host || "localhost"}`).pathname;
+  if (pathname.startsWith("/api/assistant/")) return false;
+  if (pathname.startsWith("/api/ai/")) return false;
+  if (pathname === "/api/logout") return false;
+  return pathname.startsWith("/api/");
+}
+
+function enqueueDbMutation(task) {
+  const run = dbMutationQueue.then(task, task);
+  dbMutationQueue = run.catch((error) => {
+    console.error("Serialized database mutation failed:", error && error.message ? error.message : error);
+  });
+  return run;
+}
+
+function auditEntityTypeFromPath(pathname) {
+  if (pathname.indexOf("/customers") >= 0) return "客户";
+  if (pathname.indexOf("/products") >= 0) return "商品";
+  if (pathname.indexOf("/orders") >= 0) return "订单";
+  if (pathname.indexOf("/users") >= 0) return "人员";
+  if (pathname.indexOf("cost-control") >= 0) return "成本";
+  return "系统";
+}
+
+async function handleSerializedApi(req, res) {
+  const pathname = new URL(req.url, `http://${req.headers.host || "localhost"}`).pathname;
+  const actor = getCurrentUser(req);
+  const shouldDiff = pathname !== "/api/login";
+  const beforeDb = shouldDiff ? readDb() : null;
+  await handleApi(req, res);
+  if (!shouldDiff) return;
+  if (res.statusCode >= 400) {
+    appendAuditLog(Object.assign(auditActor(actor), {
+      action: `${req.method} 操作`,
+      entityType: auditEntityTypeFromPath(pathname),
+      requestId: req.requestId,
+      result: "失败",
+      message: res.errorMessage || `${pathname} 返回 ${res.statusCode}`,
+    }));
+    return;
+  }
+  auditDatabaseChanges(beforeDb, readDb(), actor, req);
+}
+
+loadSessions();
+cleanupAuditLogs();
+const runtimeCleanupTimer = setInterval(() => {
+  cleanupRuntimeState(true);
+  cleanupAuditLogs();
+}, 10 * 60 * 1000);
+if (runtimeCleanupTimer.unref) runtimeCleanupTimer.unref();
+
 const server = http.createServer((req, res) => {
+  const requestId = crypto.randomBytes(8).toString("hex");
+  req.requestId = requestId;
+  res.requestId = requestId;
+  res.setHeader("x-request-id", requestId);
   res.setHeader("x-content-type-options", "nosniff");
   res.setHeader("x-frame-options", "SAMEORIGIN");
   res.setHeader("referrer-policy", "same-origin");
@@ -3240,7 +3920,13 @@ const server = http.createServer((req, res) => {
     res.setHeader("strict-transport-security", "max-age=31536000; includeSubDomains");
   }
   if (req.url.startsWith("/api/")) {
-    handleApi(req, res).catch((error) => sendError(res, 500, error.message || "服务器错误"));
+    const task = () => isSerializedMutation(req) ? handleSerializedApi(req, res) : handleApi(req, res);
+    const operation = isSerializedMutation(req) ? enqueueDbMutation(task) : task();
+    operation.catch((error) => {
+      console.error(`[${requestId}] ${req.method} ${req.url}`, error);
+      if (!res.headersSent) sendError(res, 500, error.message || "服务器错误");
+      else if (!res.writableEnded) res.end();
+    });
     return;
   }
   serveStatic(req, res);
@@ -3305,3 +3991,13 @@ module.exports.isCostControlOrder = isCostControlOrder;
 module.exports.normalizeCostControl = normalizeCostControl;
 module.exports.costControlTotals = costControlTotals;
 module.exports.publicCostControlOrder = publicCostControlOrder;
+module.exports.dashboardPayload = dashboardPayload;
+module.exports.pagedResult = pagedResult;
+module.exports.sessionTokenHash = sessionTokenHash;
+module.exports.createSession = createSession;
+module.exports.deleteSession = deleteSession;
+module.exports.invalidateUserSessions = invalidateUserSessions;
+module.exports.getCurrentUser = getCurrentUser;
+module.exports.appendAuditLog = appendAuditLog;
+module.exports.readAuditLogs = readAuditLogs;
+module.exports.enqueueDbMutation = enqueueDbMutation;

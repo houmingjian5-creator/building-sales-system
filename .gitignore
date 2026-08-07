@@ -4,6 +4,9 @@ node_modules
 data/product-images/
 data/assistant-chats.json
 data/assistant-chats.json.tmp
+data/runtime-sessions.json
+data/.runtime-sessions.json.*.tmp
+data/audit-logs/
 data/db.previous.json
 data/.db.json.*.tmp
 data/backups/
