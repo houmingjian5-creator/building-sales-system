@@ -23,7 +23,7 @@ assert(
   "Sales order documents must render the saved order remark."
 );
 assert(
-  app.includes('销售电话：</strong>${html(s?.phone || "-")}'),
+  app.includes('销售电话：</strong>${html(') && app.includes('s.phone) || "-")}'),
   "Sales order documents must show the salesperson login phone in full."
 );
 assert(

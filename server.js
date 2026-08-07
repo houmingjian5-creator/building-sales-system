@@ -382,10 +382,25 @@ function pagedResult(items, url, defaultSize) {
   };
 }
 
+function normalizedCalendarDate(value) {
+  const match = String(value || "").trim().match(/^(\d{4})[\/-](\d{1,2})[\/-](\d{1,2})/);
+  if (!match) return "";
+  const year = Number(match[1]);
+  const month = Number(match[2]);
+  const day = Number(match[3]);
+  const parsed = new Date(year, month - 1, day);
+  if (parsed.getFullYear() !== year || parsed.getMonth() !== month - 1 || parsed.getDate() !== day) return "";
+  return String(year).padStart(4, "0") + "-" + String(month).padStart(2, "0") + "-" + String(day).padStart(2, "0");
+}
+
 function dateInRange(value, startDate, endDate) {
-  const day = String(value || "").replace(/\//g, "-").slice(0, 10);
-  if (startDate && day < startDate) return false;
-  if (endDate && day > endDate) return false;
+  if (!startDate && !endDate) return true;
+  const day = normalizedCalendarDate(value);
+  const start = startDate ? normalizedCalendarDate(startDate) : "";
+  const end = endDate ? normalizedCalendarDate(endDate) : "";
+  if (!day) return false;
+  if (startDate && (!start || day < start)) return false;
+  if (endDate && (!end || day > end)) return false;
   return true;
 }
 
@@ -3991,6 +4006,7 @@ module.exports.isCostControlOrder = isCostControlOrder;
 module.exports.normalizeCostControl = normalizeCostControl;
 module.exports.costControlTotals = costControlTotals;
 module.exports.publicCostControlOrder = publicCostControlOrder;
+module.exports.dateInRange = dateInRange;
 module.exports.dashboardPayload = dashboardPayload;
 module.exports.pagedResult = pagedResult;
 module.exports.sessionTokenHash = sessionTokenHash;

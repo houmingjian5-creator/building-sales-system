@@ -3,6 +3,10 @@ const fs = require("fs");
 const os = require("os");
 const path = require("path");
 
+const appSource = fs.readFileSync(path.join(__dirname, "../public/app.js"), "utf8");
+assert(!appSource.includes("?."), "public/app.js must remain compatible with the production Node.js syntax check");
+assert(!appSource.includes("??"), "public/app.js must not use nullish coalescing on the production Node.js runtime");
+
 const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), "building-sales-runtime-"));
 process.env.RUNTIME_SESSION_PATH = path.join(tempRoot, "sessions.json");
 process.env.AUDIT_LOG_DIR = path.join(tempRoot, "audit-logs");

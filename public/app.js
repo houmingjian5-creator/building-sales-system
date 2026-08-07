@@ -1,4 +1,4 @@
-﻿const initialCostDateRange = costDatePresetRange("month");
+const initialCostDateRange = costDatePresetRange("month");
 
 const state = {
   route: "dashboard",
@@ -85,7 +85,7 @@ const state = {
   mobileMoreOpen: false,
   mobileCartOpen: false,
   mobileOrderDetailsOpen: false,
-  cartStorageWarningShown: false,
+  cartStorageWarningShown: false
 };
 
 let inputRenderTimer = null;
@@ -93,58 +93,58 @@ let assistantAbortController = null;
 let assistantStageTimer = null;
 
 let salesUsers = [
-  { id: "u1", name: "钱锦健", phone: "13800000001", role: "超级管理员", status: "启用" },
-  { id: "u2", name: "侯俊键", phone: "13800000002", role: "销售人员", status: "启用" },
-  { id: "u3", name: "沈海峰", phone: "13800000003", role: "销售人员", status: "启用" },
-  { id: "u4", name: "管理员", phone: "13800000004", role: "管理员", status: "启用" },
-  { id: "u5", name: "财务", phone: "13800000005", role: "财务", status: "启用" },
-];
+{ id: "u1", name: "钱锦健", phone: "13800000001", role: "超级管理员", status: "启用" },
+{ id: "u2", name: "侯俊键", phone: "13800000002", role: "销售人员", status: "启用" },
+{ id: "u3", name: "沈海峰", phone: "13800000003", role: "销售人员", status: "启用" },
+{ id: "u4", name: "管理员", phone: "13800000004", role: "管理员", status: "启用" },
+{ id: "u5", name: "财务", phone: "13800000005", role: "财务", status: "启用" }];
+
 
 let customers = [
-  { id: "c1", name: "钱勇6333", contact: "钱勇", phone: "15608096333", email: "", address: "明佑天府壹号28栋2单元102", ownerId: "u2", total: 4865.4, last: "2026/6/9", orders: 6 },
-  { id: "c2", name: "王美4949", contact: "王美", phone: "13668164949", email: "", address: "华府大道建材市场", ownerId: "u2", total: 7664.9, last: "2026/6/8", orders: 9 },
-  { id: "c3", name: "周9446", contact: "周先生", phone: "17628069446", email: "", address: "高新区工地库房", ownerId: "u3", total: 9604, last: "2026/6/7", orders: 11 },
-  { id: "c4", name: "露哥9561", contact: "露哥", phone: "13548029561", email: "", address: "双流区项目部", ownerId: "u2", total: 5438.12, last: "2026/6/6", orders: 6 },
-  { id: "c5", name: "张朝646", contact: "张朝", phone: "18109064646", email: "", address: "明佑天府壹号", ownerId: "u1", total: 2559.16, last: "2026/6/1", orders: 3 },
-];
+{ id: "c1", name: "钱勇6333", contact: "钱勇", phone: "15608096333", email: "", address: "明佑天府壹号28栋2单元102", ownerId: "u2", total: 4865.4, last: "2026/6/9", orders: 6 },
+{ id: "c2", name: "王美4949", contact: "王美", phone: "13668164949", email: "", address: "华府大道建材市场", ownerId: "u2", total: 7664.9, last: "2026/6/8", orders: 9 },
+{ id: "c3", name: "周9446", contact: "周先生", phone: "17628069446", email: "", address: "高新区工地库房", ownerId: "u3", total: 9604, last: "2026/6/7", orders: 11 },
+{ id: "c4", name: "露哥9561", contact: "露哥", phone: "13548029561", email: "", address: "双流区项目部", ownerId: "u2", total: 5438.12, last: "2026/6/6", orders: 6 },
+{ id: "c5", name: "张朝646", contact: "张朝", phone: "18109064646", email: "", address: "明佑天府壹号", ownerId: "u1", total: 2559.16, last: "2026/6/1", orders: 3 }];
+
 
 let products = [
-  { id: "p1", brand: "木", cat1: "木", cat2: "木类小配件", name: "接头（好）", spec: "木工PITOU", unit: "个", price: 2, cost: 0.8, status: "在售", color: "#d9c3a1" },
-  { id: "p2", brand: "木", cat1: "木", cat2: "木工辅材", name: "拼塑板（保温板隔热板）", spec: "灰色5cm / 1200*2400", unit: "张", price: 11, cost: 7.5, status: "在售", color: "#cbd5e1" },
-  { id: "p3", brand: "水电", cat1: "水电", cat2: "水电辅材", name: "NM1-400S/3310315A AC230V", spec: "天正接触器", unit: "个", price: 580, cost: 430, status: "在售", color: "#bfdbfe" },
-  { id: "p4", brand: "水电", cat1: "水电", cat2: "空气开关", name: "BH-0.66 30 I 300/5A 0.5级", spec: "互感器", unit: "个", price: 13.5, cost: 9.2, status: "在售", color: "#dbeafe" },
-  { id: "p5", brand: "油", cat1: "油", cat2: "高德", name: "高德轻质石膏", spec: "20KG", unit: "袋", price: 14, cost: 10, status: "在售", color: "#fde68a" },
-  { id: "p6", brand: "瓦", cat1: "瓦", cat2: "瓷砖胶", name: "拉法基一型瓷砖胶", spec: "20KG", unit: "袋", price: 22, cost: 17, status: "在售", color: "#e5e7eb" },
-  { id: "p7", brand: "水电", cat1: "水电", cat2: "金杯线缆", name: "塔牌电线（双色ZA-BV6mm2）", spec: "双色ZA-BV6mm2", unit: "卷", price: 563, cost: 520, status: "在售", color: "#fca5a5" },
-  { id: "p8", brand: "水电", cat1: "水电", cat2: "金杯线缆", name: "塔牌电线（单色ZA-BV10mm2）", spec: "单色ZA-BV10mm2", unit: "卷", price: 0, cost: 0, status: "在售", color: "#86efac" },
-  { id: "p9", brand: "木", cat1: "木", cat2: "可耐福", name: "可耐福龙骨", spec: "1200*2400*9.5", unit: "根", price: 18.6, cost: 13, status: "在售", color: "#d6d3d1" },
-];
+{ id: "p1", brand: "木", cat1: "木", cat2: "木类小配件", name: "接头（好）", spec: "木工PITOU", unit: "个", price: 2, cost: 0.8, status: "在售", color: "#d9c3a1" },
+{ id: "p2", brand: "木", cat1: "木", cat2: "木工辅材", name: "拼塑板（保温板隔热板）", spec: "灰色5cm / 1200*2400", unit: "张", price: 11, cost: 7.5, status: "在售", color: "#cbd5e1" },
+{ id: "p3", brand: "水电", cat1: "水电", cat2: "水电辅材", name: "NM1-400S/3310315A AC230V", spec: "天正接触器", unit: "个", price: 580, cost: 430, status: "在售", color: "#bfdbfe" },
+{ id: "p4", brand: "水电", cat1: "水电", cat2: "空气开关", name: "BH-0.66 30 I 300/5A 0.5级", spec: "互感器", unit: "个", price: 13.5, cost: 9.2, status: "在售", color: "#dbeafe" },
+{ id: "p5", brand: "油", cat1: "油", cat2: "高德", name: "高德轻质石膏", spec: "20KG", unit: "袋", price: 14, cost: 10, status: "在售", color: "#fde68a" },
+{ id: "p6", brand: "瓦", cat1: "瓦", cat2: "瓷砖胶", name: "拉法基一型瓷砖胶", spec: "20KG", unit: "袋", price: 22, cost: 17, status: "在售", color: "#e5e7eb" },
+{ id: "p7", brand: "水电", cat1: "水电", cat2: "金杯线缆", name: "塔牌电线（双色ZA-BV6mm2）", spec: "双色ZA-BV6mm2", unit: "卷", price: 563, cost: 520, status: "在售", color: "#fca5a5" },
+{ id: "p8", brand: "水电", cat1: "水电", cat2: "金杯线缆", name: "塔牌电线（单色ZA-BV10mm2）", spec: "单色ZA-BV10mm2", unit: "卷", price: 0, cost: 0, status: "在售", color: "#86efac" },
+{ id: "p9", brand: "木", cat1: "木", cat2: "可耐福", name: "可耐福龙骨", spec: "1200*2400*9.5", unit: "根", price: 18.6, cost: 13, status: "在售", color: "#d6d3d1" }];
+
 
 let orders = [
-  { id: "o1", no: "ORD1781230955350624", customerId: "c5", salesUserId: "u2", date: "2026/6/12", status: "待确认", payStatus: "未回款", amount: 4047.16, items: [{ productId: "p3", quantity: 1, price: 580 }, { productId: "p7", quantity: 2, price: 563 }, { productId: "p2", quantity: 35, price: 36 }] },
-  { id: "o2", no: "ORD1781226813454163", customerId: "c3", salesUserId: "u3", date: "2026/6/12", status: "待确认", payStatus: "未回款", amount: 922, items: [{ productId: "p5", quantity: 7, price: 14 }] },
-  { id: "o3", no: "ORD1781179803303841", customerId: "c4", salesUserId: "u2", date: "2026/6/11", status: "待确认", payStatus: "未回款", amount: 2370, items: [{ productId: "p6", quantity: 4, price: 22 }] },
-  { id: "o4", no: "ORD178116787613288", customerId: "c1", salesUserId: "u2", date: "2026/6/11", status: "已完成", payStatus: "未回款", amount: 1072, items: [{ productId: "p1", quantity: 10, price: 2 }] },
-];
+{ id: "o1", no: "ORD1781230955350624", customerId: "c5", salesUserId: "u2", date: "2026/6/12", status: "待确认", payStatus: "未回款", amount: 4047.16, items: [{ productId: "p3", quantity: 1, price: 580 }, { productId: "p7", quantity: 2, price: 563 }, { productId: "p2", quantity: 35, price: 36 }] },
+{ id: "o2", no: "ORD1781226813454163", customerId: "c3", salesUserId: "u3", date: "2026/6/12", status: "待确认", payStatus: "未回款", amount: 922, items: [{ productId: "p5", quantity: 7, price: 14 }] },
+{ id: "o3", no: "ORD1781179803303841", customerId: "c4", salesUserId: "u2", date: "2026/6/11", status: "待确认", payStatus: "未回款", amount: 2370, items: [{ productId: "p6", quantity: 4, price: 22 }] },
+{ id: "o4", no: "ORD178116787613288", customerId: "c1", salesUserId: "u2", date: "2026/6/11", status: "已完成", payStatus: "未回款", amount: 1072, items: [{ productId: "p1", quantity: 10, price: 2 }] }];
+
 
 const app = document.getElementById("app");
 
 const money = (value) => `¥${Number(value || 0).toLocaleString("zh-CN", { maximumFractionDigits: 2 })}`;
 const byId = (list, id) => list.find((item) => item.id === id);
-const icon = (name) => ({ dashboard: "概", customers: "客", products: "品", create: "开", orders: "单", returns: "退", users: "员", costs: "本", audit: "记" }[name] || "•");
+const icon = (name) => ({ dashboard: "概", customers: "客", products: "品", create: "开", orders: "单", returns: "退", users: "员", costs: "本", audit: "记" })[name] || "•";
 const isAdmin = () => state.user && ["超级管理员", "管理员"].includes(state.user.role);
 
-function cartStorageKey(type = state.orderType) {
-  return state.user?.id ? `building-sales-cart:${state.user.id}:${type === "return" ? "return" : "sale"}` : "";
+function cartStorageKey(type = state.orderType) {var _state$user;
+  return (_state$user = state.user) !== null && _state$user !== void 0 && _state$user.id ? `building-sales-cart:${state.user.id}:${type === "return" ? "return" : "sale"}` : "";
 }
 
 function cartSnapshot(product, fallback = {}) {
   return {
-    name: String(product?.name || fallback.name || "未知商品"),
-    spec: String(product?.spec || fallback.spec || ""),
-    unit: String(product?.unit || fallback.unit || ""),
-    cat1: String(product?.cat1 || fallback.cat1 || ""),
-    cat2: String(product?.cat2 || fallback.cat2 || ""),
+    name: String((product === null || product === void 0 ? void 0 : product.name) || fallback.name || "未知商品"),
+    spec: String((product === null || product === void 0 ? void 0 : product.spec) || fallback.spec || ""),
+    unit: String((product === null || product === void 0 ? void 0 : product.unit) || fallback.unit || ""),
+    cat1: String((product === null || product === void 0 ? void 0 : product.cat1) || fallback.cat1 || ""),
+    cat2: String((product === null || product === void 0 ? void 0 : product.cat2) || fallback.cat2 || "")
   };
 }
 
@@ -172,8 +172,8 @@ function persistCart(type = state.orderType, notifyFailure = false) {
       return {
         productId: item.productId,
         quantity: normalizeQuantity(item.quantity),
-        price: normalizedCartPrice(item.price, product?.price || 0),
-        ...cartSnapshot(product, item),
+        price: normalizedCartPrice(item.price, (product === null || product === void 0 ? void 0 : product.price) || 0),
+        ...cartSnapshot(product, item)
       };
     });
     localStorage.setItem(key, JSON.stringify(stored));
@@ -194,8 +194,8 @@ function restoreCart(type = state.orderType) {
       return {
         productId: item.productId,
         quantity: normalizeQuantity(item.quantity),
-        price: normalizedCartPrice(item.price, product?.price || 0),
-        ...cartSnapshot(product, item),
+        price: normalizedCartPrice(item.price, (product === null || product === void 0 ? void 0 : product.price) || 0),
+        ...cartSnapshot(product, item)
       };
     }) : [];
   } catch (_) {
@@ -210,14 +210,14 @@ function clearPersistedCart(type = state.orderType) {
   try {
     localStorage.removeItem(key);
   } catch (_) {
+
     // Ignore browser storage failures after a successful order save.
-  }
-}
+  }}
 
 function resetOrderDraft(customer = null) {
-  state.orderDraftCustomerId = customer?.id || "";
+  state.orderDraftCustomerId = (customer === null || customer === void 0 ? void 0 : customer.id) || "";
   state.orderAddress = "";
-  state.orderPhone = customer?.phone || "";
+  state.orderPhone = (customer === null || customer === void 0 ? void 0 : customer.phone) || "";
   state.orderRemark = "";
 }
 
@@ -250,8 +250,8 @@ function toggleMobileOrderDetails() {
 
 function matchingCreateCustomers() {
   const query = state.createCustomerQuery.trim().toLowerCase();
-  return orderCustomerChoices().filter((customer) => !query || [customer.name, customer.contact, customer.phone]
-    .some((value) => String(value || "").toLowerCase().includes(query))).slice(0, 30);
+  return orderCustomerChoices().filter((customer) => !query || [customer.name, customer.contact, customer.phone].
+  some((value) => String(value || "").toLowerCase().includes(query))).slice(0, 30);
 }
 
 function renderCreateCustomerResults() {
@@ -275,13 +275,13 @@ function openCreateCustomerPicker() {
 }
 
 function closeCreateCustomerPicker() {
-  setTimeout(() => {
+  setTimeout(() => {var _document$getElementB;
     state.createCustomerPickerOpen = false;
     const customer = byId(orderCustomerChoices(), state.selectedCustomerId);
     state.createCustomerQuery = orderCustomerLabel(customer);
     const input = document.getElementById("createCustomerSearch");
     if (input) input.value = state.createCustomerQuery;
-    document.getElementById("createCustomerResults")?.classList.add("hidden");
+    (_document$getElementB = document.getElementById("createCustomerResults")) === null || _document$getElementB === void 0 || _document$getElementB.classList.add("hidden");
   }, 150);
 }
 
@@ -308,15 +308,15 @@ function customerOrderAddresses(customerId) {
   const customer = byId(customers, customerId);
   if (customer && Array.isArray(customer.orderAddresses)) return customer.orderAddresses;
   const seen = new Set();
-  return orders
-    .filter((order) => order.customerId === customerId && !order.deletedAt)
-    .map((order) => String(order.address || "").trim())
-    .filter((address) => {
-      if (!address || seen.has(address)) return false;
-      seen.add(address);
-      return true;
-    })
-    .slice(0, 10);
+  return orders.
+  filter((order) => order.customerId === customerId && !order.deletedAt).
+  map((order) => String(order.address || "").trim()).
+  filter((address) => {
+    if (!address || seen.has(address)) return false;
+    seen.add(address);
+    return true;
+  }).
+  slice(0, 10);
 }
 
 function addressHistoryMenuHtml(customerId, mode) {
@@ -332,18 +332,18 @@ function addressHistoryMenuHtml(customerId, mode) {
   `;
 }
 
-function openAddressHistory(mode) {
+function openAddressHistory(mode) {var _document$getElementB2;
   const menuId = mode === "edit" ? "editOrderAddressHistory" : "orderAddressHistory";
-  document.getElementById(menuId)?.classList.add("open");
+  (_document$getElementB2 = document.getElementById(menuId)) === null || _document$getElementB2 === void 0 || _document$getElementB2.classList.add("open");
 }
 
 function closeAddressHistory(mode) {
   const menuId = mode === "edit" ? "editOrderAddressHistory" : "orderAddressHistory";
-  setTimeout(() => document.getElementById(menuId)?.classList.remove("open"), 120);
+  setTimeout(() => {var _document$getElementB3;return (_document$getElementB3 = document.getElementById(menuId)) === null || _document$getElementB3 === void 0 ? void 0 : _document$getElementB3.classList.remove("open");}, 120);
 }
 
-function selectAddressHistory(button, mode) {
-  const address = button?.dataset?.address || "";
+function selectAddressHistory(button, mode) {var _button$dataset;
+  const address = (button === null || button === void 0 || (_button$dataset = button.dataset) === null || _button$dataset === void 0 ? void 0 : _button$dataset.address) || "";
   if (mode === "edit") {
     updateEditOrderMeta("address", address);
     const input = document.getElementById("editOrderAddress");
@@ -363,7 +363,7 @@ function orderCustomerForDisplay(order = {}) {
     id: customer.id || order.customerId || "",
     name: customer.name || order.customerName || "已删除客户",
     phone: customer.phone || order.customerPhone || order.phone || "",
-    address: customer.address || order.customerAddress || order.address || "",
+    address: customer.address || order.customerAddress || order.address || ""
   };
 }
 
@@ -405,7 +405,7 @@ function renderKeepingInput(inputId, selectionStart, selectionEnd) {
 function scheduleInputRender(key, value, inputId, selectionStart, selectionEnd) {
   state[key] = value;
   const input = document.getElementById(inputId);
-  if (input?.dataset.composing === "true") return;
+  if ((input === null || input === void 0 ? void 0 : input.dataset.composing) === "true") return;
   clearTimeout(inputRenderTimer);
   inputRenderTimer = setTimeout(() => renderKeepingInput(inputId, selectionStart, selectionEnd), 180);
 }
@@ -436,10 +436,10 @@ function updatePageQuery(input) {
   inputRenderTimer = setTimeout(() => loadCustomers().then(render).catch((error) => alert(error.message)), 220);
 }
 
-function toggleLoginPassword() {
+function toggleLoginPassword() {var _document$getElementB4, _document$getElementB5;
   state.loginPasswordVisible = !state.loginPasswordVisible;
-  const phone = document.getElementById("loginPhone")?.value || "";
-  const password = document.getElementById("loginPassword")?.value || "";
+  const phone = ((_document$getElementB4 = document.getElementById("loginPhone")) === null || _document$getElementB4 === void 0 ? void 0 : _document$getElementB4.value) || "";
+  const password = ((_document$getElementB5 = document.getElementById("loginPassword")) === null || _document$getElementB5 === void 0 ? void 0 : _document$getElementB5.value) || "";
   renderLogin();
   const phoneInput = document.getElementById("loginPhone");
   const input = document.getElementById("loginPassword");
@@ -516,9 +516,9 @@ async function boot() {
   try {
     await loadBootstrap();
   } catch {
+
     // 未登录时保持登录页。
-  } finally {
-    state.loading = false;
+  } finally {state.loading = false;
     render();
   }
 }
@@ -527,8 +527,8 @@ async function logout() {
   persistCart(state.orderType, true);
   try {
     await apiFetch("/api/logout", { method: "POST" });
-  } finally {
-    assistantAbortController?.abort();
+  } finally {var _assistantAbortContro;
+    (_assistantAbortContro = assistantAbortController) === null || _assistantAbortContro === void 0 || _assistantAbortContro.abort();
     clearInterval(assistantStageTimer);
     state.user = null;
     state.route = "dashboard";
@@ -596,13 +596,13 @@ function mobileMoreRouteButton(route, label) {
   return `<button type="button" class="${state.route === route ? "active" : ""}" onclick="setRoute(${jsArg(route)})"><span class="nav-icon">${icon(route)}</span><span>${html(label)}</span></button>`;
 }
 
-function renderMobileMoreSheet() {
+function renderMobileMoreSheet() {var _state$user2, _state$user3;
   if (!state.mobileMoreOpen) return "";
   return `
     <div class="mobile-sheet-layer mobile-more-layer" onclick="closeMobileMore()">
       <section class="mobile-sheet mobile-more-sheet" role="dialog" aria-modal="true" aria-label="更多功能" onclick="event.stopPropagation()">
         <div class="mobile-sheet-handle"></div>
-        <div class="mobile-sheet-head"><div><strong>更多功能</strong><span>${html(state.user?.name || "")} · ${html(state.user?.role || "")}</span></div><button type="button" class="icon-btn" onclick="closeMobileMore()" aria-label="关闭">×</button></div>
+        <div class="mobile-sheet-head"><div><strong>更多功能</strong><span>${html(((_state$user2 = state.user) === null || _state$user2 === void 0 ? void 0 : _state$user2.name) || "")} · ${html(((_state$user3 = state.user) === null || _state$user3 === void 0 ? void 0 : _state$user3.role) || "")}</span></div><button type="button" class="icon-btn" onclick="closeMobileMore()" aria-label="关闭">×</button></div>
         <div class="mobile-more-grid">
           <button type="button" class="mobile-assistant-entry" onclick="openXiaocai()"><span class="nav-icon"><img src="./assets/xiaocai.png" alt="" /></span><span>小材 AI 助手</span></button>
           ${mobileMoreRouteButton("products", "产品管理")}
@@ -681,11 +681,11 @@ function desktopCartButton() {
 }
 
 function titleForRoute() {
-  return ({ dashboard: "销售概览", customers: "客户管理", products: "产品管理", create: "销售开单", orders: "订单管理", returns: "退货单", users: "人员管理", costs: "成本控制", audit: "操作日志" }[state.route]);
+  return { dashboard: "销售概览", customers: "客户管理", products: "产品管理", create: "销售开单", orders: "订单管理", returns: "退货单", users: "人员管理", costs: "成本控制", audit: "操作日志" }[state.route];
 }
 
 function subtitleForRoute() {
-  return ({ dashboard: "查看本月与今日销售、客户和订单数据", customers: "管理客户信息和成交记录", products: "管理建材商品信息与价格", create: "选择客户和商品生成销售单", orders: "管理订单状态、打印和导出", returns: "从销售流程中创建退货单", users: "添加登录人员，维护手机号、密码和角色定位", costs: "核算订单材料成本、运输成本与实际盈利", audit: "查询关键业务操作与错误请求编号" }[state.route]);
+  return { dashboard: "查看本月与今日销售、客户和订单数据", customers: "管理客户信息和成交记录", products: "管理建材商品信息与价格", create: "选择客户和商品生成销售单", orders: "管理订单状态、打印和导出", returns: "从销售流程中创建退货单", users: "添加登录人员，维护手机号、密码和角色定位", costs: "核算订单材料成本、运输成本与实际盈利", audit: "查询关键业务操作与错误请求编号" }[state.route];
 }
 
 function renderPage() {
@@ -711,7 +711,7 @@ function customerCard(c) {
     <div class="customer-card">
       <div class="customer-main">
         <div class="customer-name">${c.name} <span class="badge success">正常</span></div>
-        <div class="meta"><span>☎ ${c.phone}</span><span>录入：${owner?.name || "-"}</span></div>
+        <div class="meta"><span>☎ ${c.phone}</span><span>录入：${(owner === null || owner === void 0 ? void 0 : owner.name) || "-"}</span></div>
       </div>
       <div class="meta customer-stats">
         <span>成交额：<strong>${money(stats.total)}</strong></span>
@@ -734,8 +734,8 @@ function cartTotal() {
   }, 0);
 }
 
-function isPositiveReturnCharge(item = {}) {
-  const name = String(item.name || byId(products, item.productId)?.name || "");
+function isPositiveReturnCharge(item = {}) {var _byId;
+  const name = String(item.name || ((_byId = byId(products, item.productId)) === null || _byId === void 0 ? void 0 : _byId.name) || "");
   return name.includes("运费") || name.includes("搬运费");
 }
 
@@ -835,7 +835,7 @@ async function analyzeAiOrder() {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ groups: validGroups, customerId: state.selectedCustomerId }),
-      signal: controller.signal,
+      signal: controller.signal
     });
     const raw = await response.text();
     let data;
@@ -845,8 +845,8 @@ async function analyzeAiOrder() {
       throw new Error(response.ok ? "服务器返回内容异常" : `服务器请求失败（${response.status}）`);
     }
     if (!response.ok) throw new Error(data.error || "AI 识别失败");
-    const resultCount = [data.matched, data.needsQuantity, data.uncertain, data.unmatched]
-      .reduce((sum, list) => sum + (Array.isArray(list) ? list.length : 0), 0);
+    const resultCount = [data.matched, data.needsQuantity, data.uncertain, data.unmatched].
+    reduce((sum, list) => sum + (Array.isArray(list) ? list.length : 0), 0);
     if (!resultCount) throw new Error("AI没有返回任何材料，请检查输入内容后重试");
     const draftProducts = [];
     [data.matched, data.needsQuantity, data.uncertain, data.unmatched].forEach((list) => {
@@ -884,8 +884,8 @@ function addDraftLine(productId, quantity) {
   const value = Number(quantity);
   if (!isPositiveInteger(value)) return false;
   const line = state.cart.find((item) => item.productId === productId);
-  if (line) line.quantity += value;
-  else state.cart.push({ productId, quantity: value, price: product.price, ...cartSnapshot(product) });
+  if (line) line.quantity += value;else
+  state.cart.push({ productId, quantity: value, price: product.price, ...cartSnapshot(product) });
   return true;
 }
 
@@ -906,11 +906,11 @@ function aiDraftEntryKey(item, type, index) {
 function findAiDraftEntry(key, draft = state.aiDraft) {
   if (!draft) return null;
   const lists = [
-    ["matched", "matched"],
-    ["needsQuantity", "needsQuantity"],
-    ["uncertain", "uncertain"],
-    ["unmatched", "unmatched"],
-  ];
+  ["matched", "matched"],
+  ["needsQuantity", "needsQuantity"],
+  ["uncertain", "uncertain"],
+  ["unmatched", "unmatched"]];
+
   for (const [listName, type] of lists) {
     const list = Array.isArray(draft[listName]) ? draft[listName] : [];
     for (let index = 0; index < list.length; index += 1) {
@@ -951,8 +951,8 @@ function persistAiDraftProductSelection(key, productId) {
   return entry.item;
 }
 
-function setAiAliasConsent(input) {
-  const entry = findAiDraftEntry(input?.dataset?.aiLearnAlias || "");
+function setAiAliasConsent(input) {var _input$dataset;
+  const entry = findAiDraftEntry((input === null || input === void 0 || (_input$dataset = input.dataset) === null || _input$dataset === void 0 ? void 0 : _input$dataset.aiLearnAlias) || "");
   if (!entry) return;
   entry.item.learnAlias = Boolean(input.checked);
   markAiDraftModified();
@@ -967,31 +967,31 @@ function shouldOfferAiAlias(rawName, productId) {
   const product = byId(products, productId);
   const raw = normalizeAiAliasText(rawName);
   if (!product || !raw) return false;
-  return ![product.name, product.spec, product.brand, ...(product.aliases || [])]
-    .some((value) => normalizeAiAliasText(value) === raw);
+  return ![product.name, product.spec, product.brand, ...(product.aliases || [])].
+  some((value) => normalizeAiAliasText(value) === raw);
 }
 
 function aiAliasCheckbox(key) {
-  return [...document.querySelectorAll("[data-ai-learn-alias]")]
-    .find((input) => input.dataset.aiLearnAlias === String(key));
+  return [...document.querySelectorAll("[data-ai-learn-alias]")].
+  find((input) => input.dataset.aiLearnAlias === String(key));
 }
 
-function renderAiAliasConsent(key, rawName, productId = "") {
+function renderAiAliasConsent(key, rawName, productId = "") {var _entry$item, _entry$item2, _entry$item3;
   if (!isAdmin()) return "";
   const entry = findAiDraftEntry(key);
-  const selectedProductId = productId || entry?.item?.selectedProductId || entry?.item?.productId || "";
+  const selectedProductId = productId || (entry === null || entry === void 0 || (_entry$item = entry.item) === null || _entry$item === void 0 ? void 0 : _entry$item.selectedProductId) || (entry === null || entry === void 0 || (_entry$item2 = entry.item) === null || _entry$item2 === void 0 ? void 0 : _entry$item2.productId) || "";
   const visible = selectedProductId && shouldOfferAiAlias(rawName, selectedProductId);
   return `<label class="ai-alias-consent ${visible ? "" : "is-hidden"}" data-ai-alias-wrap="${html(key)}">
-    <input type="checkbox" data-ai-learn-alias="${html(key)}" ${entry?.item?.learnAlias ? "checked" : ""} onchange="setAiAliasConsent(this)" />
+    <input type="checkbox" data-ai-learn-alias="${html(key)}" ${entry !== null && entry !== void 0 && (_entry$item3 = entry.item) !== null && _entry$item3 !== void 0 && _entry$item3.learnAlias ? "checked" : ""} onchange="setAiAliasConsent(this)" />
     <span>将“${html(rawName || "该叫法")}”加入所选商品的别名 / 关键词库</span>
   </label>`;
 }
 
-function selectAiCandidateChoice(input) {
+function selectAiCandidateChoice(input) {var _input$closest;
   const key = input.dataset.aiCandidateGroup || "";
   persistAiDraftProductSelection(key, input.value);
-  const wrap = [...document.querySelectorAll("[data-ai-alias-wrap]")]
-    .find((element) => element.dataset.aiAliasWrap === key);
+  const wrap = [...document.querySelectorAll("[data-ai-alias-wrap]")].
+  find((element) => element.dataset.aiAliasWrap === key);
   const checkbox = aiAliasCheckbox(key);
   if (wrap && checkbox) {
     const visible = shouldOfferAiAlias(input.dataset.aiRawName, input.value);
@@ -1002,18 +1002,18 @@ function selectAiCandidateChoice(input) {
       if (entry) entry.item.learnAlias = false;
     }
   }
-  const matchedPicker = input.closest("[data-ai-matched-line]")?.querySelector(".ai-matched-picker");
-  const summary = matchedPicker?.querySelector(":scope > summary");
+  const matchedPicker = (_input$closest = input.closest("[data-ai-matched-line]")) === null || _input$closest === void 0 ? void 0 : _input$closest.querySelector(".ai-matched-picker");
+  const summary = matchedPicker === null || matchedPicker === void 0 ? void 0 : matchedPicker.querySelector(":scope > summary");
   if (matchedPicker && summary) {
     matchedPicker.classList.add("has-selection");
     summary.textContent = `已选择替换商品：${input.dataset.aiProductName || "请确认"}`;
   }
-  const navItem = [...document.querySelectorAll("[data-ai-nav-key]")]
-    .find((element) => element.dataset.aiNavKey === key);
+  const navItem = [...document.querySelectorAll("[data-ai-nav-key]")].
+  find((element) => element.dataset.aiNavKey === key);
   if (navItem) {
     const panel = input.closest("[data-ai-detail-key]");
-    const quantityInput = panel?.querySelector("[data-ai-matched-quantity], [data-ai-candidate-quantity]");
-    updateAiNavStatus(navItem, isPositiveInteger(Number(quantityInput?.value)) ? "confirmed" : "pending");
+    const quantityInput = panel === null || panel === void 0 ? void 0 : panel.querySelector("[data-ai-matched-quantity], [data-ai-candidate-quantity]");
+    updateAiNavStatus(navItem, isPositiveInteger(Number(quantityInput === null || quantityInput === void 0 ? void 0 : quantityInput.value)) ? "confirmed" : "pending");
     const match = navItem.querySelector("[data-ai-nav-match]");
     if (match) {
       match.textContent = input.dataset.aiProductName || "已选择商品";
@@ -1056,12 +1056,12 @@ function updateAiNavQuantity(input) {
   setQuantityInputValidity(input);
   const key = input.dataset.aiNavQuantity || input.dataset.aiLineKey || input.dataset.aiCandidateQuantity || "";
   updateAiDraftQuantity(key, input.value);
-  const navItem = [...document.querySelectorAll("[data-ai-nav-key]")]
-    .find((element) => element.dataset.aiNavKey === String(key));
-  const quantity = navItem?.querySelector("[data-ai-nav-quantity-value]");
+  const navItem = [...document.querySelectorAll("[data-ai-nav-key]")].
+  find((element) => element.dataset.aiNavKey === String(key));
+  const quantity = navItem === null || navItem === void 0 ? void 0 : navItem.querySelector("[data-ai-nav-quantity-value]");
   if (quantity) quantity.textContent = input.value || "待补";
   const panel = input.closest("[data-ai-detail-key]");
-  const selectedProduct = panel?.querySelector("[data-ai-candidate-product]:checked");
+  const selectedProduct = panel === null || panel === void 0 ? void 0 : panel.querySelector("[data-ai-candidate-product]:checked");
   if (input.matches("[data-ai-matched-quantity]") || selectedProduct) {
     updateAiNavStatus(navItem, isPositiveInteger(Number(input.value)) ? "confirmed" : "pending");
     refreshAiStatusCounts();
@@ -1076,9 +1076,9 @@ function setAiResultActive(key) {
   document.querySelectorAll("[data-ai-detail-key]").forEach((panel) => {
     panel.classList.toggle("active", panel.dataset.aiDetailKey === String(key));
   });
-  const activePanel = [...document.querySelectorAll("[data-ai-detail-key]")]
-    .find((panel) => panel.dataset.aiDetailKey === String(key));
-  activePanel?.scrollTo({ top: 0 });
+  const activePanel = [...document.querySelectorAll("[data-ai-detail-key]")].
+  find((panel) => panel.dataset.aiDetailKey === String(key));
+  activePanel === null || activePanel === void 0 || activePanel.scrollTo({ top: 0 });
 }
 
 function aiCandidateFromProduct(product) {
@@ -1091,7 +1091,7 @@ function aiCandidateFromProduct(product) {
     cat1: product.cat1,
     cat2: product.cat2,
     imageUrl: product.imageUrl || "",
-    recommendation: "在当前分类商品库中找到",
+    recommendation: "在当前分类商品库中找到"
   };
 }
 
@@ -1107,8 +1107,8 @@ function aiCandidateOption(product, key, rawName, orderIndex = "", selectedProdu
 
 function aiSearchSubcategories(cat1) {
   if (cat1 && Array.isArray(state.productCategories[cat1])) return state.productCategories[cat1];
-  return [...new Set(products.filter((product) => !cat1 || product.cat1 === cat1).map((product) => product.cat2).filter(Boolean))]
-    .sort((a, b) => a.localeCompare(b, "zh-CN"));
+  return [...new Set(products.filter((product) => !cat1 || product.cat1 === cat1).map((product) => product.cat2).filter(Boolean))].
+  sort((a, b) => a.localeCompare(b, "zh-CN"));
 }
 
 function aiSearchScopeControls(key, rawName, cat1, cat2, orderIndex) {
@@ -1127,8 +1127,8 @@ function aiSearchScopeControls(key, rawName, cat1, cat2, orderIndex) {
 }
 
 function changeAiSearchCategory(select, key, rawName, orderIndex) {
-  const cat2Select = [...document.querySelectorAll("[data-ai-search-cat2]")]
-    .find((element) => element.dataset.aiSearchCat2 === String(key));
+  const cat2Select = [...document.querySelectorAll("[data-ai-search-cat2]")].
+  find((element) => element.dataset.aiSearchCat2 === String(key));
   if (cat2Select) {
     cat2Select.innerHTML = `<option value="">全部二级分类</option>${aiSearchSubcategories(select.value).map((item) => `<option value="${html(item)}">${html(item)}</option>`).join("")}`;
   }
@@ -1136,8 +1136,8 @@ function changeAiSearchCategory(select, key, rawName, orderIndex) {
 }
 
 function refreshAiManualSearch(key, rawName, orderIndex) {
-  const input = [...document.querySelectorAll("[data-ai-manual-input]")]
-    .find((element) => element.dataset.aiManualInput === String(key));
+  const input = [...document.querySelectorAll("[data-ai-manual-input]")].
+  find((element) => element.dataset.aiManualInput === String(key));
   if (input) updateAiManualSearch(input, key, rawName, "", "", orderIndex);
 }
 
@@ -1147,10 +1147,10 @@ function aiManualCandidateScore(product, query) {
 
 async function updateAiManualSearch(input, key, rawName, cat1, cat2, orderIndex = "") {
   const query = input.value.trim();
-  const cat1Select = [...document.querySelectorAll("[data-ai-search-cat1]")]
-    .find((element) => element.dataset.aiSearchCat1 === String(key));
-  const cat2Select = [...document.querySelectorAll("[data-ai-search-cat2]")]
-    .find((element) => element.dataset.aiSearchCat2 === String(key));
+  const cat1Select = [...document.querySelectorAll("[data-ai-search-cat1]")].
+  find((element) => element.dataset.aiSearchCat1 === String(key));
+  const cat2Select = [...document.querySelectorAll("[data-ai-search-cat2]")].
+  find((element) => element.dataset.aiSearchCat2 === String(key));
   const selectedCat1 = cat1Select ? cat1Select.value : cat1;
   const selectedCat2 = cat2Select ? cat2Select.value : cat2;
   const response = await latestApiFetch(`ai-products-${key}`, `/api/products${queryString({ page: 1, pageSize: 16, q: query, category1: selectedCat1, category2: selectedCat2, status: "在售" })}`);
@@ -1160,39 +1160,39 @@ async function updateAiManualSearch(input, key, rawName, cat1, cat2, orderIndex 
   const matchedProducts = data.items || [];
   mergeProductCache(matchedProducts);
   const candidates = matchedProducts.map(aiCandidateFromProduct);
-  const results = [...document.querySelectorAll("[data-ai-manual-results]")]
-    .find((element) => element.dataset.aiManualResults === String(key));
-  if (results) {
-    const selectedProductId = findAiDraftEntry(key)?.item?.selectedProductId || "";
-    results.innerHTML = candidates.length
-      ? candidates.map((product) => aiCandidateOption(product, key, rawName, orderIndex, selectedProductId)).join("")
-      : `<div class="ai-manual-empty">当前搜索范围没有找到商品，请更换关键词、分类或选择“全部商品”。</div>`;
+  const results = [...document.querySelectorAll("[data-ai-manual-results]")].
+  find((element) => element.dataset.aiManualResults === String(key));
+  if (results) {var _findAiDraftEntry;
+    const selectedProductId = ((_findAiDraftEntry = findAiDraftEntry(key)) === null || _findAiDraftEntry === void 0 || (_findAiDraftEntry = _findAiDraftEntry.item) === null || _findAiDraftEntry === void 0 ? void 0 : _findAiDraftEntry.selectedProductId) || "";
+    results.innerHTML = candidates.length ?
+    candidates.map((product) => aiCandidateOption(product, key, rawName, orderIndex, selectedProductId)).join("") :
+    `<div class="ai-manual-empty">当前搜索范围没有找到商品，请更换关键词、分类或选择“全部商品”。</div>`;
   }
 }
 
 function applyAiDraft() {
   if (!state.aiDraft) return;
-  const entries = aiDraftItems(state.aiDraft)
-    .map((item) => ({
-      orderIndex: Number(item.orderIndex || 0),
-      productId: item.selectedProductId || ((item.aiType === "matched" || item.aiType === "needsQuantity") ? item.productId : ""),
-      quantity: item.quantity || "",
-      rawName: item.rawName || "",
-      lineKey: item.key,
-      learnAlias: Boolean(item.learnAlias),
-    }))
-    .filter((entry) => entry.productId);
+  const entries = aiDraftItems(state.aiDraft).
+  map((item) => ({
+    orderIndex: Number(item.orderIndex || 0),
+    productId: item.selectedProductId || (item.aiType === "matched" || item.aiType === "needsQuantity" ? item.productId : ""),
+    quantity: item.quantity || "",
+    rawName: item.rawName || "",
+    lineKey: item.key,
+    learnAlias: Boolean(item.learnAlias)
+  })).
+  filter((entry) => entry.productId);
   const invalidEntries = entries.filter((entry) => !isPositiveInteger(entry.quantity));
   if (invalidEntries.length) {
     document.querySelectorAll("[data-ai-matched-quantity], [data-ai-quantity-product], [data-ai-candidate-quantity]").forEach((input) => {
       setQuantityInputValidity(input);
     });
     const firstInvalidKey = invalidEntries[0].lineKey;
-    const firstInvalid = [...document.querySelectorAll("[data-ai-matched-quantity], [data-ai-quantity-product], [data-ai-candidate-quantity]")]
-      .find((input) => input.dataset.aiLineKey === firstInvalidKey || input.dataset.aiCandidateQuantity === firstInvalidKey)
-      || document.querySelector(".quantity-input-invalid");
-    firstInvalid?.focus();
-    firstInvalid?.scrollIntoView({ block: "center", behavior: "smooth" });
+    const firstInvalid = [...document.querySelectorAll("[data-ai-matched-quantity], [data-ai-quantity-product], [data-ai-candidate-quantity]")].
+    find((input) => input.dataset.aiLineKey === firstInvalidKey || input.dataset.aiCandidateQuantity === firstInvalidKey) ||
+    document.querySelector(".quantity-input-invalid");
+    firstInvalid === null || firstInvalid === void 0 || firstInvalid.focus();
+    firstInvalid === null || firstInvalid === void 0 || firstInvalid.scrollIntoView({ block: "center", behavior: "smooth" });
     alert("商品数量必须为大于 0 的整数，请检查标红的数量。");
     return;
   }
@@ -1269,7 +1269,7 @@ async function toggleUserStatus(id) {
     const response = await apiFetch(`/api/users/${id}`, {
       method: "PUT",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ status: nextStatus }),
+      body: JSON.stringify({ status: nextStatus })
     });
     const data = await response.json();
     if (!response.ok) throw new Error(data.error || "更新状态失败");
@@ -1377,7 +1377,7 @@ function aiDraftItems(draft) {
         ...item,
         aiType: type,
         status: currentStatus,
-        key: aiDraftEntryKey(item, type, index),
+        key: aiDraftEntryKey(item, type, index)
       });
     });
   };
@@ -1396,10 +1396,10 @@ function aiStatusLabel(status) {
   return status === "confirmed" ? "已确定" : status === "pending" ? "待确定" : "未匹配";
 }
 
-function aiNavMatchText(item) {
+function aiNavMatchText(item) {var _item$candidates;
   if (item.selectedProductId) return item.name || "销售已选择商品";
   if (item.aiType === "matched" || item.aiType === "needsQuantity") return item.name || "已匹配商品";
-  if (item.aiType === "uncertain" && item.candidates?.[0]) return `首选候选：${item.candidates[0].name}`;
+  if (item.aiType === "uncertain" && (_item$candidates = item.candidates) !== null && _item$candidates !== void 0 && _item$candidates[0]) return `首选候选：${item.candidates[0].name}`;
   return "尚未选择商品";
 }
 
@@ -1430,7 +1430,7 @@ function aiDraftProduct(item) {
     cat1: item.cat1 || "",
     cat2: item.cat2 || "",
     imageUrl: item.imageUrl || "",
-    recommendation: item.recommendation || "",
+    recommendation: item.recommendation || ""
   };
 }
 
@@ -1454,11 +1454,11 @@ function aiDetailQuantity(item) {
 }
 
 function aiCandidateWorkspace(item) {
-  const originalCandidates = item.aiType === "uncertain" ? (item.candidates || []) : item.aiType === "unmatched" ? (item.suggestions || []) : [];
+  const originalCandidates = item.aiType === "uncertain" ? item.candidates || [] : item.aiType === "unmatched" ? item.suggestions || [] : [];
   const selectedCandidate = item.selectedProductId ? aiDraftProduct(item) : null;
-  const candidates = [selectedCandidate, ...originalCandidates]
-    .filter(Boolean)
-    .filter((candidate, index, list) => list.findIndex((entry) => entry.productId === candidate.productId) === index);
+  const candidates = [selectedCandidate, ...originalCandidates].
+  filter(Boolean).
+  filter((candidate, index, list) => list.findIndex((entry) => entry.productId === candidate.productId) === index);
   const current = item.aiType === "matched" || item.aiType === "needsQuantity";
   return `
     <section class="ai-detail-section">
@@ -1480,9 +1480,9 @@ function aiCandidateWorkspace(item) {
 
 function renderAiDetailPanel(item) {
   const active = item.key === state.aiActiveResultKey;
-  const matchedAttributes = item.aiType === "matched" || item.aiType === "needsQuantity"
-    ? ` data-ai-matched-line data-ai-line-key="${html(item.key)}" data-ai-product-id="${html(item.productId)}" data-ai-order-index="${html(item.orderIndex)}" data-ai-raw-name="${html(item.rawName || "")}"`
-    : "";
+  const matchedAttributes = item.aiType === "matched" || item.aiType === "needsQuantity" ?
+  ` data-ai-matched-line data-ai-line-key="${html(item.key)}" data-ai-product-id="${html(item.productId)}" data-ai-order-index="${html(item.orderIndex)}" data-ai-raw-name="${html(item.rawName || "")}"` :
+  "";
   return `
     <div class="ai-detail-panel ${active ? "active" : ""}" data-ai-detail-key="${html(item.key)}"${matchedAttributes}>
       <div class="ai-detail-head">
@@ -1500,8 +1500,8 @@ function renderAiMatched(list) {
     <section class="ai-section">
       <h4>已匹配商品</h4>
       ${list.map((item, index) => {
-        const key = item.lineKey || `${item.groupId || "matched"}-${index}`;
-        return `
+    const key = item.lineKey || `${item.groupId || "matched"}-${index}`;
+    return `
           <div class="ai-line-wrap ai-matched-line" data-ai-matched-line data-ai-line-key="${html(key)}" data-ai-product-id="${html(item.productId)}" data-ai-order-index="${html(item.orderIndex)}" data-ai-raw-name="${html(item.rawName || "")}">
             <div class="ai-line ai-matched-row">
               <div class="ai-matched-product">
@@ -1522,12 +1522,12 @@ function renderAiMatched(list) {
             ${renderAiAliasConsent(key, item.rawName)}
           </div>
         `;
-      }).join("")}
+  }).join("")}
     </section>
   `;
 }
 
-function removeAiMatchedLine(button) {
+function removeAiMatchedLine(button) {var _remaining$;
   const line = button.closest("[data-ai-matched-line]");
   if (!line) return;
   const key = line.dataset.aiLineKey || line.dataset.aiDetailKey || "";
@@ -1536,7 +1536,7 @@ function removeAiMatchedLine(button) {
   entry.item.userDeleted = true;
   markAiDraftModified();
   const remaining = aiDraftItems(state.aiDraft);
-  if (state.aiActiveResultKey === key) state.aiActiveResultKey = remaining[0]?.key || "";
+  if (state.aiActiveResultKey === key) state.aiActiveResultKey = ((_remaining$ = remaining[0]) === null || _remaining$ === void 0 ? void 0 : _remaining$.key) || "";
   render();
 }
 
@@ -1555,7 +1555,7 @@ function renderAiUncertain(list) {
   return `
     <section class="ai-section">
       <h4>需要选择商品</h4>
-      ${list.map((item, index) => { const key = item.lineKey || `${item.groupId || "group"}-${index}`; const candidates = item.candidates || []; return `<div class="ai-candidate-block"><div class="ai-candidate-head"><div><strong>原文：${html(item.rawName || "-")}</strong><div class="hint">候选按客户习惯、出单频率和数量排序；没有合适商品时可在下方搜索。</div></div><input class="input ai-small-input${item.quantity && !isPositiveInteger(item.quantity) ? " quantity-input-invalid" : ""}" type="number" min="1" step="1" inputmode="numeric" value="${html(item.quantity || "")}" placeholder="整数数量" data-ai-candidate-quantity="${html(key)}" oninput="setQuantityInputValidity(this)" /></div><div class="ai-candidate-list">${candidates[0] ? aiCandidateOption(candidates[0], key, item.rawName, item.orderIndex) : ""}${candidates.length > 1 ? `<details class="ai-more-candidates"><summary>展开其他 ${candidates.length - 1} 个候选</summary>${candidates.slice(1).map((product) => aiCandidateOption(product, key, item.rawName, item.orderIndex)).join("")}</details>` : ""}</div><details class="ai-manual-picker"><summary>搜索其他商品</summary>${aiSearchScopeControls(key, item.rawName, item.cat1 || "", item.cat2 || "", item.orderIndex)}<div class="ai-manual-search"><input class="input" data-ai-manual-input="${html(key)}" placeholder="输入商品名称、规格、品牌或关键词" oncompositionstart="this.dataset.composing='true'" oncompositionend="this.dataset.composing='false';updateAiManualSearch(this,${jsArg(key)},${jsArg(item.rawName || "")},${jsArg(item.cat1 || "")},${jsArg(item.cat2 || "")},${jsArg(item.orderIndex)})" oninput="updateAiManualSearch(this,${jsArg(key)},${jsArg(item.rawName || "")},${jsArg(item.cat1 || "")},${jsArg(item.cat2 || "")},${jsArg(item.orderIndex)})" /></div><div class="ai-candidate-list ai-manual-results" data-ai-manual-results="${html(key)}"><div class="ai-manual-empty">输入关键词后即时显示匹配商品。</div></div></details>${renderAiAliasConsent(key, item.rawName)}</div>`; }).join("")}
+      ${list.map((item, index) => {const key = item.lineKey || `${item.groupId || "group"}-${index}`;const candidates = item.candidates || [];return `<div class="ai-candidate-block"><div class="ai-candidate-head"><div><strong>原文：${html(item.rawName || "-")}</strong><div class="hint">候选按客户习惯、出单频率和数量排序；没有合适商品时可在下方搜索。</div></div><input class="input ai-small-input${item.quantity && !isPositiveInteger(item.quantity) ? " quantity-input-invalid" : ""}" type="number" min="1" step="1" inputmode="numeric" value="${html(item.quantity || "")}" placeholder="整数数量" data-ai-candidate-quantity="${html(key)}" oninput="setQuantityInputValidity(this)" /></div><div class="ai-candidate-list">${candidates[0] ? aiCandidateOption(candidates[0], key, item.rawName, item.orderIndex) : ""}${candidates.length > 1 ? `<details class="ai-more-candidates"><summary>展开其他 ${candidates.length - 1} 个候选</summary>${candidates.slice(1).map((product) => aiCandidateOption(product, key, item.rawName, item.orderIndex)).join("")}</details>` : ""}</div><details class="ai-manual-picker"><summary>搜索其他商品</summary>${aiSearchScopeControls(key, item.rawName, item.cat1 || "", item.cat2 || "", item.orderIndex)}<div class="ai-manual-search"><input class="input" data-ai-manual-input="${html(key)}" placeholder="输入商品名称、规格、品牌或关键词" oncompositionstart="this.dataset.composing='true'" oncompositionend="this.dataset.composing='false';updateAiManualSearch(this,${jsArg(key)},${jsArg(item.rawName || "")},${jsArg(item.cat1 || "")},${jsArg(item.cat2 || "")},${jsArg(item.orderIndex)})" oninput="updateAiManualSearch(this,${jsArg(key)},${jsArg(item.rawName || "")},${jsArg(item.cat1 || "")},${jsArg(item.cat2 || "")},${jsArg(item.orderIndex)})" /></div><div class="ai-candidate-list ai-manual-results" data-ai-manual-results="${html(key)}"><div class="ai-manual-empty">输入关键词后即时显示匹配商品。</div></div></details>${renderAiAliasConsent(key, item.rawName)}</div>`;}).join("")}
     </section>
   `;
 }
@@ -1565,13 +1565,13 @@ function renderAiUnmatched(list) {
   return `
     <section class="ai-section">
       <h4>未匹配商品</h4>
-      ${list.map((item, index) => { const key = item.lineKey || `${item.groupId || "unmatched"}-${index}`; const suggestions = item.suggestions || []; return `<div class="ai-candidate-block ai-unmatched-block"><div class="ai-candidate-head"><div><strong>原文：${html(item.rawName || "-")}</strong><div class="hint">${html(item.note || "未找到足够可靠的商品，请手动选择。")}</div></div><input class="input ai-small-input${item.quantity && !isPositiveInteger(item.quantity) ? " quantity-input-invalid" : ""}" type="number" min="1" step="1" inputmode="numeric" value="${html(item.quantity || "")}" placeholder="整数数量" data-ai-candidate-quantity="${html(key)}" oninput="setQuantityInputValidity(this)" /></div>${aiSearchScopeControls(key, item.rawName, item.cat1 || "", item.cat2 || "", item.orderIndex)}<div class="ai-manual-search"><input class="input" data-ai-manual-input="${html(key)}" placeholder="输入商品名称、规格、品牌或关键词" oncompositionstart="this.dataset.composing='true'" oncompositionend="this.dataset.composing='false';updateAiManualSearch(this,${jsArg(key)},${jsArg(item.rawName || "")},${jsArg(item.cat1 || "")},${jsArg(item.cat2 || "")},${jsArg(item.orderIndex)})" oninput="updateAiManualSearch(this,${jsArg(key)},${jsArg(item.rawName || "")},${jsArg(item.cat1 || "")},${jsArg(item.cat2 || "")},${jsArg(item.orderIndex)})" /></div><div class="ai-candidate-list ai-manual-results" data-ai-manual-results="${html(key)}">${suggestions.length ? suggestions.map((product) => aiCandidateOption(product, key, item.rawName, item.orderIndex)).join("") : `<div class="ai-manual-empty">输入关键词后即时显示匹配商品。</div>`}</div>${renderAiAliasConsent(key, item.rawName)}</div>`; }).join("")}
+      ${list.map((item, index) => {const key = item.lineKey || `${item.groupId || "unmatched"}-${index}`;const suggestions = item.suggestions || [];return `<div class="ai-candidate-block ai-unmatched-block"><div class="ai-candidate-head"><div><strong>原文：${html(item.rawName || "-")}</strong><div class="hint">${html(item.note || "未找到足够可靠的商品，请手动选择。")}</div></div><input class="input ai-small-input${item.quantity && !isPositiveInteger(item.quantity) ? " quantity-input-invalid" : ""}" type="number" min="1" step="1" inputmode="numeric" value="${html(item.quantity || "")}" placeholder="整数数量" data-ai-candidate-quantity="${html(key)}" oninput="setQuantityInputValidity(this)" /></div>${aiSearchScopeControls(key, item.rawName, item.cat1 || "", item.cat2 || "", item.orderIndex)}<div class="ai-manual-search"><input class="input" data-ai-manual-input="${html(key)}" placeholder="输入商品名称、规格、品牌或关键词" oncompositionstart="this.dataset.composing='true'" oncompositionend="this.dataset.composing='false';updateAiManualSearch(this,${jsArg(key)},${jsArg(item.rawName || "")},${jsArg(item.cat1 || "")},${jsArg(item.cat2 || "")},${jsArg(item.orderIndex)})" oninput="updateAiManualSearch(this,${jsArg(key)},${jsArg(item.rawName || "")},${jsArg(item.cat1 || "")},${jsArg(item.cat2 || "")},${jsArg(item.orderIndex)})" /></div><div class="ai-candidate-list ai-manual-results" data-ai-manual-results="${html(key)}">${suggestions.length ? suggestions.map((product) => aiCandidateOption(product, key, item.rawName, item.orderIndex)).join("") : `<div class="ai-manual-empty">输入关键词后即时显示匹配商品。</div>`}</div>${renderAiAliasConsent(key, item.rawName)}</div>`;}).join("")}
     </section>
   `;
 }
-function customerModal(id) {
+function customerModal(id) {var _state$user4;
   const c = byId(customers, id) || {};
-  const ownerId = c.ownerId || state.user?.id || "";
+  const ownerId = c.ownerId || ((_state$user4 = state.user) === null || _state$user4 === void 0 ? void 0 : _state$user4.id) || "";
   return modalShell(id ? "编辑客户" : "新增客户", `
     <div class="form-grid">
       <div class="field"><label>客户名称 *</label><input id="customerName" class="input" value="${html(c.name || "")}" /></div>
@@ -1584,14 +1584,14 @@ function customerModal(id) {
   `, "保存客户", `saveCustomer(${jsArg(id || "")})`);
 }
 
-async function saveCustomer(id) {
+async function saveCustomer(id) {var _document$getElementB6, _document$getElementB7, _document$getElementB8, _document$getElementB9, _document$getElementB0, _document$getElementB1, _state$user5;
   const payload = {
-    name: document.getElementById("customerName")?.value.trim() || "",
-    contact: document.getElementById("customerContact")?.value.trim() || "",
-    phone: document.getElementById("customerPhone")?.value.trim() || "",
-    email: document.getElementById("customerEmail")?.value.trim() || "",
-    address: document.getElementById("customerAddress")?.value.trim() || "",
-    ownerId: document.getElementById("customerOwner")?.value || state.user?.id || "",
+    name: ((_document$getElementB6 = document.getElementById("customerName")) === null || _document$getElementB6 === void 0 ? void 0 : _document$getElementB6.value.trim()) || "",
+    contact: ((_document$getElementB7 = document.getElementById("customerContact")) === null || _document$getElementB7 === void 0 ? void 0 : _document$getElementB7.value.trim()) || "",
+    phone: ((_document$getElementB8 = document.getElementById("customerPhone")) === null || _document$getElementB8 === void 0 ? void 0 : _document$getElementB8.value.trim()) || "",
+    email: ((_document$getElementB9 = document.getElementById("customerEmail")) === null || _document$getElementB9 === void 0 ? void 0 : _document$getElementB9.value.trim()) || "",
+    address: ((_document$getElementB0 = document.getElementById("customerAddress")) === null || _document$getElementB0 === void 0 ? void 0 : _document$getElementB0.value.trim()) || "",
+    ownerId: ((_document$getElementB1 = document.getElementById("customerOwner")) === null || _document$getElementB1 === void 0 ? void 0 : _document$getElementB1.value) || ((_state$user5 = state.user) === null || _state$user5 === void 0 ? void 0 : _state$user5.id) || ""
   };
   if (!payload.name || !payload.phone) {
     alert("客户名称和联系电话必填。");
@@ -1601,7 +1601,7 @@ async function saveCustomer(id) {
     const response = await apiFetch(id ? `/api/customers/${encodeURIComponent(id)}` : "/api/customers", {
       method: id ? "PATCH" : "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify(payload),
+      body: JSON.stringify(payload)
     });
     const data = await response.json();
     if (!response.ok) throw new Error(data.error || "保存客户失败");
@@ -1630,9 +1630,9 @@ async function deleteCustomer(id) {
   const customer = byId(customers, id);
   if (!customer) return;
   const stats = customerStats(customer.id);
-  const message = stats.count
-    ? `确定删除客户“${customer.name}”吗？\n\n该客户有 ${stats.count} 笔历史订单。删除后客户将从客户列表和开单选择中移除，历史订单仍会保留。`
-    : `确定删除客户“${customer.name}”吗？\n电话：${customer.phone || "-"}\n\n删除后无法恢复。`;
+  const message = stats.count ?
+  `确定删除客户“${customer.name}”吗？\n\n该客户有 ${stats.count} 笔历史订单。删除后客户将从客户列表和开单选择中移除，历史订单仍会保留。` :
+  `确定删除客户“${customer.name}”吗？\n电话：${customer.phone || "-"}\n\n删除后无法恢复。`;
   if (!confirm(message)) return;
   const response = await apiFetch(`/api/customers/${encodeURIComponent(id)}`, { method: "DELETE" });
   const data = await response.json().catch(() => ({}));
@@ -1675,12 +1675,12 @@ function productImageModal(id) {
 }
 
 function productImageUrls(product) {
-  const urls = Array.isArray(product?.imageUrls) ? product.imageUrls.filter(Boolean) : [];
-  if (!urls.length && product?.imageUrl) urls.push(product.imageUrl);
+  const urls = Array.isArray(product === null || product === void 0 ? void 0 : product.imageUrls) ? product.imageUrls.filter(Boolean) : [];
+  if (!urls.length && product !== null && product !== void 0 && product.imageUrl) urls.push(product.imageUrl);
   return Array.from(new Set(urls));
 }
 
-function previewProductImage(input) {
+function previewProductImage(input) {var _input$closest2;
   const files = Array.from(input.files || []);
   if (!files.length) return;
   const product = byId(products, input.dataset.productId || "") || {};
@@ -1696,7 +1696,7 @@ function previewProductImage(input) {
     input.value = "";
     return;
   }
-  const preview = input.closest(".product-image-editor")?.querySelector(".product-image-selection");
+  const preview = (_input$closest2 = input.closest(".product-image-editor")) === null || _input$closest2 === void 0 ? void 0 : _input$closest2.querySelector(".product-image-selection");
   if (!preview) return;
   preview.innerHTML = files.map((file, index) => {
     const url = URL.createObjectURL(file);
@@ -1718,7 +1718,7 @@ async function uploadProductImage(productId, file) {
   const response = await apiFetch(`/api/products/${encodeURIComponent(productId)}/image`, {
     method: "PUT",
     headers: { "content-type": "application/json" },
-    body: JSON.stringify({ image: await fileAsDataUrl(file) }),
+    body: JSON.stringify({ image: await fileAsDataUrl(file) })
   });
   const data = await response.json().catch(() => ({}));
   if (!response.ok) {
@@ -1777,7 +1777,7 @@ async function prepareProductImage(file) {
   return blob;
 }
 
-async function deleteProductImage(button, productId, imageUrl) {
+async function deleteProductImage(button, productId, imageUrl) {var _button$closest;
   if (!isAdmin()) return alert("只有管理员可以删除商品图片");
   if (!confirm("确定删除这张商品图片吗？")) return;
   const filename = decodeURIComponent(String(imageUrl || "").split("/").pop() || "");
@@ -1786,7 +1786,7 @@ async function deleteProductImage(button, productId, imageUrl) {
   if (!response.ok) return alert(data.error || "删除商品图片失败");
   const index = products.findIndex((item) => item.id === productId);
   if (index >= 0) products[index] = data.product;
-  button.closest(".product-existing-image")?.remove();
+  (_button$closest = button.closest(".product-existing-image")) === null || _button$closest === void 0 || _button$closest.remove();
   const gallery = document.querySelector(".product-existing-images");
   if (gallery && !gallery.children.length) gallery.innerHTML = `<div class="product-image-placeholder">暂无商品图片</div>`;
   showToast("商品图片已删除");
@@ -1841,7 +1841,7 @@ function documentModal(id) {
         <div class="modal-head"><h3>订单详情 - ${title}</h3><button class="icon-btn modal-close-button" title="关闭" aria-label="关闭" onclick="closeModal()">${svgIcon("close")}</button></div>
         <div class="modal-body">
           <div class="document-toolbar">
-            <div class="document-phone"><span>销售电话</span><strong>${html(s?.phone || c.phone || "-")}</strong></div>
+            <div class="document-phone"><span>销售电话</span><strong>${html((s === null || s === void 0 ? void 0 : s.phone) || c.phone || "-")}</strong></div>
             <div class="document-actions">
               <button class="btn export-btn" onclick="printOrder('${order.id}')">${svgIcon("print")}<span>打印</span></button>
               <button class="btn export-btn" onclick="copyOrderText('${order.id}')">${svgIcon("copy")}<span>导出文字版</span></button>
@@ -1855,12 +1855,12 @@ function documentModal(id) {
               <div><span>客户：</span>${c.name}</div>
               <div><span>单号：</span>${order.no}</div>
               <div><span>日期：</span>${order.date}</div>
-              <div class="right"><span>销售：</span>${s?.name || "-"}</div>
+              <div class="right"><span>销售：</span>${(s === null || s === void 0 ? void 0 : s.name) || "-"}</div>
               <div class="doc-address"><span>地址：</span>${html(orderAddressForDisplay(order, c) || "-")}</div>
             </div>
             <table><thead><tr><th>编号</th><th>商品名称</th><th>单位</th><th>数量</th><th>单价</th><th>金额</th></tr></thead><tbody>${rows.map((row) => row.empty ? `<tr><td>${row.index}</td><td></td><td></td><td></td><td></td><td></td></tr>` : `<tr><td>${row.index}</td><td>${html(row.name)}</td><td>${html(row.unit)}</td><td>${row.quantity}</td><td>${money(row.price)}</td><td>${money(row.amount)}</td></tr>`).join("")}</tbody></table>
             <div class="doc-bottom">
-              <div><strong>合计大写：</strong>${amountToChinese(order.amount)}<br /><strong>销售电话：</strong>${html(s?.phone || "-")}</div>
+              <div><strong>合计大写：</strong>${amountToChinese(order.amount)}<br /><strong>销售电话：</strong>${html((s === null || s === void 0 ? void 0 : s.phone) || "-")}</div>
               <div class="doc-total"><span>此单合计金额：</span><strong>${money(order.amount)}</strong></div>
             </div>
             <div class="doc-remark"><strong>备注：</strong><span>${html(String(order.remark || "").trim() || "无")}</span></div>
@@ -1921,7 +1921,7 @@ function svgIcon(type) {
     up: `<svg viewBox="0 0 24 24"><path d="m6 15 6-6 6 6"/></svg>`,
     down: `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="m7 9.5 5 5 5-5"/></svg>`,
     close: `<svg viewBox="0 0 24 24"><path d="m6 6 12 12"/><path d="M18 6 6 18"/></svg>`,
-    arrowRight: `<svg viewBox="0 0 24 24"><path d="M5 12h13"/><path d="m14 7 5 5-5 5"/></svg>`,
+    arrowRight: `<svg viewBox="0 0 24 24"><path d="M5 12h13"/><path d="m14 7 5 5-5 5"/></svg>`
   };
   return icons[type] || icons.view;
 }
@@ -1936,7 +1936,7 @@ async function savePerson(id) {
   const password = document.getElementById("personPassword").value.trim();
   const role = document.getElementById("personRole").value;
   const status = document.getElementById("personStatus").value;
-  if (!name || !phone || (!id && !password)) {
+  if (!name || !phone || !id && !password) {
     alert(id ? "请填写姓名和手机号。" : "请填写姓名、手机号和密码。");
     return;
   }
@@ -1946,7 +1946,7 @@ async function savePerson(id) {
     const response = await apiFetch(id ? `/api/users/${id}` : "/api/users", {
       method: id ? "PUT" : "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify(payload),
+      body: JSON.stringify(payload)
     });
     const data = await response.json();
     if (!response.ok) throw new Error(data.error || "保存人员失败");
@@ -1998,7 +1998,7 @@ function getOrderRows(order) {
       unit: details.unit,
       quantity: item.quantity,
       price: item.price,
-      amount: item.quantity * item.price,
+      amount: item.quantity * item.price
     };
   });
 }
@@ -2033,16 +2033,16 @@ function buildOrderText(orderId) {
     return `${details.label}  ${quantityText}${details.unit || ""}`;
   });
   return [
-    "【送货信息】",
-    `联系电话：${order.phone || customer.phone || ""}`,
-    `送货地址：${orderAddressForDisplay(order, customer)}`,
-    "",
-    "【产品清单】",
-    ...(productLines.length ? productLines : ["暂无产品"]),
-    "",
-    "【备注】",
-    String(order.remark || "").trim() || "无",
-  ].join("\n");
+  "【送货信息】",
+  `联系电话：${order.phone || customer.phone || ""}`,
+  `送货地址：${orderAddressForDisplay(order, customer)}`,
+  "",
+  "【产品清单】",
+  ...(productLines.length ? productLines : ["暂无产品"]),
+  "",
+  "【备注】",
+  String(order.remark || "").trim() || "无"].
+  join("\n");
 }
 
 function fallbackCopyText(text) {
@@ -2138,7 +2138,7 @@ function downloadOrderHtml(orderId) {
       <div><span>客户：</span>${customer.name}</div>
       <div><span>单号：</span>${order.no}</div>
       <div><span>日期：</span>${order.date}</div>
-      <div class="right"><span>销售：</span>${sales?.name || "-"}</div>
+      <div class="right"><span>销售：</span>${(sales === null || sales === void 0 ? void 0 : sales.name) || "-"}</div>
       <div class="address"><span>地址：</span>${html(orderAddressForDisplay(order, customer) || "-")}</div>
     </section>
     <table>
@@ -2146,7 +2146,7 @@ function downloadOrderHtml(orderId) {
       <tbody>${rowsHtml}</tbody>
     </table>
     <section class="bottom">
-      <div><strong>合计大写：</strong>${amountToChinese(order.amount)}<br /><strong>销售电话：</strong>${html(sales?.phone || "-")}</div>
+      <div><strong>合计大写：</strong>${amountToChinese(order.amount)}<br /><strong>销售电话：</strong>${html((sales === null || sales === void 0 ? void 0 : sales.phone) || "-")}</div>
       <div class="total">此单合计金额：${money(order.amount)}</div>
     </section>
     <section class="remark"><strong>备注：</strong>${html(String(order.remark || "").trim() || "无")}</section>
@@ -2172,9 +2172,9 @@ function downloadOrderImage(orderId, deliveryOnly = false) {
   const scale = 2;
   const width = 1588;
   const remark = String(order.remark || "").trim() || "无";
-  const remarkLineCount = remark
-    .split(/\r?\n/)
-    .reduce((count, line) => count + Math.max(1, Math.ceil(line.length / 52)), 0);
+  const remarkLineCount = remark.
+  split(/\r?\n/).
+  reduce((count, line) => count + Math.max(1, Math.ceil(line.length / 52)), 0);
   const height = Math.max(1162, summaryY + 145 + remarkLineCount * 32);
   canvas.width = width * scale;
   canvas.height = height * scale;
@@ -2203,7 +2203,7 @@ function downloadOrderImage(orderId, deliveryOnly = false) {
   ctx.fillText(order.date || "-", 120, 299);
   ctx.textAlign = "right";
   ctx.fillText(`单号：${order.no}`, width - 57, 236);
-  ctx.fillText(`销售：${sales?.name || "-"}`, width - 57, 299);
+  ctx.fillText(`销售：${(sales === null || sales === void 0 ? void 0 : sales.name) || "-"}`, width - 57, 299);
 
   ctx.fillStyle = "#eef2f7";
   roundRect(ctx, 57, 309, width - 114, 63, 7);
@@ -2223,11 +2223,11 @@ function downloadOrderImage(orderId, deliveryOnly = false) {
   let gridX = tableX;
   cols.slice(0, -1).forEach((col) => {
     gridX += col;
-    ctx.beginPath(); ctx.moveTo(gridX, tableY); ctx.lineTo(gridX, tableEndY); ctx.stroke();
+    ctx.beginPath();ctx.moveTo(gridX, tableY);ctx.lineTo(gridX, tableEndY);ctx.stroke();
   });
   for (let i = 1; i <= rowCount; i += 1) {
     const y = tableY + rowHeight * i;
-    ctx.beginPath(); ctx.moveTo(tableX, y); ctx.lineTo(tableX + tableW, y); ctx.stroke();
+    ctx.beginPath();ctx.moveTo(tableX, y);ctx.lineTo(tableX + tableW, y);ctx.stroke();
   }
   ctx.fillStyle = "#172033";
   ctx.font = "800 23px Microsoft YaHei, Arial";
@@ -2240,12 +2240,12 @@ function downloadOrderImage(orderId, deliveryOnly = false) {
   for (let rowIndex = 0; rowIndex < rowCount; rowIndex += 1) {
     const row = rows[rowIndex];
     const y = tableY + rowHeight * (rowIndex + 1);
-    const values = row
-      ? (deliveryOnly ? [rowIndex + 1, row.name, row.unit, row.quantity] : [rowIndex + 1, row.name, row.unit, row.quantity, money(row.price), money(row.amount)])
-      : (deliveryOnly ? [rowIndex + 1, "", "", ""] : [rowIndex + 1, "", "", "", "", ""]);
+    const values = row ?
+    deliveryOnly ? [rowIndex + 1, row.name, row.unit, row.quantity] : [rowIndex + 1, row.name, row.unit, row.quantity, money(row.price), money(row.amount)] :
+    deliveryOnly ? [rowIndex + 1, "", "", ""] : [rowIndex + 1, "", "", "", "", ""];
     let cellX = tableX;
     values.forEach((value, i) => {
-      drawCellText(ctx, String(value), cellX, y, cols[i], rowHeight, i === 1 ? "left" : (!deliveryOnly && i >= 4) ? "right" : "center");
+      drawCellText(ctx, String(value), cellX, y, cols[i], rowHeight, i === 1 ? "left" : !deliveryOnly && i >= 4 ? "right" : "center");
       cellX += cols[i];
     });
   }
@@ -2266,7 +2266,7 @@ function downloadOrderImage(orderId, deliveryOnly = false) {
     ctx.fillText(`此单合计金额：${money(order.amount)}`, width - 57, summaryY);
     ctx.textAlign = "left";
     ctx.font = "700 23px Microsoft YaHei, Arial";
-    ctx.fillText(`销售电话：${sales?.phone || "-"}`, 57, summaryY + 50);
+    ctx.fillText(`销售电话：${(sales === null || sales === void 0 ? void 0 : sales.phone) || "-"}`, 57, summaryY + 50);
     ctx.font = "700 23px Microsoft YaHei, Arial";
     ctx.fillText("备注：", 57, summaryY + 100);
     ctx.font = "400 23px Microsoft YaHei, Arial";
@@ -2353,12 +2353,12 @@ function printOrder(orderId) {
 const PRODUCT_CATEGORIES = ["全部", "水电", "木", "瓦", "油", "辅助商品"];
 
 function html(value) {
-  return String(value ?? "")
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;")
-    .replace(/'/g, "&#39;");
+  return String(value !== null && value !== void 0 ? value : "").
+  replace(/&/g, "&amp;").
+  replace(/</g, "&lt;").
+  replace(/>/g, "&gt;").
+  replace(/"/g, "&quot;").
+  replace(/'/g, "&#39;");
 }
 
 function productSearchText(p) {
@@ -2404,15 +2404,15 @@ function productSubcategories() {
   if (state.productCategories && Array.isArray(state.productCategories[state.category])) {
     return state.productCategories[state.category];
   }
-  return [...new Set(products
-    .filter((p) => p.cat1 === state.category)
-    .map((p) => p.cat2)
-    .filter(Boolean))]
-    .sort((a, b) => a.localeCompare(b, "zh-CN"));
+  return [...new Set(products.
+  filter((p) => p.cat1 === state.category).
+  map((p) => p.cat2).
+  filter(Boolean))].
+  sort((a, b) => a.localeCompare(b, "zh-CN"));
 }
 
 function jsArg(value) {
-  return html(JSON.stringify(value ?? ""));
+  return html(JSON.stringify(value !== null && value !== void 0 ? value : ""));
 }
 
 function safeOnclick(code) {
@@ -2463,11 +2463,11 @@ function filteredProducts() {
     return categoryOk && subcategoryOk;
   });
   if (!query) return scoped;
-  return scoped
-    .map((product, index) => ({ product, index, score: productSearchScore(product, query) }))
-    .filter((entry) => entry.score > 0)
-    .sort((a, b) => b.score - a.score || a.index - b.index)
-    .map((entry) => entry.product);
+  return scoped.
+  map((product, index) => ({ product, index, score: productSearchScore(product, query) })).
+  filter((entry) => entry.score > 0).
+  sort((a, b) => b.score - a.score || a.index - b.index).
+  map((entry) => entry.product);
 }
 
 const LOGIN_MEMORY_KEY = "caidajia_last_login";
@@ -2488,8 +2488,8 @@ function rememberLogin(phone) {
   localStorage.setItem(LOGIN_MEMORY_KEY, JSON.stringify({ phone }));
 }
 
-function isSalesRole() {
-  return state.user?.role === "销售人员";
+function isSalesRole() {var _state$user6;
+  return ((_state$user6 = state.user) === null || _state$user6 === void 0 ? void 0 : _state$user6.role) === "销售人员";
 }
 
 function canChooseSalesperson() {
@@ -2506,8 +2506,8 @@ function visibleCustomers() {
   return customers.filter((customer) => customer.ownerId === state.user.id);
 }
 
-function orderCustomerChoices() {
-  const salesUserId = isSalesRole() ? state.user?.id : state.salesUserId;
+function orderCustomerChoices() {var _state$user7;
+  const salesUserId = isSalesRole() ? (_state$user7 = state.user) === null || _state$user7 === void 0 ? void 0 : _state$user7.id : state.salesUserId;
   return visibleCustomers().filter((customer) => customer.ownerId === salesUserId);
 }
 
@@ -2521,8 +2521,8 @@ function ensureSalesScope() {
     state.customerOwnerFilter = "全部";
     state.orderSalesFilter = "全部";
   }
-  if (!isSalesRole() && !activeSalesUsers().some((user) => user.id === state.salesUserId)) {
-    state.salesUserId = state.user?.id || activeSalesUsers()[0]?.id || "";
+  if (!isSalesRole() && !activeSalesUsers().some((user) => user.id === state.salesUserId)) {var _state$user8, _activeSalesUsers$;
+    state.salesUserId = ((_state$user8 = state.user) === null || _state$user8 === void 0 ? void 0 : _state$user8.id) || ((_activeSalesUsers$ = activeSalesUsers()[0]) === null || _activeSalesUsers$ === void 0 ? void 0 : _activeSalesUsers$.id) || "";
   }
   const allowedCustomers = orderCustomerChoices();
   if (state.selectedCustomerId && !allowedCustomers.some((customer) => customer.id === state.selectedCustomerId)) {
@@ -2579,7 +2579,7 @@ async function login() {
     const response = await apiFetch("/api/login", {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ phone, password }),
+      body: JSON.stringify({ phone, password })
     });
     const data = await response.json();
     if (!response.ok) throw new Error(data.error || "登录失败");
@@ -2596,7 +2596,7 @@ function localLoginFallback(phone, password) {
   alert("暂时无法连接服务器，请稍后重试。");
 }
 
-async function loadBootstrap() {
+async function loadBootstrap() {var _state$user9, _activeSalesUsers$2;
   const response = await apiFetch("/api/bootstrap?mode=summary");
   if (!response.ok) return;
   const data = await response.json();
@@ -2609,7 +2609,7 @@ async function loadBootstrap() {
   state.bootstrapCounts = data.counts || {};
   state.dataLoaded = { customers: false, products: false, createProducts: false, orders: false, dashboard: false };
   state.remotePages = {};
-  state.salesUserId = isSalesRole() ? state.user.id : state.user?.id || activeSalesUsers()[0]?.id || "";
+  state.salesUserId = isSalesRole() ? state.user.id : ((_state$user9 = state.user) === null || _state$user9 === void 0 ? void 0 : _state$user9.id) || ((_activeSalesUsers$2 = activeSalesUsers()[0]) === null || _activeSalesUsers$2 === void 0 ? void 0 : _activeSalesUsers$2.id) || "";
   state.dashboardSalesFilters = [];
   state.dashboardSalesMenuOpen = false;
   state.dashboardCustomerDetail = "";
@@ -2642,7 +2642,7 @@ async function hydrateCartProducts() {
 }
 
 async function loadDashboard(force = false) {
-  if ((state.dashboardLoading && !force) || (state.dataLoaded.dashboard && !force)) return;
+  if (state.dashboardLoading && !force || state.dataLoaded.dashboard && !force) return;
   state.dashboardLoading = true;
   try {
     const response = await latestApiFetch("dashboard", `/api/dashboard${queryString({ salesUserIds: state.dashboardSalesFilters.join(",") })}`);
@@ -2663,9 +2663,9 @@ async function loadDashboard(force = false) {
 async function loadCustomers(options = {}) {
   const forCreate = Boolean(options.forCreate);
   const page = forCreate ? 1 : currentPage("customers");
-  const params = forCreate ? { page: 1, pageSize: 200, salesUserId: canChooseSalesperson() ? (options.salesUserId || state.salesUserId) : "" } : {
+  const params = forCreate ? { page: 1, pageSize: 200, salesUserId: canChooseSalesperson() ? options.salesUserId || state.salesUserId : "" } : {
     page, pageSize: 30, q: state.query,
-    salesUserId: canChooseSalesperson() ? state.customerOwnerFilter : "",
+    salesUserId: canChooseSalesperson() ? state.customerOwnerFilter : ""
   };
   const response = await latestApiFetch(forCreate ? "create-customers" : "customers", `/api/customers${queryString(params)}`);
   if (!response) return;
@@ -2682,7 +2682,7 @@ async function loadProductsForRoute(route = state.route) {
     page: currentPage(key), pageSize: EDIT_PAGE_SIZES[key], q: state.productQuery,
     category1: state.category === "全部" ? "" : state.category,
     category2: state.productSubcategory,
-    status: route === "products" ? "" : "在售",
+    status: route === "products" ? "" : "在售"
   };
   const response = await latestApiFetch(key, `/api/products${queryString(params)}`);
   if (!response) return;
@@ -2697,7 +2697,7 @@ async function loadOrders() {
   const params = {
     page: currentPage("orders"), pageSize: EDIT_PAGE_SIZES.orders, q: state.orderQuery,
     status: state.orderStatus, payStatus: state.orderPayStatus,
-    salesUserId: canChooseSalesperson() ? state.orderSalesFilter : "",
+    salesUserId: canChooseSalesperson() ? state.orderSalesFilter : ""
   };
   const response = await latestApiFetch("orders", `/api/orders${queryString(params)}`);
   if (!response) return;
@@ -2816,8 +2816,8 @@ function toggleDashboardSalesMenu() {
 
 function toggleDashboardSalesperson(userId) {
   const selected = new Set(state.dashboardSalesFilters);
-  if (selected.has(userId)) selected.delete(userId);
-  else selected.add(userId);
+  if (selected.has(userId)) selected.delete(userId);else
+  selected.add(userId);
   state.dashboardSalesFilters = Array.from(selected);
   state.dashboardCustomerDetail = "";
   render();
@@ -2837,11 +2837,11 @@ function toggleDashboardCustomerDetail(type) {
 }
 
 function firstValidCustomerOrderDate(customerId, validSalesOrders) {
-  return validSalesOrders
-    .filter((order) => order.customerId === customerId)
-    .map((order) => businessDate(order.date))
-    .filter(Boolean)
-    .sort((a, b) => a - b)[0] || null;
+  return validSalesOrders.
+  filter((order) => order.customerId === customerId).
+  map((order) => businessDate(order.date)).
+  filter(Boolean).
+  sort((a, b) => a - b)[0] || null;
 }
 
 function dashboardCustomerDetailHtml(type, monthCustomerIds, monthNewCustomerIds, monthOrders, allValidSalesOrders) {
@@ -2851,7 +2851,7 @@ function dashboardCustomerDetailHtml(type, monthCustomerIds, monthNewCustomerIds
   const rows = Array.from(ids).map((customerId) => {
     const customer = byId(customers, customerId) || {};
     const customerOrders = monthOrders.filter((order) => order.customerId === customerId);
-    const salesNames = Array.from(new Set(customerOrders.map((order) => byId(salesUsers, order.salesUserId)?.name).filter(Boolean)));
+    const salesNames = Array.from(new Set(customerOrders.map((order) => {var _byId2;return (_byId2 = byId(salesUsers, order.salesUserId)) === null || _byId2 === void 0 ? void 0 : _byId2.name;}).filter(Boolean)));
     const amount = customerOrders.reduce((sum, order) => sum + effectiveOrderAmount(order), 0);
     const firstOrderAt = firstValidCustomerOrderDate(customerId, allValidSalesOrders);
     return { customer, customerOrders, salesNames, amount, firstOrderAt };
@@ -2891,7 +2891,7 @@ function isSameBusinessDay(value, target) {
 }
 
 function isReturnOrder(order) {
-  return order?.type === "return" || String(order?.no || "").startsWith("TH") || order?.status === "已退货";
+  return (order === null || order === void 0 ? void 0 : order.type) === "return" || String((order === null || order === void 0 ? void 0 : order.no) || "").startsWith("TH") || (order === null || order === void 0 ? void 0 : order.status) === "已退货";
 }
 
 function actualPaidAmount(order) {
@@ -2904,7 +2904,7 @@ function actualPaidAmount(order) {
 
 function effectiveOrderAmount(order) {
   const actualAmount = actualPaidAmount(order);
-  return actualAmount === null ? Number(order?.amount || 0) : actualAmount;
+  return actualAmount === null ? Number((order === null || order === void 0 ? void 0 : order.amount) || 0) : actualAmount;
 }
 
 function isPerformanceOrder(order) {
@@ -2929,10 +2929,10 @@ function dashboardMetric(label, value, iconText, tone, note = "", detailType = "
 function customerStats(customerId) {
   const list = visibleOrders().filter((order) => order.customerId === customerId && !String(order.no || "").startsWith("TH"));
   const total = list.reduce((sum, order) => sum + effectiveOrderAmount(order), 0);
-  const last = list
-    .map((order) => order.date)
-    .filter(Boolean)
-    .sort((a, b) => new Date(b) - new Date(a))[0] || "-";
+  const last = list.
+  map((order) => order.date).
+  filter(Boolean).
+  sort((a, b) => new Date(b) - new Date(a))[0] || "-";
   return { total, last, count: list.length };
 }
 
@@ -2975,11 +2975,11 @@ function setPage(key, page) {
   ensurePageState();
   state.pages[key] = Math.max(1, Number(page || 1));
   render();
-  if (key === "products") loadProductsForRoute("products").then(render).catch((error) => alert(error.message));
-  else if (key === "createProducts") loadProductsForRoute(state.route).then(render).catch((error) => alert(error.message));
-  else if (key === "orders") loadOrders().then(render).catch((error) => alert(error.message));
-  else if (key === "customers") loadCustomers().then(render).catch((error) => alert(error.message));
-  else if (key === "audit") loadAuditLogs(state.pages[key]);
+  if (key === "products") loadProductsForRoute("products").then(render).catch((error) => alert(error.message));else
+  if (key === "createProducts") loadProductsForRoute(state.route).then(render).catch((error) => alert(error.message));else
+  if (key === "orders") loadOrders().then(render).catch((error) => alert(error.message));else
+  if (key === "customers") loadCustomers().then(render).catch((error) => alert(error.message));else
+  if (key === "audit") loadAuditLogs(state.pages[key]);
 }
 
 function resetPage(key) {
@@ -3039,9 +3039,9 @@ function subcategoriesForCat(cat1) {
   if (state.productCategories && Array.isArray(state.productCategories[cat1])) {
     return state.productCategories[cat1];
   }
-  const values = products
-    .filter((product) => product.cat1 === cat1 && product.cat2)
-    .map((product) => product.cat2);
+  const values = products.
+  filter((product) => product.cat1 === cat1 && product.cat2).
+  map((product) => product.cat2);
   return Array.from(new Set(values)).sort((a, b) => String(a).localeCompare(String(b), "zh-Hans-CN"));
 }
 
@@ -3060,8 +3060,8 @@ function productCat2Control(cat1, current) {
   `;
 }
 
-function refreshProductCat2Options() {
-  const cat1 = document.getElementById("productCat1")?.value || "辅助商品";
+function refreshProductCat2Options() {var _document$getElementB10;
+  const cat1 = ((_document$getElementB10 = document.getElementById("productCat1")) === null || _document$getElementB10 === void 0 ? void 0 : _document$getElementB10.value) || "辅助商品";
   const wrap = document.getElementById("productCat2Wrap");
   if (wrap) wrap.innerHTML = productCat2Control(cat1, "");
 }
@@ -3136,12 +3136,12 @@ function updateCustomerOwnerFilter(value) {
   loadCustomers().then(render).catch((error) => alert(error.message));
 }
 
-function renderProducts() {
+function renderProducts() {var _state$user0;
   const remote = state.remotePages.products;
   const list = remote ? remote.items : filteredProducts();
   const pageData = remote ? { items: remote.items, page: remote.page, pageSize: remote.pageSize, total: remote.total, totalPages: remote.totalPages, start: (remote.page - 1) * remote.pageSize } : paginateList(list, "products", EDIT_PAGE_SIZES.products);
   const canManage = isAdmin();
-  const canExport = state.user?.role !== "销售人员";
+  const canExport = ((_state$user0 = state.user) === null || _state$user0 === void 0 ? void 0 : _state$user0.role) !== "销售人员";
   return `
     <div class="toolbar">
       <input id="productSearchInput" class="input" placeholder="搜索商品名称 / 规格 / 编码 / 别名" value="${html(state.productQuery)}" oncompositionstart="this.dataset.composing='true'" oncompositionend="this.dataset.composing='false';updateProductQuery(this)" oninput="updateProductQuery(this)" />
@@ -3164,7 +3164,7 @@ function productThumbnail(product, extraClass = "") {
   return `<button type="button" class="product-thumb-button is-empty ${extraClass}" title="暂无商品图片" onclick="openModal('productImage',${jsArg(product.id)})"><span>暂无图</span></button>`;
 }
 
-function productTableResultsHtml(list, pageData, canManage = isAdmin(), canExport = state.user?.role !== "销售人员") {
+function productTableResultsHtml(list, pageData, canManage = isAdmin(), canExport = ((_state$user1) => (_state$user1 = state.user) === null || _state$user1 === void 0 ? void 0 : _state$user1.role)() !== "销售人员") {
   const selected = new Set(state.selectedProductIds || []);
   const pageAllSelected = pageData.items.length && pageData.items.every((product) => selected.has(product.id));
   const productActions = (product) => `${actionButton("查看图片", "view", `openModal('productImage',${JSON.stringify(product.id)})`)}${canManage ? `${actionButton("编辑", "edit", `openModal('product',${JSON.stringify(product.id)})`)}${actionButton("删除", "delete", `deleteProduct(${JSON.stringify(product.id)})`)}` : ""}`;
@@ -3222,8 +3222,8 @@ function renderProductTableResults() {
 
 function toggleProductSelection(productId, checked) {
   const selected = new Set(state.selectedProductIds || []);
-  if (checked) selected.add(productId);
-  else selected.delete(productId);
+  if (checked) selected.add(productId);else
+  selected.delete(productId);
   state.selectedProductIds = Array.from(selected);
   renderProductTableResults();
   syncProductExportButton();
@@ -3253,8 +3253,8 @@ function downloadProductTemplate() {
   anchor.remove();
 }
 
-async function exportProducts(mode) {
-  if (state.user?.role === "销售人员") return alert("销售人员不能导出商品表格");
+async function exportProducts(mode) {var _state$user10;
+  if (((_state$user10 = state.user) === null || _state$user10 === void 0 ? void 0 : _state$user10.role) === "销售人员") return alert("销售人员不能导出商品表格");
   const ids = mode === "selected" ? state.selectedProductIds : [];
   if (mode === "selected" && !ids.length) {
     alert("请先勾选需要导出的商品。");
@@ -3264,7 +3264,7 @@ async function exportProducts(mode) {
     const response = await apiFetch("/api/products/export", {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ ids }),
+      body: JSON.stringify({ ids })
     });
     if (!response.ok) {
       const data = await response.json();
@@ -3301,7 +3301,7 @@ async function importProducts(input) {
     const response = await apiFetch("/api/products/import", {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ file: await fileAsDataUrl(file) }),
+      body: JSON.stringify({ file: await fileAsDataUrl(file) })
     });
     const data = await response.json();
     if (!response.ok) throw new Error(data.error || "批量导入失败");
@@ -3341,19 +3341,19 @@ function renderCreateOrder() {
   const remote = state.remotePages.createProducts;
   const productList = remote ? remote.items : filteredProducts().filter(isProductActive);
   const pageData = remote ? { items: remote.items, page: remote.page, pageSize: remote.pageSize, total: remote.total, totalPages: remote.totalPages, start: (remote.page - 1) * remote.pageSize } : paginateList(productList, "createProducts", EDIT_PAGE_SIZES.createProducts);
-  const salespersonField = canChooseSalesperson()
-    ? `<div class="field order-salesperson-field"><label>代下单销售人员</label><select class="select" onchange="setOrderSalesperson(this.value)">${activeSalesUsers().map((u) => `<option value="${html(u.id)}" ${u.id === state.salesUserId ? "selected" : ""}>${html(u.name)}</option>`).join("")}</select></div>`
-    : "";
+  const salespersonField = canChooseSalesperson() ?
+  `<div class="field order-salesperson-field"><label>代下单销售人员</label><select class="select" onchange="setOrderSalesperson(this.value)">${activeSalesUsers().map((u) => `<option value="${html(u.id)}" ${u.id === state.salesUserId ? "selected" : ""}>${html(u.name)}</option>`).join("")}</select></div>` :
+  "";
   return `
     <div class="card card-pad create-order-meta-card" style="margin-bottom:16px">
       <button type="button" class="create-order-summary" aria-expanded="${state.mobileOrderDetailsOpen}" onclick="toggleMobileOrderDetails()">
-        <span><strong>${html(customer?.name || "请选择客户")}</strong><small>${html(customer ? `${customer.phone || "未填写电话"} · ${state.orderAddress || "未填写地址"}` : "点击展开客户与配送信息")}</small></span>
+        <span><strong>${html((customer === null || customer === void 0 ? void 0 : customer.name) || "请选择客户")}</strong><small>${html(customer ? `${customer.phone || "未填写电话"} · ${state.orderAddress || "未填写地址"}` : "点击展开客户与配送信息")}</small></span>
         <b>${state.mobileOrderDetailsOpen ? "收起" : "展开"}⌄</b>
       </button>
       <div class="create-order-meta-details ${state.mobileOrderDetailsOpen ? "is-open" : ""}"><div class="form-grid create-order-meta-grid">
         <div class="field edit-customer-field"><label>选择客户 *</label><div class="edit-customer-combobox"><input id="createCustomerSearch" class="input" value="${html(state.createCustomerQuery)}" placeholder="${customerList.length ? "输入客户姓名或电话搜索" : "该销售人员暂无客户"}" autocomplete="off" role="combobox" onfocus="openCreateCustomerPicker();this.select()" onblur="closeCreateCustomerPicker()" oncompositionstart="this.dataset.composing='true'" oncompositionend="this.dataset.composing='false';updateCreateCustomerSearch(this)" oninput="updateCreateCustomerSearch(this)" /><div id="createCustomerResults" class="edit-customer-results hidden">${renderCreateCustomerResults()}</div></div></div>
         ${salespersonField}
-        <div class="field address-history-field order-address-field"><label>送货地址</label><div class="address-history-combobox"><input id="orderAddressInput" class="input" value="${html(state.orderAddress)}" placeholder="输入新地址，或选择历史下单地址" autocomplete="off" onfocus="openAddressHistory('create')" onclick="openAddressHistory('create')" onblur="closeAddressHistory('create')" oninput="updateOrderDraftField('address',this.value)" />${addressHistoryMenuHtml(customer?.id || "", "create")}</div></div>
+        <div class="field address-history-field order-address-field"><label>送货地址</label><div class="address-history-combobox"><input id="orderAddressInput" class="input" value="${html(state.orderAddress)}" placeholder="输入新地址，或选择历史下单地址" autocomplete="off" onfocus="openAddressHistory('create')" onclick="openAddressHistory('create')" onblur="closeAddressHistory('create')" oninput="updateOrderDraftField('address',this.value)" />${addressHistoryMenuHtml((customer === null || customer === void 0 ? void 0 : customer.id) || "", "create")}</div></div>
         <div class="field order-phone-field"><label>收货人手机号 *</label><input id="orderPhoneInput" class="input" value="${html(state.orderPhone)}" oninput="updateOrderDraftField('phone',this.value)" /></div>
         <div class="field order-remark-field" style="grid-column:1/-1"><label>订单备注</label><textarea id="orderRemarkInput" class="textarea compact-textarea" placeholder="可填写配送说明、客户要求等" oninput="updateOrderDraftField('remark',this.value)">${html(state.orderRemark)}</textarea></div>
       </div></div>
@@ -3375,7 +3375,7 @@ function renderCreateOrder() {
   `;
 }
 
-async function saveOrder() {
+async function saveOrder() {var _data$learnedAliases;
   const customer = byId(orderCustomerChoices(), state.selectedCustomerId);
   if (!customer || !state.cart.length) {
     alert("请选择客户和商品。");
@@ -3417,9 +3417,9 @@ async function saveOrder() {
         spec: product.spec || "",
         unit: product.unit || "",
         quantity: item.quantity,
-        price: signedOrderPrice(product, item.price),
+        price: signedOrderPrice(product, item.price)
       };
-    }),
+    })
   };
   let response;
   let data;
@@ -3427,7 +3427,7 @@ async function saveOrder() {
     response = await apiFetch("/api/orders", {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify(payload),
+      body: JSON.stringify(payload)
     });
     data = await response.json();
   } catch (_) {
@@ -3462,7 +3462,7 @@ async function saveOrder() {
   state.createCustomerPickerOpen = false;
   resetOrderDraft(null);
   resetPage("orders");
-  showToast(data.learnedAliases?.length ? `订单已生成，并新增 ${data.learnedAliases.length} 个商品关键词` : "订单已生成");
+  showToast((_data$learnedAliases = data.learnedAliases) !== null && _data$learnedAliases !== void 0 && _data$learnedAliases.length ? `订单已生成，并新增 ${data.learnedAliases.length} 个商品关键词` : "订单已生成");
   setRoute("orders");
 }
 
@@ -3490,7 +3490,7 @@ async function patchOrder(id, payload, successText) {
   const response = await apiFetch(`/api/orders/${encodeURIComponent(id)}`, {
     method: "PATCH",
     headers: { "content-type": "application/json" },
-    body: JSON.stringify(payload),
+    body: JSON.stringify(payload)
   });
   const data = await response.json();
   if (!response.ok) {
@@ -3557,7 +3557,7 @@ async function saveActualPaymentAmount(orderId) {
   const reasonInput = document.getElementById("paymentAdjustmentReasonInput");
   if (!order || !amountInput) return;
   const amount = Number(amountInput.value);
-  const reason = String(reasonInput?.value || "").trim();
+  const reason = String((reasonInput === null || reasonInput === void 0 ? void 0 : reasonInput.value) || "").trim();
   const originalAmount = Number(order.amount || 0);
   if (!Number.isFinite(amount) || amount < 0 || Math.abs(amount * 100 - Math.round(amount * 100)) > 1e-8) {
     alert("实际收款金额必须大于等于 0，且最多保留两位小数");
@@ -3566,14 +3566,14 @@ async function saveActualPaymentAmount(orderId) {
   }
   if (Math.round(amount * 100) !== Math.round(originalAmount * 100) && !reason) {
     alert("实际收款金额与订单金额不一致时，请填写优惠或抹零原因");
-    reasonInput?.focus();
+    reasonInput === null || reasonInput === void 0 || reasonInput.focus();
     return;
   }
 
   const response = await apiFetch(`/api/orders/${encodeURIComponent(orderId)}`, {
     method: "PATCH",
     headers: { "content-type": "application/json" },
-    body: JSON.stringify({ actualPaidAmount: amount, paymentAdjustmentReason: reason }),
+    body: JSON.stringify({ actualPaidAmount: amount, paymentAdjustmentReason: reason })
   });
   const data = await response.json().catch(() => ({}));
   if (!response.ok) {
@@ -3609,7 +3609,7 @@ function orderLineSnapshot(item = {}) {
     spec: item.spec !== undefined ? item.spec : product.spec || "",
     unit: item.unit || product.unit || "",
     quantity: Number(item.quantity || 1),
-    price: Number(item.price !== undefined ? item.price : product.price || 0),
+    price: Number(item.price !== undefined ? item.price : product.price || 0)
   };
 }
 
@@ -3629,25 +3629,25 @@ function openModal(type, id) {
     const customer = orderCustomerForDisplay(order);
     state.editOrderDraft = {
       orderId: id,
-      customerId: order?.customerId || "",
-      date: order?.date || "",
-      phone: order?.phone || customer?.phone || "",
-      address: order?.address || customer?.address || "",
-      remark: order?.remark || "",
-      items: (order?.items || []).map(orderLineSnapshot),
+      customerId: (order === null || order === void 0 ? void 0 : order.customerId) || "",
+      date: (order === null || order === void 0 ? void 0 : order.date) || "",
+      phone: (order === null || order === void 0 ? void 0 : order.phone) || (customer === null || customer === void 0 ? void 0 : customer.phone) || "",
+      address: (order === null || order === void 0 ? void 0 : order.address) || (customer === null || customer === void 0 ? void 0 : customer.address) || "",
+      remark: (order === null || order === void 0 ? void 0 : order.remark) || "",
+      items: ((order === null || order === void 0 ? void 0 : order.items) || []).map(orderLineSnapshot)
     };
     state.editProductPickerOpen = false;
     state.editProductQuery = "";
     state.editProductCategory = "全部";
     state.editProductSubcategory = "全部";
-    state.editCustomerQuery = customer?.name || "";
+    state.editCustomerQuery = (customer === null || customer === void 0 ? void 0 : customer.name) || "";
     state.editCustomerPickerOpen = false;
   }
   render();
   if ((type === "product" || type === "productImage") && id) loadProductDetail(id);
   if (type === "editOrder") {
     const order = byId(orders, id);
-    loadCustomers({ forCreate: true, salesUserId: order?.salesUserId }).then(render).catch((error) => alert(error.message));
+    loadCustomers({ forCreate: true, salesUserId: order === null || order === void 0 ? void 0 : order.salesUserId }).then(render).catch((error) => alert(error.message));
   }
 }
 
@@ -3659,24 +3659,24 @@ function closeModal() {
   render();
 }
 
-function editOrderCustomerChoices() {
-  const order = byId(orders, state.editOrderDraft?.orderId);
-  const salesUserId = isSalesRole() ? state.user?.id : order?.salesUserId;
+function editOrderCustomerChoices() {var _state$editOrderDraft, _state$user11;
+  const order = byId(orders, (_state$editOrderDraft = state.editOrderDraft) === null || _state$editOrderDraft === void 0 ? void 0 : _state$editOrderDraft.orderId);
+  const salesUserId = isSalesRole() ? (_state$user11 = state.user) === null || _state$user11 === void 0 ? void 0 : _state$user11.id : order === null || order === void 0 ? void 0 : order.salesUserId;
   return visibleCustomers().filter((customer) => customer.ownerId === salesUserId);
 }
 
 function matchingEditCustomers() {
   const query = state.editCustomerQuery.trim().toLowerCase();
-  return editOrderCustomerChoices().filter((customer) => !query || [customer.name, customer.contact, customer.phone]
-    .some((value) => String(value || "").toLowerCase().includes(query))).slice(0, 20);
+  return editOrderCustomerChoices().filter((customer) => !query || [customer.name, customer.contact, customer.phone].
+  some((value) => String(value || "").toLowerCase().includes(query))).slice(0, 20);
 }
 
 function renderEditCustomerResults() {
   const matches = matchingEditCustomers();
-  return matches.length ? matches.map((customer) => `
-    <button type="button" class="edit-customer-option ${customer.id === state.editOrderDraft?.customerId ? "selected" : ""}" onmousedown="event.preventDefault()" onclick="selectEditOrderCustomer(${jsArg(customer.id)})">
+  return matches.length ? matches.map((customer) => {var _state$editOrderDraft2;return `
+    <button type="button" class="edit-customer-option ${customer.id === ((_state$editOrderDraft2 = state.editOrderDraft) === null || _state$editOrderDraft2 === void 0 ? void 0 : _state$editOrderDraft2.customerId) ? "selected" : ""}" onmousedown="event.preventDefault()" onclick="selectEditOrderCustomer(${jsArg(customer.id)})">
       <strong>${html(customer.name)}</strong><span>${html(customer.phone || "-")} · ${html(customer.address || "未填写地址")}</span>
-    </button>`).join("") : `<div class="empty">没有匹配的客户</div>`;
+    </button>`;}).join("") : `<div class="empty">没有匹配的客户</div>`;
 }
 
 function refreshEditCustomerResults() {
@@ -3692,9 +3692,9 @@ function openEditCustomerPicker() {
 }
 
 function closeEditCustomerPicker() {
-  setTimeout(() => {
+  setTimeout(() => {var _document$getElementB11;
     state.editCustomerPickerOpen = false;
-    document.getElementById("editCustomerResults")?.classList.add("hidden");
+    (_document$getElementB11 = document.getElementById("editCustomerResults")) === null || _document$getElementB11 === void 0 || _document$getElementB11.classList.add("hidden");
   }, 120);
 }
 
@@ -3706,7 +3706,7 @@ function updateEditCustomerSearch(input) {
   inputRenderTimer = setTimeout(refreshEditCustomerResults, 120);
 }
 
-function selectEditOrderCustomer(customerId) {
+function selectEditOrderCustomer(customerId) {var _document$getElementB12;
   const customer = byId(editOrderCustomerChoices(), customerId);
   if (!customer || !state.editOrderDraft) return;
   state.editOrderDraft.customerId = customer.id;
@@ -3722,7 +3722,7 @@ function selectEditOrderCustomer(customerId) {
   if (address) address.value = state.editOrderDraft.address;
   const history = document.getElementById("editOrderAddressHistory");
   if (history) history.outerHTML = addressHistoryMenuHtml(customer.id, "edit");
-  document.getElementById("editCustomerResults")?.classList.add("hidden");
+  (_document$getElementB12 = document.getElementById("editCustomerResults")) === null || _document$getElementB12 === void 0 || _document$getElementB12.classList.add("hidden");
 }
 
 function editOrderItemsHtml(draft) {
@@ -3749,9 +3749,9 @@ function editProductPickerSlotHtml() {
 function editOrderModal(id) {
   const order = byId(orders, id);
   if (!order) return "";
-  if (!state.editOrderDraft || state.editOrderDraft.orderId !== id) {
-    state.editOrderDraft = { orderId: id, customerId: order.customerId, date: order.date || "", phone: order.phone || byId(customers, order.customerId)?.phone || "", address: order.address || "", remark: order.remark || "", items: (order.items || []).map(orderLineSnapshot) };
-    state.editCustomerQuery = byId(customers, order.customerId)?.name || "";
+  if (!state.editOrderDraft || state.editOrderDraft.orderId !== id) {var _byId3, _byId4;
+    state.editOrderDraft = { orderId: id, customerId: order.customerId, date: order.date || "", phone: order.phone || ((_byId3 = byId(customers, order.customerId)) === null || _byId3 === void 0 ? void 0 : _byId3.phone) || "", address: order.address || "", remark: order.remark || "", items: (order.items || []).map(orderLineSnapshot) };
+    state.editCustomerQuery = ((_byId4 = byId(customers, order.customerId)) === null || _byId4 === void 0 ? void 0 : _byId4.name) || "";
   }
   const draft = state.editOrderDraft;
   const draftTotal = draft.items.reduce((sum, item) => sum + Number(item.quantity || 0) * Number(item.price || 0), 0);
@@ -3781,8 +3781,8 @@ function updateEditOrderMeta(key, value) {
   if (state.editOrderDraft) state.editOrderDraft[key] = value;
 }
 
-function updateEditOrderLine(index, key, value) {
-  const item = state.editOrderDraft?.items?.[index];
+function updateEditOrderLine(index, key, value) {var _state$editOrderDraft3;
+  const item = (_state$editOrderDraft3 = state.editOrderDraft) === null || _state$editOrderDraft3 === void 0 || (_state$editOrderDraft3 = _state$editOrderDraft3.items) === null || _state$editOrderDraft3 === void 0 ? void 0 : _state$editOrderDraft3[index];
   if (!item) return;
   item[key] = Number(value || 0);
   const subtotal = document.getElementById(`editOrderSubtotal${index}`);
@@ -3794,7 +3794,7 @@ function updateEditOrderLine(index, key, value) {
 function refreshEditOrderItems(scrollTop = null) {
   if (!state.editOrderDraft) return;
   const modalBody = document.querySelector(".edit-order-modal .modal-body");
-  const currentScrollTop = scrollTop === null ? (modalBody?.scrollTop || 0) : scrollTop;
+  const currentScrollTop = scrollTop === null ? (modalBody === null || modalBody === void 0 ? void 0 : modalBody.scrollTop) || 0 : scrollTop;
   const section = document.querySelector(".edit-order-items");
   if (section) section.outerHTML = editOrderItemsHtml(state.editOrderDraft);
   const total = document.getElementById("editOrderTotal");
@@ -3805,7 +3805,7 @@ function refreshEditOrderItems(scrollTop = null) {
 
 function toggleEditProductPicker() {
   const modalBody = document.querySelector(".edit-order-modal .modal-body");
-  const scrollTop = modalBody?.scrollTop || 0;
+  const scrollTop = (modalBody === null || modalBody === void 0 ? void 0 : modalBody.scrollTop) || 0;
   state.editProductPickerOpen = !state.editProductPickerOpen;
   const button = document.getElementById("editProductPickerToggle");
   const slot = document.getElementById("editProductPickerSlot");
@@ -3814,10 +3814,10 @@ function toggleEditProductPicker() {
   if (modalBody) modalBody.scrollTop = scrollTop;
   if (state.editProductPickerOpen) {
     loadEditProductPicker();
-    requestAnimationFrame(() => {
+    requestAnimationFrame(() => {var _document$getElementB13;
       const picker = document.querySelector(".edit-product-picker");
-      picker?.scrollIntoView({ block: "start", behavior: "smooth" });
-      document.getElementById("editProductSearch")?.focus();
+      picker === null || picker === void 0 || picker.scrollIntoView({ block: "start", behavior: "smooth" });
+      (_document$getElementB13 = document.getElementById("editProductSearch")) === null || _document$getElementB13 === void 0 || _document$getElementB13.focus();
     });
   }
 }
@@ -3825,7 +3825,7 @@ function toggleEditProductPicker() {
 function renderEditProductPicker() {
   const query = state.editProductQuery.trim().toLowerCase();
   const category = state.editProductCategory || "全部";
-  const categorySubcategories = category === "全部" ? [] : (state.productCategories[category] || []);
+  const categorySubcategories = category === "全部" ? [] : state.productCategories[category] || [];
   const subcategories = ["全部", ...categorySubcategories];
   const remote = state.remotePages.editProducts;
   const matches = remote ? remote.items : products.filter(isProductActive).filter((p) => {
@@ -3839,18 +3839,18 @@ function renderEditProductPicker() {
       <select class="select" onchange="updateEditProductFilter('subcategory',this.value)">${optionList(subcategories, state.editProductSubcategory)}</select>
     </div>
     <div class="edit-product-results">${matches.length ? matches.map((p) => {
-      const added = state.editOrderDraft.items.some((item) => item.productId === p.id);
-      return `<div class="edit-product-result">${productThumbnail(p, "small")}<div><strong>${html(orderItemDetails(p).label)}</strong><span>${html(p.brand || p.cat2 || "-")} · ${html(p.unit || "-")} · ${money(p.price)}</span></div><button class="btn ${added ? "ghost" : "primary"}" ${added ? "disabled" : ""} onclick="addEditOrderProduct(${jsArg(p.id)})">${added ? "已添加" : "添加"}</button></div>`;
-    }).join("") : `<div class="empty">没有匹配的商品</div>`}</div>
+    const added = state.editOrderDraft.items.some((item) => item.productId === p.id);
+    return `<div class="edit-product-result">${productThumbnail(p, "small")}<div><strong>${html(orderItemDetails(p).label)}</strong><span>${html(p.brand || p.cat2 || "-")} · ${html(p.unit || "-")} · ${money(p.price)}</span></div><button class="btn ${added ? "ghost" : "primary"}" ${added ? "disabled" : ""} onclick="addEditOrderProduct(${jsArg(p.id)})">${added ? "已添加" : "添加"}</button></div>`;
+  }).join("") : `<div class="empty">没有匹配的商品</div>`}</div>
     ${matches.length >= 60 ? `<div class="hint">结果较多，请继续输入关键词缩小范围</div>` : ""}
   </section>`;
 }
 
 function updateEditProductFilter(type, value, input = null) {
   if (type === "query") state.editProductQuery = value;
-  if (type === "category") { state.editProductCategory = value; state.editProductSubcategory = "全部"; }
+  if (type === "category") {state.editProductCategory = value;state.editProductSubcategory = "全部";}
   if (type === "subcategory") state.editProductSubcategory = value;
-  if (input?.dataset.composing === "true") return;
+  if ((input === null || input === void 0 ? void 0 : input.dataset.composing) === "true") return;
   clearTimeout(inputRenderTimer);
   inputRenderTimer = setTimeout(() => loadEditProductPicker(type === "query"), type === "query" ? 220 : 0);
 }
@@ -3862,7 +3862,7 @@ async function loadEditProductPicker(restoreSearchFocus = false) {
     q: state.editProductQuery,
     category1: state.editProductCategory === "全部" ? "" : state.editProductCategory,
     category2: state.editProductSubcategory === "全部" ? "" : state.editProductSubcategory,
-    status: "在售",
+    status: "在售"
   })}`);
   if (!response) return;
   const data = await response.json();
@@ -3881,8 +3881,8 @@ function refreshEditProductPicker(restoreSearchFocus = false) {
   modalBody.scrollTop = scrollTop;
   if (restoreSearchFocus) {
     const input = document.getElementById("editProductSearch");
-    input?.focus();
-    input?.setSelectionRange(input.value.length, input.value.length);
+    input === null || input === void 0 || input.focus();
+    input === null || input === void 0 || input.setSelectionRange(input.value.length, input.value.length);
   }
 }
 
@@ -3890,7 +3890,7 @@ function addEditOrderProduct(productId) {
   const product = byId(products, productId);
   if (!product || !state.editOrderDraft || state.editOrderDraft.items.some((item) => item.productId === productId)) return;
   const modalBody = document.querySelector(".edit-order-modal .modal-body");
-  const scrollTop = modalBody?.scrollTop || 0;
+  const scrollTop = (modalBody === null || modalBody === void 0 ? void 0 : modalBody.scrollTop) || 0;
   state.editOrderDraft.items.push(orderLineSnapshot({ productId, quantity: 1 }));
   refreshEditOrderItems(scrollTop);
   refreshEditProductPicker(false);
@@ -3902,7 +3902,7 @@ function removeEditOrderLine(index) {
   if (!state.editOrderDraft) return;
   const draft = state.editOrderDraft;
   const modalBody = document.querySelector(".edit-order-modal .modal-body");
-  const scrollTop = modalBody?.scrollTop || 0;
+  const scrollTop = (modalBody === null || modalBody === void 0 ? void 0 : modalBody.scrollTop) || 0;
   const line = document.querySelector(`[data-edit-order-index="${index}"]`);
   const finish = () => {
     draft.items.splice(index, 1);
@@ -3925,11 +3925,11 @@ function moveEditOrderLine(index, direction) {
   const target = index + Number(direction || 0);
   if (target < 0 || target >= state.editOrderDraft.items.length) return;
   const modalBody = document.querySelector(".edit-order-modal .modal-body");
-  const scrollTop = modalBody?.scrollTop || 0;
+  const scrollTop = (modalBody === null || modalBody === void 0 ? void 0 : modalBody.scrollTop) || 0;
   const [item] = state.editOrderDraft.items.splice(index, 1);
   state.editOrderDraft.items.splice(target, 0, item);
   refreshEditOrderItems(scrollTop);
-  requestAnimationFrame(() => document.querySelector(`[data-edit-order-index="${target}"] .edit-order-drag-handle`)?.focus());
+  requestAnimationFrame(() => {var _document$querySelect;return (_document$querySelect = document.querySelector(`[data-edit-order-index="${target}"] .edit-order-drag-handle`)) === null || _document$querySelect === void 0 ? void 0 : _document$querySelect.focus();});
 }
 
 function handleEditOrderDragKey(event, index) {
@@ -3938,15 +3938,15 @@ function handleEditOrderDragKey(event, index) {
   moveEditOrderLine(index, event.key === "ArrowUp" ? -1 : 1);
 }
 
-function startEditOrderDrag(event) {
+function startEditOrderDrag(event) {var _event$currentTarget$, _event$currentTarget;
   if (!state.editOrderDraft || event.button > 0) return;
   const line = event.currentTarget.closest("[data-edit-order-line]");
-  const list = line?.parentElement;
+  const list = line === null || line === void 0 ? void 0 : line.parentElement;
   const modalBody = document.querySelector(".edit-order-modal .modal-body");
   if (!line || !list || !modalBody) return;
   event.preventDefault();
   state.editOrderDrag = { line, list, modalBody, pointerId: event.pointerId };
-  event.currentTarget.setPointerCapture?.(event.pointerId);
+  (_event$currentTarget$ = (_event$currentTarget = event.currentTarget).setPointerCapture) === null || _event$currentTarget$ === void 0 || _event$currentTarget$.call(_event$currentTarget, event.pointerId);
   line.classList.add("is-dragging");
   document.body.classList.add("is-edit-order-dragging");
   document.addEventListener("pointermove", moveEditOrderDrag);
@@ -3954,14 +3954,14 @@ function startEditOrderDrag(event) {
   document.addEventListener("pointercancel", finishEditOrderDrag, { once: true });
 }
 
-function moveEditOrderDrag(event) {
+function moveEditOrderDrag(event) {var _document$elementFrom, _window$matchMedia, _window;
   const drag = state.editOrderDrag;
   if (!drag || event.pointerId !== drag.pointerId) return;
   event.preventDefault();
   const bodyRect = drag.modalBody.getBoundingClientRect();
   if (event.clientY < bodyRect.top + 64) drag.modalBody.scrollTop -= 18;
   if (event.clientY > bodyRect.bottom - 64) drag.modalBody.scrollTop += 18;
-  const target = document.elementFromPoint(event.clientX, event.clientY)?.closest("[data-edit-order-line]");
+  const target = (_document$elementFrom = document.elementFromPoint(event.clientX, event.clientY)) === null || _document$elementFrom === void 0 ? void 0 : _document$elementFrom.closest("[data-edit-order-line]");
   if (!target || target.parentElement !== drag.list || target === drag.line) return;
   const lines = [...drag.list.querySelectorAll("[data-edit-order-line]")];
   const from = lines.indexOf(drag.line);
@@ -3970,9 +3970,9 @@ function moveEditOrderDrag(event) {
   const positions = new Map(lines.map((element) => [element, element.getBoundingClientRect().top]));
   const [item] = state.editOrderDraft.items.splice(from, 1);
   state.editOrderDraft.items.splice(to, 0, item);
-  if (to > from) drag.list.insertBefore(drag.line, target.nextSibling);
-  else drag.list.insertBefore(drag.line, target);
-  if (window.matchMedia?.("(prefers-reduced-motion: reduce)").matches) return;
+  if (to > from) drag.list.insertBefore(drag.line, target.nextSibling);else
+  drag.list.insertBefore(drag.line, target);
+  if ((_window$matchMedia = (_window = window).matchMedia) !== null && _window$matchMedia !== void 0 && _window$matchMedia.call(_window, "(prefers-reduced-motion: reduce)").matches) return;
   [...drag.list.querySelectorAll("[data-edit-order-line]")].forEach((element) => {
     if (element === drag.line) return;
     const delta = (positions.get(element) || element.getBoundingClientRect().top) - element.getBoundingClientRect().top;
@@ -3987,7 +3987,7 @@ function moveEditOrderDrag(event) {
 
 function finishEditOrderDrag(event) {
   const drag = state.editOrderDrag;
-  if (!drag || (event.pointerId !== undefined && event.pointerId !== drag.pointerId)) return;
+  if (!drag || event.pointerId !== undefined && event.pointerId !== drag.pointerId) return;
   const finalScrollTop = drag.modalBody.scrollTop;
   document.removeEventListener("pointermove", moveEditOrderDrag);
   document.removeEventListener("pointerup", finishEditOrderDrag);
@@ -3997,38 +3997,38 @@ function finishEditOrderDrag(event) {
   refreshEditOrderItems(finalScrollTop);
 }
 
-async function saveOrderEdits(id) {
-  const items = (state.editOrderDraft?.items || []).map((item, index) => ({
-    productId: item.productId || "",
-    name: item.name || "",
-    spec: item.spec || "",
-    unit: item.unit || "",
-    quantity: Number(document.getElementById(`editOrderItemQty${index}`)?.value || 0),
-    price: Number(document.getElementById(`editOrderItemPrice${index}`)?.value || 0),
-  })).filter((item) => item.name);
+async function saveOrderEdits(id) {var _state$editOrderDraft4, _state$editOrderDraft5, _document$getElementB16, _document$getElementB17, _document$getElementB18, _document$getElementB19;
+  const items = (((_state$editOrderDraft4 = state.editOrderDraft) === null || _state$editOrderDraft4 === void 0 ? void 0 : _state$editOrderDraft4.items) || []).map((item, index) => {var _document$getElementB14, _document$getElementB15;return {
+      productId: item.productId || "",
+      name: item.name || "",
+      spec: item.spec || "",
+      unit: item.unit || "",
+      quantity: Number(((_document$getElementB14 = document.getElementById(`editOrderItemQty${index}`)) === null || _document$getElementB14 === void 0 ? void 0 : _document$getElementB14.value) || 0),
+      price: Number(((_document$getElementB15 = document.getElementById(`editOrderItemPrice${index}`)) === null || _document$getElementB15 === void 0 ? void 0 : _document$getElementB15.value) || 0)
+    };}).filter((item) => item.name);
   const invalidIndex = items.findIndex((item) => !isPositiveInteger(item.quantity));
   if (invalidIndex >= 0) {
     const input = document.getElementById(`editOrderItemQty${invalidIndex}`);
     setQuantityInputValidity(input);
-    input?.focus();
-    input?.scrollIntoView({ block: "center", behavior: "smooth" });
+    input === null || input === void 0 || input.focus();
+    input === null || input === void 0 || input.scrollIntoView({ block: "center", behavior: "smooth" });
     alert("商品数量必须为大于 0 的整数，请修正后再保存。");
     return;
   }
   const amount = items.reduce((sum, item) => sum + item.quantity * item.price, 0);
   const payload = {
-    customerId: state.editOrderDraft?.customerId,
-    date: document.getElementById("editOrderDate")?.value.trim(),
-    phone: document.getElementById("editOrderPhone")?.value.trim(),
-    address: document.getElementById("editOrderAddress")?.value.trim(),
-    remark: document.getElementById("editOrderRemark")?.value.trim(),
+    customerId: (_state$editOrderDraft5 = state.editOrderDraft) === null || _state$editOrderDraft5 === void 0 ? void 0 : _state$editOrderDraft5.customerId,
+    date: (_document$getElementB16 = document.getElementById("editOrderDate")) === null || _document$getElementB16 === void 0 ? void 0 : _document$getElementB16.value.trim(),
+    phone: (_document$getElementB17 = document.getElementById("editOrderPhone")) === null || _document$getElementB17 === void 0 ? void 0 : _document$getElementB17.value.trim(),
+    address: (_document$getElementB18 = document.getElementById("editOrderAddress")) === null || _document$getElementB18 === void 0 ? void 0 : _document$getElementB18.value.trim(),
+    remark: (_document$getElementB19 = document.getElementById("editOrderRemark")) === null || _document$getElementB19 === void 0 ? void 0 : _document$getElementB19.value.trim(),
     items,
-    amount,
+    amount
   };
   const response = await apiFetch(`/api/orders/${encodeURIComponent(id)}`, {
     method: "PATCH",
     headers: { "content-type": "application/json" },
-    body: JSON.stringify(payload),
+    body: JSON.stringify(payload)
   });
   const data = await response.json();
   if (!response.ok) {
@@ -4067,14 +4067,14 @@ function cartItemDisplay(item) {
     ...snapshot,
     product,
     available: Boolean(product && isProductActive(product)),
-    missing: !product,
+    missing: !product
   };
 }
 
-function renderKeepingCartScroll(callback) {
+function renderKeepingCartScroll(callback) {var _document$getElementB20;
   const scrollX = window.scrollX;
   const scrollY = window.scrollY;
-  const cartScroll = document.getElementById("cartItemsScroller")?.scrollTop || 0;
+  const cartScroll = ((_document$getElementB20 = document.getElementById("cartItemsScroller")) === null || _document$getElementB20 === void 0 ? void 0 : _document$getElementB20.scrollTop) || 0;
   callback();
   persistCart(state.orderType, true);
   render();
@@ -4144,7 +4144,7 @@ function cartLine(item) {
   const p = details.product || { id: item.productId, name: details.name, spec: details.spec, unit: details.unit };
   const quantity = normalizeQuantity(item.quantity);
   const displayPrice = signedOrderPrice(p, item.price);
-  const availability = details.missing ? "商品已不存在" : (!details.available ? "商品已停用" : "");
+  const availability = details.missing ? "商品已不存在" : !details.available ? "商品已停用" : "";
   return `
     <div class="cart-line ${availability ? "cart-line-unavailable" : ""}">
       <div class="cart-line-main">
@@ -4180,9 +4180,9 @@ function removeCartItem(productId) {
   });
 }
 
-async function saveProduct(id) {
+async function saveProduct(id) {var _field, _cat2New$value, _field2, _field3, _field4, _field5, _field6, _field7, _field8, _field9, _field0;
   const field = (fieldId) => document.getElementById(fieldId);
-  const imageFiles = Array.from(field("productImageFile")?.files || []);
+  const imageFiles = Array.from(((_field = field("productImageFile")) === null || _field === void 0 ? void 0 : _field.files) || []);
   const existingImageCount = id ? productImageUrls(byId(products, id) || {}).length : 0;
   if (existingImageCount + imageFiles.length > 6) {
     alert(`每个商品最多保存 6 张图片，当前还可以上传 ${Math.max(0, 6 - existingImageCount)} 张。`);
@@ -4190,22 +4190,22 @@ async function saveProduct(id) {
   }
   const cat2Select = field("productCat2Select");
   const cat2New = field("productCat2New");
-  let cat2 = cat2Select?.value || "";
-  if (cat2 === "__new__") cat2 = cat2New?.value?.trim() || "";
+  let cat2 = (cat2Select === null || cat2Select === void 0 ? void 0 : cat2Select.value) || "";
+  if (cat2 === "__new__") cat2 = (cat2New === null || cat2New === void 0 || (_cat2New$value = cat2New.value) === null || _cat2New$value === void 0 ? void 0 : _cat2New$value.trim()) || "";
   const payload = {
-    code: field("productCode")?.value?.trim() || "",
-    name: field("productName")?.value?.trim() || "",
-    spec: field("productSpec")?.value?.trim() || "",
-    cat1: field("productCat1")?.value || "辅助商品",
+    code: ((_field2 = field("productCode")) === null || _field2 === void 0 || (_field2 = _field2.value) === null || _field2 === void 0 ? void 0 : _field2.trim()) || "",
+    name: ((_field3 = field("productName")) === null || _field3 === void 0 || (_field3 = _field3.value) === null || _field3 === void 0 ? void 0 : _field3.trim()) || "",
+    spec: ((_field4 = field("productSpec")) === null || _field4 === void 0 || (_field4 = _field4.value) === null || _field4 === void 0 ? void 0 : _field4.trim()) || "",
+    cat1: ((_field5 = field("productCat1")) === null || _field5 === void 0 ? void 0 : _field5.value) || "辅助商品",
     cat2,
-    unit: field("productUnit")?.value?.trim() || "",
-    price: Number(field("productPrice")?.value || 0),
-    cost: Number(field("productCost")?.value || 0),
-    status: field("productStatus")?.value || "在售",
-    aliases: (field("productAliases")?.value || "")
-      .split(/[,，、\n]/)
-      .map((item) => item.trim())
-      .filter(Boolean),
+    unit: ((_field6 = field("productUnit")) === null || _field6 === void 0 || (_field6 = _field6.value) === null || _field6 === void 0 ? void 0 : _field6.trim()) || "",
+    price: Number(((_field7 = field("productPrice")) === null || _field7 === void 0 ? void 0 : _field7.value) || 0),
+    cost: Number(((_field8 = field("productCost")) === null || _field8 === void 0 ? void 0 : _field8.value) || 0),
+    status: ((_field9 = field("productStatus")) === null || _field9 === void 0 ? void 0 : _field9.value) || "在售",
+    aliases: (((_field0 = field("productAliases")) === null || _field0 === void 0 ? void 0 : _field0.value) || "").
+    split(/[,，、\n]/).
+    map((item) => item.trim()).
+    filter(Boolean)
   };
   if (!payload.name || !payload.unit) {
     alert("商品名称和单位必填。");
@@ -4217,7 +4217,7 @@ async function saveProduct(id) {
     const response = await apiFetch(id ? `/api/products/${encodeURIComponent(id)}` : "/api/products", {
       method: id ? "PUT" : "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify(payload),
+      body: JSON.stringify(payload)
     });
     const data = await response.json();
     if (!response.ok) throw new Error(data.error || "保存商品失败");
@@ -4227,8 +4227,8 @@ async function saveProduct(id) {
     for (let index = 0; index < preparedImages.length; index += 1) {
       try {
         savedProduct = await uploadProductImage(savedId, preparedImages[index]);
-      } catch (error) {
-        imageErrors.push(`${imageFiles[index]?.name || `第 ${index + 1} 张图片`}：${error.message || "上传失败"}`);
+      } catch (error) {var _imageFiles$index;
+        imageErrors.push(`${((_imageFiles$index = imageFiles[index]) === null || _imageFiles$index === void 0 ? void 0 : _imageFiles$index.name) || `第 ${index + 1} 张图片`}：${error.message || "上传失败"}`);
       }
     }
     if (id) {
@@ -4238,8 +4238,8 @@ async function saveProduct(id) {
       products.unshift(savedProduct);
     }
     closeModal();
-    if (imageErrors.length) alert(`商品信息已保存，但以下图片上传失败：\n${imageErrors.join("\n")}`);
-    else showToast(preparedImages.length > 1 ? `商品信息及 ${preparedImages.length} 张图片已保存` : "商品信息已保存");
+    if (imageErrors.length) alert(`商品信息已保存，但以下图片上传失败：\n${imageErrors.join("\n")}`);else
+    showToast(preparedImages.length > 1 ? `商品信息及 ${preparedImages.length} 张图片已保存` : "商品信息已保存");
     if (state.route === "products") await loadProductsForRoute("products");
     render();
   } catch (error) {
@@ -4298,7 +4298,7 @@ function costDatePresetRange(preset, referenceDate = new Date()) {
   }
   return {
     from: costDateInputValue(from),
-    to: costDateInputValue(to),
+    to: costDateInputValue(to)
   };
 }
 
@@ -4321,9 +4321,9 @@ function costOrderDateInRange(orderDate, from, to) {
 
 function costOrderMatchesSuppliers(order, selectedSuppliers) {
   if (!selectedSuppliers.length) return true;
-  const names = (order.costControl && order.costControl.suppliers || [])
-    .map((supplier) => String(supplier.name || "").trim())
-    .filter(Boolean);
+  const names = (order.costControl && order.costControl.suppliers || []).
+  map((supplier) => String(supplier.name || "").trim()).
+  filter(Boolean);
   return selectedSuppliers.some((supplier) => {
     if (supplier === COST_UNASSIGNED_SUPPLIER) return names.length === 0;
     return names.includes(supplier);
@@ -4331,19 +4331,19 @@ function costOrderMatchesSuppliers(order, selectedSuppliers) {
 }
 
 function summarizeCostOrders(orders) {
-  const summary = orders.reduce((result, order) => {
+  const summary = orders.reduce((result, order) => {var _order$costControl, _order$costControl2, _order$costControl3;
     const totals = calculateCostDraft(order);
     result.revenue += costNumber(order.effectiveAmount);
     result.cost += totals.totalCost;
     result.profit += totals.profit;
-    if (!order.costControl?.suppliers?.length || !order.costControl?.deliveryPerson || (order.costControl?.reconciliationStatus || "未对订单") === "未对订单") {
+    if (!((_order$costControl = order.costControl) !== null && _order$costControl !== void 0 && (_order$costControl = _order$costControl.suppliers) !== null && _order$costControl !== void 0 && _order$costControl.length) || !((_order$costControl2 = order.costControl) !== null && _order$costControl2 !== void 0 && _order$costControl2.deliveryPerson) || (((_order$costControl3 = order.costControl) === null || _order$costControl3 === void 0 ? void 0 : _order$costControl3.reconciliationStatus) || "未对订单") === "未对订单") {
       result.incomplete += 1;
     }
     return result;
   }, { revenue: 0, cost: 0, profit: 0, incomplete: 0, grossMargin: null });
-  summary.grossMargin = summary.revenue > 0
-    ? Math.round((summary.profit / summary.revenue) * 10000) / 100
-    : null;
+  summary.grossMargin = summary.revenue > 0 ?
+  Math.round(summary.profit / summary.revenue * 10000) / 100 :
+  null;
   return summary;
 }
 
@@ -4353,7 +4353,7 @@ function cloneCostControl(source = {}) {
     deliveryPerson: source.deliveryPerson || "",
     transportCost: source.transportCost || 0,
     remark: source.remark || "",
-    reconciliationStatus: source.reconciliationStatus || "未对订单",
+    reconciliationStatus: source.reconciliationStatus || "未对订单"
   };
 }
 
@@ -4374,7 +4374,7 @@ function calculateCostDraft(order) {
     materialCost: Math.round(materialCost * 100) / 100,
     transportCost,
     totalCost,
-    profit: Math.round((actualAmount - totalCost) * 100) / 100,
+    profit: Math.round((actualAmount - totalCost) * 100) / 100
   };
 }
 
@@ -4387,8 +4387,8 @@ function refreshCostCard(orderId) {
   const card = document.querySelector(`[data-cost-order="${orderId}"]`);
   if (!order || !card) return;
   const totals = calculateCostDraft(order);
-  card.querySelectorAll("[data-cost-material]").forEach((node) => { node.textContent = money(totals.materialCost); });
-  card.querySelectorAll("[data-cost-total]").forEach((node) => { node.textContent = money(totals.totalCost); });
+  card.querySelectorAll("[data-cost-material]").forEach((node) => {node.textContent = money(totals.materialCost);});
+  card.querySelectorAll("[data-cost-total]").forEach((node) => {node.textContent = money(totals.totalCost);});
   card.querySelectorAll("[data-cost-profit]").forEach((node) => {
     node.textContent = money(totals.profit);
     node.classList.toggle("is-negative", totals.profit < 0);
@@ -4406,8 +4406,8 @@ function toggleCostSupplier(orderId, name) {
   if (!order) return;
   order.costControl = cloneCostControl(order.costControl);
   const index = order.costControl.suppliers.findIndex((supplier) => supplier.name === name);
-  if (index >= 0) order.costControl.suppliers.splice(index, 1);
-  else order.costControl.suppliers.push({ name, materialCost: 0 });
+  if (index >= 0) order.costControl.suppliers.splice(index, 1);else
+  order.costControl.suppliers.push({ name, materialCost: 0 });
   rerenderCostControl();
 }
 
@@ -4488,8 +4488,8 @@ function closeCostSalesMenu() {
 
 function toggleCostSalesperson(name) {
   const selected = new Set(state.costSalesFilters);
-  if (selected.has(name)) selected.delete(name);
-  else selected.add(name);
+  if (selected.has(name)) selected.delete(name);else
+  selected.add(name);
   state.costSalesFilters = Array.from(selected);
   rerenderCostControl();
   loadCostControl(true);
@@ -4514,8 +4514,8 @@ function toggleCostSupplierMenu() {
 
 function toggleCostSupplierFilter(name) {
   const selected = new Set(state.costSupplierFilters);
-  if (selected.has(name)) selected.delete(name);
-  else selected.add(name);
+  if (selected.has(name)) selected.delete(name);else
+  selected.add(name);
   state.costSupplierFilters = Array.from(selected);
   rerenderCostControl();
   loadCostControl(true);
@@ -4528,8 +4528,9 @@ function clearCostSupplierFilters() {
 }
 
 function setCostDateFilter(field, value) {
-  if (field === "from") state.costDateFrom = value;
-  if (field === "to") state.costDateTo = value;
+  const normalized = value ? normalizeCostOrderDate(value) : "";
+  if (field === "from") state.costDateFrom = normalized;
+  if (field === "to") state.costDateTo = normalized;
   render();
   loadCostControl(true);
 }
@@ -4575,7 +4576,7 @@ function setCostReconcileFilter(value) {
 }
 
 async function loadCostControl(force = false) {
-  if (!isAdmin() || (state.costLoading && !force) || (state.costLoaded && !force)) return;
+  if (!isAdmin() || state.costLoading && !force || state.costLoaded && !force) return;
   if (state.costDateFrom && state.costDateTo && state.costDateFrom > state.costDateTo) {
     if (state.route === "costs") render();
     return;
@@ -4584,7 +4585,7 @@ async function loadCostControl(force = false) {
   state.costError = "";
   if (state.route === "costs") render();
   try {
-    const selectedSalesIds = state.costSalesFilters.map((name) => salesUsers.find((user) => user.name === name)?.id).filter(Boolean);
+    const selectedSalesIds = state.costSalesFilters.map((name) => {var _salesUsers$find;return (_salesUsers$find = salesUsers.find((user) => user.name === name)) === null || _salesUsers$find === void 0 ? void 0 : _salesUsers$find.id;}).filter(Boolean);
     const selectedSuppliers = state.costSupplierFilters.map((name) => name === COST_UNASSIGNED_SUPPLIER ? "__EMPTY__" : name);
     const response = await latestApiFetch("cost-control", `/api/cost-control${queryString({
       q: state.costQuery,
@@ -4593,14 +4594,14 @@ async function loadCostControl(force = false) {
       suppliers: selectedSuppliers.join(","),
       salesUserIds: selectedSalesIds.join(","),
       status: state.costStatusFilter,
-      reconciliationStatus: state.costReconcileFilter,
+      reconciliationStatus: state.costReconcileFilter
     })}`);
     if (!response) return;
     const data = await response.json();
     if (!response.ok) throw new Error(data.error || "成本数据加载失败");
     state.costOrders = (data.orders || []).map((order) => ({
       ...order,
-      costControl: cloneCostControl(order.costControl),
+      costControl: cloneCostControl(order.costControl)
     }));
     state.costSupplierOptions = data.suppliers || state.costSupplierOptions;
     if (!state.costSalesInitialized) {
@@ -4625,14 +4626,14 @@ async function saveCostControl(orderId) {
     const response = await apiFetch(`/api/cost-control/${encodeURIComponent(orderId)}`, {
       method: "PATCH",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify(order.costControl),
+      body: JSON.stringify(order.costControl)
     });
     const data = await response.json();
     if (!response.ok) throw new Error(data.error || "成本信息保存失败");
     const index = state.costOrders.findIndex((item) => item.id === orderId);
     state.costOrders[index] = {
       ...data.order,
-      costControl: cloneCostControl(data.order.costControl),
+      costControl: cloneCostControl(data.order.costControl)
     };
     showToast("成本信息已保存");
   } catch (error) {
@@ -4668,28 +4669,28 @@ function renderCostControl() {
   const query = state.costQuery.trim().toLowerCase();
   const salesNames = Array.from(new Set(state.costOrders.map((order) => order.salesName).filter(Boolean))).sort((a, b) => a.localeCompare(b, "zh-CN"));
   const supplierNameSet = new Set();
-  state.costOrders.forEach((order) => {
-    (order.costControl?.suppliers || []).forEach((supplier) => {
+  state.costOrders.forEach((order) => {var _order$costControl4;
+    (((_order$costControl4 = order.costControl) === null || _order$costControl4 === void 0 ? void 0 : _order$costControl4.suppliers) || []).forEach((supplier) => {
       const name = String(supplier.name || "").trim();
       if (name) supplierNameSet.add(name);
     });
   });
   const supplierNames = Array.from(new Set([...(state.costSupplierOptions || []), ...supplierNameSet])).sort((a, b) => a.localeCompare(b, "zh-CN"));
-  const dateError = state.costDateFrom && state.costDateTo && state.costDateFrom > state.costDateTo
-    ? "开始日期不能晚于结束日期，请调整日期范围。"
-    : "";
-  const visibleOrders = dateError ? [] : state.costOrders.filter((order) => {
+  const dateError = state.costDateFrom && state.costDateTo && state.costDateFrom > state.costDateTo ?
+  "开始日期不能晚于结束日期，请调整日期范围。" :
+  "";
+  const visibleOrders = dateError ? [] : state.costOrders.filter((order) => {var _order$costControl5;
     const matchesQuery = !query || [
-      order.no,
-      order.customerName,
-      order.customerPhone,
-      order.salesName,
-      order.address,
-    ].some((value) => String(value || "").toLowerCase().includes(query));
-    const matchesStatus = state.costStatusFilter === "全部"
-      || (state.costStatusFilter === "已完成" ? order.status === "已完成" : order.status !== "已完成");
+    order.no,
+    order.customerName,
+    order.customerPhone,
+    order.salesName,
+    order.address].
+    some((value) => String(value || "").toLowerCase().includes(query));
+    const matchesStatus = state.costStatusFilter === "全部" || (
+    state.costStatusFilter === "已完成" ? order.status === "已完成" : order.status !== "已完成");
     const matchesSales = !state.costSalesFilters.length || state.costSalesFilters.includes(order.salesName);
-    const reconcileStatus = order.costControl?.reconciliationStatus || "未对订单";
+    const reconcileStatus = ((_order$costControl5 = order.costControl) === null || _order$costControl5 === void 0 ? void 0 : _order$costControl5.reconciliationStatus) || "未对订单";
     const matchesReconcile = state.costReconcileFilter === "全部" || reconcileStatus === state.costReconcileFilter;
     const matchesDate = costOrderDateInRange(order.date, state.costDateFrom, state.costDateTo);
     const matchesSupplier = costOrderMatchesSuppliers(order, state.costSupplierFilters);
@@ -4697,9 +4698,9 @@ function renderCostControl() {
   });
   const summary = summarizeCostOrders(visibleOrders);
   const grossMarginText = summary.grossMargin === null ? "—" : `${summary.grossMargin}%`;
-  const supplierFilterLabel = state.costSupplierFilters.length
-    ? `已选 ${state.costSupplierFilters.length} 项`
-    : "全部供应商";
+  const supplierFilterLabel = state.costSupplierFilters.length ?
+  `已选 ${state.costSupplierFilters.length} 项` :
+  "全部供应商";
   const mobileFilterLabel = `${state.costDateFrom || "不限"} 至 ${state.costDateTo || "不限"} · ${supplierFilterLabel}`;
 
   return `
@@ -4746,11 +4747,11 @@ function renderCostControl() {
           </div>
           <div class="cost-date-presets" aria-label="快捷日期">
             ${[
-              ["month", "本月"],
-              ["previousMonth", "上月"],
-              ["last7", "近7天"],
-              ["last30", "近30天"],
-            ].map(([preset, label]) => `<button type="button" class="${costDatePresetActive(preset) ? "selected" : ""}" onclick="setCostDatePreset(${jsArg(preset)})">${label}</button>`).join("")}
+  ["month", "本月"],
+  ["previousMonth", "上月"],
+  ["last7", "近7天"],
+  ["last30", "近30天"]].
+  map(([preset, label]) => `<button type="button" class="${costDatePresetActive(preset) ? "selected" : ""}" onclick="setCostDatePreset(${jsArg(preset)})">${label}</button>`).join("")}
           </div>
           <div class="cost-sales-filter cost-supplier-filter">
             <button type="button" class="select cost-sales-trigger" onclick="toggleCostSupplierMenu()">
@@ -4796,11 +4797,11 @@ function renderCostOrderCard(order) {
   const control = cloneCostControl(order.costControl);
   const totals = calculateCostDraft(order);
   const expanded = state.costExpandedOrderId === order.id;
-  const customDelivery = order.costCustomDelivery
-    || (control.deliveryPerson && !COST_DELIVERY_OPTIONS.includes(control.deliveryPerson));
-  const supplierSummary = control.suppliers.length
-    ? control.suppliers.map((supplier) => supplier.name).join("、")
-    : "未填写供应商";
+  const customDelivery = order.costCustomDelivery ||
+  control.deliveryPerson && !COST_DELIVERY_OPTIONS.includes(control.deliveryPerson);
+  const supplierSummary = control.suppliers.length ?
+  control.suppliers.map((supplier) => supplier.name).join("、") :
+  "未填写供应商";
   return `
     <article class="cost-order-card ${expanded ? "is-expanded" : ""}" data-cost-order="${html(order.id)}">
       <div class="cost-order-head">
@@ -4838,9 +4839,9 @@ function renderCostOrderCard(order) {
           <div class="cost-section-heading"><div><strong>材料供应商</strong><span>可多选，每位供应商分别填写成本</span></div></div>
           <div class="cost-option-row">
             ${COST_SUPPLIER_OPTIONS.map((name) => {
-              const selected = control.suppliers.some((supplier) => supplier.name === name);
-              return `<button type="button" class="cost-option ${selected ? "selected" : ""}" onclick="toggleCostSupplier(${jsArg(order.id)}, ${jsArg(name)})">${html(name)}</button>`;
-            }).join("")}
+    const selected = control.suppliers.some((supplier) => supplier.name === name);
+    return `<button type="button" class="cost-option ${selected ? "selected" : ""}" onclick="toggleCostSupplier(${jsArg(order.id)}, ${jsArg(name)})">${html(name)}</button>`;
+  }).join("")}
           </div>
           <div class="cost-custom-row">
             <input class="input" data-cost-custom-supplier="${html(order.id)}" placeholder="自行填写供应商" />
@@ -4935,8 +4936,8 @@ function setRoute(route) {
   if (state.orderType !== previousType) restoreCart(state.orderType);
   ensureSalesScope();
   render();
-  if (route === "costs") loadCostControl();
-  else loadRouteData(route, true);
+  if (route === "costs") loadCostControl();else
+  loadRouteData(route, true);
 }
 
 function handleRouteClick(route) {
@@ -4963,9 +4964,9 @@ function orderActionButton(title, type, action, orderId) {
 function canCurrentUserDeleteOrder(order) {
   if (!order || !state.user) return false;
   if (isAdmin()) return true;
-  return state.user.role === "销售人员"
-    && order.status === "待确认"
-    && order.salesUserId === state.user.id;
+  return state.user.role === "销售人员" &&
+  order.status === "待确认" &&
+  order.salesUserId === state.user.id;
 }
 
 function orderMoreMenu(orderId) {
@@ -5074,8 +5075,8 @@ function repeatOrder(orderId) {
 
 async function deleteOrder(orderId) {
   const order = byId(orders, orderId);
-  if (!canCurrentUserDeleteOrder(order)) {
-    return alert(state.user?.role === "销售人员" ? "销售人员只能删除自己名下的待确认订单" : "无权删除该订单");
+  if (!canCurrentUserDeleteOrder(order)) {var _state$user12;
+    return alert(((_state$user12 = state.user) === null || _state$user12 === void 0 ? void 0 : _state$user12.role) === "销售人员" ? "销售人员只能删除自己名下的待确认订单" : "无权删除该订单");
   }
   const customer = orderCustomerForDisplay(order || {});
   if (!order || !confirm(`确定删除订单 ${order.no} 吗？\n客户：${customer.name || "-"}\n金额：${money(order.amount)}\n\n删除后订单将从业务页面和统计中隐藏。`)) return;
@@ -5099,9 +5100,9 @@ function orderCard(order) {
   const currentActualAmount = actualPaidAmount(order);
   const displayedAmount = isReturn ? Number(order.amount || 0) : effectiveOrderAmount(order);
   const hasAdjustedAmount =
-    !isReturn &&
-    currentActualAmount !== null &&
-    Math.round(currentActualAmount * 100) !== Math.round(Number(order.amount || 0) * 100);
+  !isReturn &&
+  currentActualAmount !== null &&
+  Math.round(currentActualAmount * 100) !== Math.round(Number(order.amount || 0) * 100);
   return `
     <article class="order-card order-card-polished">
       <div class="order-card-accent"></div>
@@ -5113,9 +5114,9 @@ function orderCard(order) {
             <span class="badge ${paymentStatusTone(payStatus)}">${html(payStatus)}</span>
           </div>
           ${
-            isReturn
-              ? `<strong class="order-amount">${money(displayedAmount)}</strong>`
-              : `<button
+  isReturn ?
+  `<strong class="order-amount">${money(displayedAmount)}</strong>` :
+  `<button
                   type="button"
                   class="order-amount order-amount-button${hasAdjustedAmount ? " adjusted" : ""}"
                   title="修改实际收款金额"
@@ -5124,11 +5125,11 @@ function orderCard(order) {
                 >
                   <strong>${money(displayedAmount)}</strong>
                   ${hasAdjustedAmount ? `<span class="order-original-amount">${money(order.amount)}</span>` : ""}
-                </button>`
-          }
+                </button>`}
         </div>
         <div class="order-card-meta order-card-meta-grid">
-          <span><b>客户</b>${html(customer.name || "-")}</span>
+          <span><b>客户</b>${
+  html(customer.name || "-")}</span>
           <span><b>日期</b>${html(order.date || "-")}</span>
           <span><b>销售</b>${html(salesperson.name || "-")}</span>
           <span><b>商品</b>${(order.items || []).length} 项</span>
@@ -5190,15 +5191,15 @@ function productCard(p) {
   const selectedLine = cartItemForProduct(p.id);
   const selected = Boolean(selectedLine);
   const active = isProductActive(p);
-  const quantityControl = selected
-    ? `<div class="product-card-qty" title="已选数量">
+  const quantityControl = selected ?
+  `<div class="product-card-qty" title="已选数量">
         <button type="button" onclick="event.stopPropagation();changeQty(${jsArg(p.id)},-1)">-</button>
         <input class="qty-input" type="number" min="1" step="1" inputmode="numeric" value="${Number(selectedLine.quantity || 0)}" onclick="event.stopPropagation()" onchange="setCartQuantity(${jsArg(p.id)},this.value)" onkeydown="if(event.key==='Enter')this.blur()" />
         <button type="button" onclick="event.stopPropagation();changeQty(${jsArg(p.id)},1)">+</button>
-      </div>`
-    : active
-      ? `<button class="icon-btn product-add-btn" title="加入购物车" onclick="addToCart(${jsArg(p.id)})">${svgIcon("plus")}</button>`
-      : `<span class="badge danger">停用</span>`;
+      </div>` :
+  active ?
+  `<button class="icon-btn product-add-btn" title="加入购物车" onclick="addToCart(${jsArg(p.id)})">${svgIcon("plus")}</button>` :
+  `<span class="badge danger">停用</span>`;
   return `
     <article class="product-card ${active ? "" : "disabled"} ${selected ? "selected" : ""}">
       ${productThumbnail(p, "catalog")}
@@ -5215,7 +5216,7 @@ function productCard(p) {
 
 function productModal(id) {
   const p = byId(products, id) || { cat1: "辅助商品", status: "在售", aliases: [] };
-  const aliases = Array.isArray(p.aliases) ? p.aliases.join("，") : (p.aliases || "");
+  const aliases = Array.isArray(p.aliases) ? p.aliases.join("，") : p.aliases || "";
   const imageUrls = productImageUrls(p);
   return `
     <div class="modal-backdrop">
@@ -5260,20 +5261,20 @@ function productModal(id) {
   `;
 }
 
-function assistantScopeText() {
+function assistantScopeText() {var _state$user13;
   if (isAdmin()) return "可查询全公司业务数据，成本与利润仅在管理员权限下显示";
-  return state.user?.role === "销售人员"
-    ? "只查询属于你的客户、订单和业绩数据"
-    : "按当前账号权限查询业务数据";
+  return ((_state$user13 = state.user) === null || _state$user13 === void 0 ? void 0 : _state$user13.role) === "销售人员" ?
+  "只查询属于你的客户、订单和业绩数据" :
+  "按当前账号权限查询业务数据";
 }
 
 function assistantWelcomeHtml() {
   const prompts = [
-    "查询本月销售情况",
-    "分析本月热销商品和客户",
-    "解释乳胶漆施工的注意事项",
-    "搜索最新建材行业政策",
-  ];
+  "查询本月销售情况",
+  "分析本月热销商品和客户",
+  "解释乳胶漆施工的注意事项",
+  "搜索最新建材行业政策"];
+
   return `
     <div class="xiaocai-welcome">
       <img src="./assets/xiaocai.png" alt="" />
@@ -5321,9 +5322,9 @@ function assistantInlineMarkdown(value) {
     links.push(`<a href="${html(safeUrl)}" target="_blank" rel="noopener noreferrer">${html(label)}</a>`);
     return token;
   });
-  let output = html(withTokens)
-    .replace(/`([^`\n]+)`/g, "<code>$1</code>")
-    .replace(/\*\*([^*\n]+)\*\*/g, "<strong>$1</strong>");
+  let output = html(withTokens).
+  replace(/`([^`\n]+)`/g, "<code>$1</code>").
+  replace(/\*\*([^*\n]+)\*\*/g, "<strong>$1</strong>");
   links.forEach((link, index) => {
     output = output.replace(`ASSISTANTLINK${index}TOKEN`, link);
   });
@@ -5470,7 +5471,7 @@ function toggleXiaocai() {
   if (state.assistantOpen) {
     loadXiaocaiHistory();
     scrollXiaocaiToBottom();
-    requestAnimationFrame(() => document.getElementById("xiaocaiInput")?.focus());
+    requestAnimationFrame(() => {var _document$getElementB21;return (_document$getElementB21 = document.getElementById("xiaocaiInput")) === null || _document$getElementB21 === void 0 ? void 0 : _document$getElementB21.focus();});
   }
 }
 
@@ -5482,7 +5483,7 @@ function openXiaocai() {
   render();
   loadXiaocaiHistory();
   scrollXiaocaiToBottom();
-  requestAnimationFrame(() => document.getElementById("xiaocaiInput")?.focus());
+  requestAnimationFrame(() => {var _document$getElementB22;return (_document$getElementB22 = document.getElementById("xiaocaiInput")) === null || _document$getElementB22 === void 0 ? void 0 : _document$getElementB22.focus();});
 }
 
 function handleXiaocaiKey(event) {
@@ -5551,7 +5552,7 @@ function parseXiaocaiEventPacket(packet, streamingMessage) {
 async function sendXiaocai(prompt = "") {
   if (state.assistantLoading) return;
   const input = document.getElementById("xiaocaiInput");
-  const message = String(prompt || input?.value || "").trim();
+  const message = String(prompt || (input === null || input === void 0 ? void 0 : input.value) || "").trim();
   if (!message) return;
   if (input) input.value = "";
   state.assistantLastQuestion = message;
@@ -5565,7 +5566,7 @@ async function sendXiaocai(prompt = "") {
     blocks: [],
     sources: [],
     streaming: true,
-    createdAt: new Date().toISOString(),
+    createdAt: new Date().toISOString()
   };
   state.assistantMessages.push(streamingMessage);
   render();
@@ -5577,7 +5578,7 @@ async function sendXiaocai(prompt = "") {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ message }),
-      signal: assistantAbortController.signal,
+      signal: assistantAbortController.signal
     });
     if (!response.ok) {
       const data = await response.json().catch(() => ({}));
@@ -5613,16 +5614,16 @@ async function sendXiaocai(prompt = "") {
   }
 }
 
-function stopXiaocai() {
-  assistantAbortController?.abort();
+function stopXiaocai() {var _assistantAbortContro2;
+  (_assistantAbortContro2 = assistantAbortController) === null || _assistantAbortContro2 === void 0 || _assistantAbortContro2.abort();
 }
 
 function retryXiaocai() {
   const question = state.assistantLastQuestion;
   const last = state.assistantMessages[state.assistantMessages.length - 1];
-  if (last?.role === "assistant" && String(last.id || "").startsWith("stream-")) state.assistantMessages.pop();
+  if ((last === null || last === void 0 ? void 0 : last.role) === "assistant" && String(last.id || "").startsWith("stream-")) state.assistantMessages.pop();
   const previous = state.assistantMessages[state.assistantMessages.length - 1];
-  if (previous?.role === "user" && previous.content === question) state.assistantMessages.pop();
+  if ((previous === null || previous === void 0 ? void 0 : previous.role) === "user" && previous.content === question) state.assistantMessages.pop();
   state.assistantError = "";
   sendXiaocai(question);
 }
@@ -5639,7 +5640,7 @@ async function resetXiaocaiConversation(confirmMessage) {
     state.assistantLastQuestion = "";
     state.assistantLoaded = true;
     render();
-    requestAnimationFrame(() => document.getElementById("xiaocaiInput")?.focus());
+    requestAnimationFrame(() => {var _document$getElementB23;return (_document$getElementB23 = document.getElementById("xiaocaiInput")) === null || _document$getElementB23 === void 0 ? void 0 : _document$getElementB23.focus();});
   } catch (error) {
     state.assistantError = error.message;
     render();
@@ -5674,7 +5675,7 @@ function dashboardCustomerRowsHtml(rows) {
 function dashboardRemoteDetail(data) {
   const type = state.dashboardCustomerDetail;
   if (!type) return "";
-  const rows = type === "new" ? (data.newCustomers || []) : (data.monthCustomers || []);
+  const rows = type === "new" ? data.newCustomers || [] : data.monthCustomers || [];
   const title = type === "new" ? "本月新开客户明细" : "本月下单客户明细";
   return `<section class="dashboard-customer-detail">
     <div class="dashboard-customer-detail-head"><strong>${title}</strong><button type="button" onclick="toggleDashboardCustomerDetail(${jsArg(type)})">收起</button></div>
@@ -5711,8 +5712,8 @@ function renderDashboardRemote() {
   </div>`;
 }
 
-function auditQuery() {
-  const page = state.remotePages.audit?.page || 1;
+function auditQuery() {var _state$remotePages$au;
+  const page = ((_state$remotePages$au = state.remotePages.audit) === null || _state$remotePages$au === void 0 ? void 0 : _state$remotePages$au.page) || 1;
   return queryString({ ...state.auditFilters, page, pageSize: 30 });
 }
 
@@ -5884,7 +5885,7 @@ Object.assign(window, {
   retryXiaocai,
   clearXiaocaiHistory,
   openXiaocaiRoute,
-  handleXiaocaiKey,
+  handleXiaocaiKey
 });
 
 bindGlobalClickHandlers();

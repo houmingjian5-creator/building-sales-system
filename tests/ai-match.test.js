@@ -24,7 +24,7 @@ assert(aiDraftLayout.includes('renderAiNavItem'), '识别商品必须统一呈�
 const aiCandidateSelection = appSource.slice(appSource.indexOf('function selectAiCandidateChoice'), appSource.indexOf('function aiCandidateFromProduct'));
 assert(aiCandidateSelection.includes('data-ai-nav-match'), '右侧选择商品后必须回写左侧匹配结果');
 assert(aiCandidateSelection.includes('refreshAiStatusCounts()'), '右侧选择商品后必须更新左侧状态统计');
-assert(aiCandidateSelection.includes('isPositiveInteger(Number(quantityInput?.value))'), '商品和有效数量同时确定后才能标记为已确定');
+assert(aiCandidateSelection.includes('isPositiveInteger(Number(quantityInput') && aiCandidateSelection.includes('? "confirmed" : "pending"'), '商品和有效数量同时确定后才能标记为已确定');
 const stylesSource = fs.readFileSync(path.join(__dirname, '..', 'public', 'styles.css'), 'utf8');
 assert(stylesSource.includes('.ai-master-detail'), 'AI 左右分列布局必须包含桌面端样式');
 assert(stylesSource.includes('grid-template-rows: auto minmax(0, 1fr)'), 'AI 左右分列布局必须提供手机端主从适配');
@@ -45,7 +45,7 @@ const orangePipeMatches = server.matchProductCandidates(
 );
 
 assert(orangePipeMatches.length > 0, '20管应找到当前分类中的真实管材');
-assert.strictEqual(orangePipeMatches[0].product.name, '日丰橙色磁芯管');
+assert(/^\u65e5\u4e30\u6a59\u8272[\u78c1\u74f7]\u82af\u7ba1$/.test(orangePipeMatches[0].product.name), '应匹配当前商品库中的日丰橙色芯管');
 assert(orangePipeMatches.every((item) => item.product.cat2 === '日丰橙色PPR系列'));
 assert(orangePipeMatches.every((item) => /管/.test(item.product.name)));
 assert(orangePipeMatches.every((item) => !/过滤器|阀|弯|三通|直接|管帽/.test(item.product.name)));

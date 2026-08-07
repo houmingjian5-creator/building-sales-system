@@ -3,6 +3,13 @@ const fs = require("fs");
 const path = require("path");
 const server = require("../server");
 
+assert.strictEqual(server.dateInRange("2026/8/7", "2026-08-01", "2026-08-31"), true);
+assert.strictEqual(server.dateInRange("2026-8-1", "2026/08/01", "2026/08/31"), true);
+assert.strictEqual(server.dateInRange("2026/8/31", "2026-08-01", "2026-08-31"), true);
+assert.strictEqual(server.dateInRange("2026/9/1", "2026-08-01", "2026-08-31"), false);
+assert.strictEqual(server.dateInRange("2026/2/30", "2026-02-01", "2026-02-28"), false);
+assert.strictEqual(server.dateInRange("", "", ""), true);
+
 assert.strictEqual(server.isCostControlOrder({
   no: "ORD1001",
   type: "sale",

@@ -61,7 +61,7 @@ const ensureSalesScopeSource = appSource.slice(
   appSource.indexOf("function ensureSalesScope"),
   appSource.indexOf("function setRoute", appSource.indexOf("function ensureSalesScope"))
 );
-assert(!ensureSalesScopeSource.includes("allowedCustomers[0]?.id"), "销售范围刷新时不能自动选择首位客户");
+assert(!ensureSalesScopeSource.includes("allowedCustomers[0]"), "销售范围刷新时不能自动选择首位客户");
 
 const customerCardSource = appSource.slice(
   appSource.indexOf("function customerCard"),
