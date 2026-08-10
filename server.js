@@ -493,6 +493,22 @@ function dashboardPayload(db, user, salesFilters) {
     const category = String(product.cat1 || "");
     if (category) categoryCounts[category] = (categoryCounts[category] || 0) + 1;
   });
+  const daysInMonth = now.getDate();
+  const trend = [];
+  for (let day = 1; day <= daysInMonth; day += 1) {
+    const dayOrders = monthPerformance.filter((order) => {
+      const date = dashboardOrderDate(order.date);
+      return date && date.getDate() === day;
+    });
+    const month = String(now.getMonth() + 1).padStart(2, "0");
+    const dateDay = String(day).padStart(2, "0");
+    trend.push({
+      date: `${now.getFullYear()}-${month}-${dateDay}`,
+      label: `${now.getMonth() + 1}/${day}`,
+      sales: dayOrders.reduce((sum, order) => sum + dashboardPerformanceAmount(order), 0),
+      orders: dayOrders.length,
+    });
+  }
   return {
     metrics: {
       monthSales: monthPerformance.reduce((sum, order) => sum + dashboardPerformanceAmount(order), 0),
@@ -506,6 +522,7 @@ function dashboardPayload(db, user, salesFilters) {
     monthCustomers: customerRows(monthCustomerIds),
     newCustomers: customerRows(newCustomerIds),
     recentOrders: scopedOrders.slice().sort((a, b) => String(b.date || b.createdAt || "").localeCompare(String(a.date || a.createdAt || ""))).slice(0, 4).map(publicOrder),
+    trend,
     categoryCounts,
     generatedAt: now.toISOString(),
   };

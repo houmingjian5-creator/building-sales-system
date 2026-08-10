@@ -44,6 +44,7 @@ assert(dashboardLoader.includes('salesUserIds: state.dashboardSalesFilters.join(
 assert(remoteDashboard.includes("metrics.monthOrderCount"), "本月订单数必须使用服务器有效订单统计");
 assert(remoteDashboard.includes("metrics.todayOrderCount"), "今日订单数必须使用服务器有效订单统计");
 assert(remoteDashboard.includes("metrics.monthSales"), "概览金额必须使用服务器实际金额口径");
+assert(remoteDashboard.includes("dashboardTrendHtml"), "销售概览必须展示销售额和订单数趋势");
 assert(appSource.includes('data.newCustomers || []'), "新开客户必须使用服务器首次有效下单统计");
 assert(!appSource.includes("function customerOpenedDate"), "新开客户不能再优先按建档时间计算");
 

@@ -73,6 +73,7 @@ const state = {
   dashboardSalesFilters: [],
   dashboardSalesMenuOpen: false,
   dashboardCustomerDetail: "",
+  dashboardTrendMetric: "sales",
   dashboardData: null,
   dashboardLoading: false,
   productCategories: {},
@@ -89,6 +90,7 @@ const state = {
 };
 
 let inputRenderTimer = null;
+let toastTimer = null;
 let assistantAbortController = null;
 let assistantStageTimer = null;
 
@@ -383,31 +385,26 @@ function orderItemDetails(item = {}) {
 
 function showToast(text) {
   state.toast = text;
-  render();
-  setTimeout(() => {
+  const shell = document.querySelector(".app-shell");
+  let toast = document.querySelector(".toast");
+  if (shell && !toast) {
+    toast = document.createElement("div");
+    toast.className = "toast";
+    shell.prepend(toast);
+  }
+  if (toast) toast.textContent = `✓ ${text}`;
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => {
     state.toast = "";
-    render();
+    const current = document.querySelector(".toast");
+    if (current) current.remove();
   }, 1800);
-}
-
-function renderKeepingInput(inputId, selectionStart, selectionEnd) {
-  render();
-  setTimeout(() => {
-    const input = document.getElementById(inputId);
-    if (!input) return;
-    input.focus();
-    if (typeof input.setSelectionRange === "function") {
-      input.setSelectionRange(selectionStart, selectionEnd);
-    }
-  }, 0);
 }
 
 function scheduleInputRender(key, value, inputId, selectionStart, selectionEnd) {
   state[key] = value;
   const input = document.getElementById(inputId);
   if ((input === null || input === void 0 ? void 0 : input.dataset.composing) === "true") return;
-  clearTimeout(inputRenderTimer);
-  inputRenderTimer = setTimeout(() => renderKeepingInput(inputId, selectionStart, selectionEnd), 180);
 }
 
 function bindTextCompositionGuards() {
@@ -433,7 +430,7 @@ function updatePageQuery(input) {
   resetPage("customers");
   if (input.dataset.composing === "true") return;
   clearTimeout(inputRenderTimer);
-  inputRenderTimer = setTimeout(() => loadCustomers().then(render).catch((error) => alert(error.message)), 220);
+  inputRenderTimer = setTimeout(() => loadCustomers().then(renderCustomerResults).catch((error) => alert(error.message)), 220);
 }
 
 function toggleLoginPassword() {var _document$getElementB4, _document$getElementB5;
@@ -1221,7 +1218,7 @@ function renderUsers() {
   const list = filteredUsers();
   return `
     <div class="toolbar">
-      <input id="userSearchInput" class="input" placeholder="搜索姓名/手机号/角色" value="${state.query}" oninput="updatePageQuery(this)" />
+      <input id="userSearchInput" class="input" placeholder="搜索姓名/手机号/角色" value="${state.query}" oninput="updateUserQuery(this)" />
       <div class="spacer"></div>
       <button class="btn primary" onclick="openModal('user')">＋ 添加人员</button>
     </div>
@@ -1243,6 +1240,19 @@ function renderUsers() {
 function filteredUsers() {
   const q = state.query.trim();
   return salesUsers.filter((u) => !q || [u.name, u.phone, u.role].some((v) => v.includes(q)));
+}
+
+function updateUserQuery(input) {
+  state.query = input.value;
+  const list = filteredUsers();
+  const tableBody = document.querySelector(".user-table tbody");
+  const mobileList = document.querySelector(".user-mobile-list");
+  const template = document.createElement("template");
+  template.innerHTML = renderUsers();
+  const nextBody = template.content.querySelector(".user-table tbody");
+  const nextMobileList = template.content.querySelector(".user-mobile-list");
+  if (tableBody && nextBody) tableBody.replaceWith(nextBody);
+  if (mobileList && nextMobileList) mobileList.replaceWith(nextMobileList);
 }
 
 function roleDesc(role) {
@@ -1859,6 +1869,7 @@ function documentModal(id) {
               <div class="doc-address"><span>地址：</span>${html(orderAddressForDisplay(order, c) || "-")}</div>
             </div>
             <table><thead><tr><th>编号</th><th>商品名称</th><th>单位</th><th>数量</th><th>单价</th><th>金额</th></tr></thead><tbody>${rows.map((row) => row.empty ? `<tr><td>${row.index}</td><td></td><td></td><td></td><td></td><td></td></tr>` : `<tr><td>${row.index}</td><td>${html(row.name)}</td><td>${html(row.unit)}</td><td>${row.quantity}</td><td>${money(row.price)}</td><td>${money(row.amount)}</td></tr>`).join("")}</tbody></table>
+            <div class="order-document-mobile-items">${rows.filter((row) => !row.empty).map((row) => `<article><span class="document-item-index">${row.index}</span><div><strong>${html(row.name)}</strong><small>${html(row.spec || "无规格")} · ${html(row.unit || "-")}</small><span>数量 ${html(row.quantity)} × ${money(row.price)}</span></div><b>${money(row.amount)}</b></article>`).join("")}</div>
             <div class="doc-bottom">
               <div><strong>合计大写：</strong>${amountToChinese(order.amount)}<br /><strong>销售电话：</strong>${html((s === null || s === void 0 ? void 0 : s.phone) || "-")}</div>
               <div class="doc-total"><span>此单合计金额：</span><strong>${money(order.amount)}</strong></div>
@@ -2945,10 +2956,22 @@ function renderCustomers() {
       ${canChooseSalesperson() ? `<select class="select compact-select" onchange="updateCustomerOwnerFilter(this.value)">${salesFilterOptions(state.customerOwnerFilter)}</select>` : ""}
       <button class="btn primary" onclick="openModal('customer')">＋ 新增客户</button>
     </div>
-    <div class="mobile-table-head customer-mobile-head"><span>客户 / 联系方式</span><span>成交数据</span><span>操作</span></div>
-    <div class="customer-list">${list.length ? list.map(customerCard).join("") : `<div class="empty">没有符合条件的客户</div>`}</div>
-    ${remote ? paginationControls("customers", remote.page, remote.totalPages, remote.total) : ""}
+    <div id="customerResultsPanel">${customerResultsHtml(list, remote)}</div>
   `;
+}
+
+function customerResultsHtml(list, remote) {
+  return `<div class="mobile-table-head customer-mobile-head"><span>客户 / 联系方式</span><span>成交数据</span><span>操作</span></div>
+    <div class="customer-list">${list.length ? list.map(customerCard).join("") : `<div class="empty">没有符合条件的客户</div>`}</div>
+    ${remote ? paginationControls("customers", remote.page, remote.totalPages, remote.total) : ""}`;
+}
+
+function renderCustomerResults() {
+  const container = document.getElementById("customerResultsPanel");
+  if (!container) return;
+  const remote = state.remotePages.customers;
+  const list = remote ? remote.items : visibleCustomers();
+  container.innerHTML = customerResultsHtml(list, remote);
 }
 
 const ORDER_STATUS_FILTERS = ["全部", "待确认", "已确认", "已发货", "已完成", "已取消"];
@@ -3080,7 +3103,10 @@ function updateProductQuery(input) {
   if (state.route === "products") renderProductTableResults();
   if (state.route === "create" || state.route === "returns") renderCreateProductResults();
   clearTimeout(inputRenderTimer);
-  inputRenderTimer = setTimeout(() => loadProductsForRoute(state.route).then(render).catch((error) => alert(error.message)), 220);
+  inputRenderTimer = setTimeout(() => loadProductsForRoute(state.route).then(() => {
+    if (state.route === "products") renderProductTableResults();
+    if (state.route === "create" || state.route === "returns") renderCreateProductResults();
+  }).catch((error) => alert(error.message)), 220);
 }
 
 function setProductCategory(category) {
@@ -3105,7 +3131,7 @@ function updateOrderQuery(input) {
   resetPage("orders");
   if (input.dataset.composing === "true") return;
   clearTimeout(inputRenderTimer);
-  inputRenderTimer = setTimeout(() => loadOrders().then(render).catch((error) => alert(error.message)), 220);
+  inputRenderTimer = setTimeout(() => loadOrders().then(renderOrderResults).catch((error) => alert(error.message)), 220);
 }
 
 function updateOrderSalesFilter(value) {
@@ -3215,8 +3241,9 @@ function productTableResultsHtml(list, pageData, canManage = isAdmin(), canExpor
 function renderProductTableResults() {
   const container = document.getElementById("productTableResults");
   if (!container) return;
-  const list = filteredProducts();
-  const pageData = paginateList(list, "products", EDIT_PAGE_SIZES.products);
+  const remote = state.remotePages.products;
+  const list = remote ? remote.items : filteredProducts();
+  const pageData = remote ? { items: remote.items, page: remote.page, pageSize: remote.pageSize, total: remote.total, totalPages: remote.totalPages, start: (remote.page - 1) * remote.pageSize } : paginateList(list, "products", EDIT_PAGE_SIZES.products);
   container.innerHTML = productTableResultsHtml(list, pageData);
 }
 
@@ -3480,10 +3507,23 @@ function renderOrders() {
       <div class="spacer"></div>
       <button class="btn primary" onclick="state.orderType='sale';setRoute('create')">开单</button>
     </div>
-    <div class="mobile-table-head order-mobile-head"><span>订单 / 客户</span><span>金额 / 状态</span><span>操作</span></div>
-    <div class="order-list">${pageData.items.length ? pageData.items.map(orderCard).join("") : `<div class="empty">没有符合条件的订单</div>`}</div>
-    ${paginationControls("orders", pageData.page, pageData.totalPages, pageData.total)}
+    <div id="orderResultsPanel">${orderResultsHtml(pageData)}</div>
   `;
+}
+
+function orderResultsHtml(pageData) {
+  return `<div class="mobile-table-head order-mobile-head"><span>订单 / 客户</span><span>金额 / 状态</span><span>操作</span></div>
+    <div class="order-list">${pageData.items.length ? pageData.items.map(orderCard).join("") : `<div class="empty">没有符合条件的订单</div>`}</div>
+    ${paginationControls("orders", pageData.page, pageData.totalPages, pageData.total)}`;
+}
+
+function renderOrderResults() {
+  const container = document.getElementById("orderResultsPanel");
+  if (!container) return;
+  const remote = state.remotePages.orders;
+  const list = remote ? remote.items : visibleOrders();
+  const pageData = remote ? { items: remote.items, page: remote.page, pageSize: remote.pageSize, total: remote.total, totalPages: remote.totalPages, start: (remote.page - 1) * remote.pageSize } : paginateList(list, "orders", EDIT_PAGE_SIZES.orders);
+  container.innerHTML = orderResultsHtml(pageData);
 }
 
 async function patchOrder(id, payload, successText) {
@@ -3877,13 +3917,16 @@ function refreshEditProductPicker(restoreSearchFocus = false) {
   const modalBody = document.querySelector(".edit-order-modal .modal-body");
   if (!picker || !modalBody) return;
   const scrollTop = modalBody.scrollTop;
-  picker.outerHTML = renderEditProductPicker();
-  modalBody.scrollTop = scrollTop;
   if (restoreSearchFocus) {
-    const input = document.getElementById("editProductSearch");
-    input === null || input === void 0 || input.focus();
-    input === null || input === void 0 || input.setSelectionRange(input.value.length, input.value.length);
+    const template = document.createElement("template");
+    template.innerHTML = renderEditProductPicker();
+    const currentResults = picker.querySelector(".edit-product-results");
+    const nextResults = template.content.querySelector(".edit-product-results");
+    if (currentResults && nextResults) currentResults.replaceWith(nextResults);
+  } else {
+    picker.outerHTML = renderEditProductPicker();
   }
+  modalBody.scrollTop = scrollTop;
 }
 
 function addEditOrderProduct(productId) {
@@ -4401,6 +4444,15 @@ function rerenderCostControl() {
   requestAnimationFrame(() => window.scrollTo(0, scrollTop));
 }
 
+function renderCostLiveResults() {
+  const current = document.getElementById("costLiveResults");
+  if (!current) return;
+  const template = document.createElement("template");
+  template.innerHTML = renderCostControl();
+  const next = template.content.querySelector("#costLiveResults");
+  if (next) current.replaceWith(next);
+}
+
 function toggleCostSupplier(orderId, name) {
   const order = costOrderById(orderId);
   if (!order) return;
@@ -4578,12 +4630,12 @@ function setCostReconcileFilter(value) {
 async function loadCostControl(force = false) {
   if (!isAdmin() || state.costLoading && !force || state.costLoaded && !force) return;
   if (state.costDateFrom && state.costDateTo && state.costDateFrom > state.costDateTo) {
-    if (state.route === "costs") render();
+    if (state.route === "costs") renderCostLiveResults();
     return;
   }
   state.costLoading = true;
   state.costError = "";
-  if (state.route === "costs") render();
+  if (state.route === "costs" && !document.getElementById("costLiveResults")) render();
   try {
     const selectedSalesIds = state.costSalesFilters.map((name) => {var _salesUsers$find;return (_salesUsers$find = salesUsers.find((user) => user.name === name)) === null || _salesUsers$find === void 0 ? void 0 : _salesUsers$find.id;}).filter(Boolean);
     const selectedSuppliers = state.costSupplierFilters.map((name) => name === COST_UNASSIGNED_SUPPLIER ? "__EMPTY__" : name);
@@ -4613,7 +4665,10 @@ async function loadCostControl(force = false) {
     state.costError = error.message || "成本数据加载失败";
   } finally {
     state.costLoading = false;
-    if (state.route === "costs") render();
+    if (state.route === "costs") {
+      if (document.getElementById("costLiveResults")) renderCostLiveResults();else
+      render();
+    }
   }
 }
 
@@ -4778,6 +4833,7 @@ function renderCostControl() {
         </div>
       </div>
     </section>
+    <div id="costLiveResults">
     ${dateError ? `<div class="cost-inline-error">${html(dateError)}</div>` : ""}
     <div class="cost-summary-grid">
       <div class="cost-summary-item"><span>实际付款合计</span><strong>${dateError ? "—" : money(summary.revenue)}</strong></div>
@@ -4789,6 +4845,7 @@ function renderCostControl() {
     ${state.costError ? `<div class="cost-inline-error">${html(state.costError)}</div>` : ""}
     <div class="cost-order-list">
       ${dateError ? `<div class="card card-pad cost-empty">请先修正日期范围</div>` : visibleOrders.length ? visibleOrders.map(renderCostOrderCard).join("") : `<div class="card card-pad cost-empty">没有符合条件的订单</div>`}
+    </div>
     </div>
   `;
 }
@@ -5683,6 +5740,57 @@ function dashboardRemoteDetail(data) {
   </section>`;
 }
 
+function dashboardTrendHtml(trend) {
+  const metric = state.dashboardTrendMetric === "orders" ? "orders" : "sales";
+  const points = Array.isArray(trend) ? trend : [];
+  const values = points.map((item) => Number(item[metric] || 0));
+  const maximum = Math.max(1, ...values);
+  const width = 640;
+  const height = 168;
+  const left = 24;
+  const right = width - 24;
+  const top = 18;
+  const bottom = 132;
+  const chartPoints = points.map((item, index) => {
+    const x = points.length <= 1 ? left : left + (right - left) * index / (points.length - 1);
+    const y = bottom - (bottom - top) * Number(item[metric] || 0) / maximum;
+    return `${x.toFixed(1)},${y.toFixed(1)}`;
+  }).join(" ");
+  const labelStep = Math.max(1, Math.ceil(points.length / 6));
+  const labels = points.map((item, index) => ({ item, index })).filter((entry) => entry.index % labelStep === 0 || entry.index === points.length - 1);
+  const total = values.reduce((sum, value) => sum + value, 0);
+  return `<section class="dashboard-trend-card" aria-label="本月经营趋势">
+    <div class="dashboard-trend-head"><div><strong>经营趋势</strong><span>本月每日${metric === "sales" ? "销售额" : "订单数"}</span></div>
+      <div class="dashboard-trend-tabs"><button type="button" class="${metric === "sales" ? "active" : ""}" onclick="setDashboardTrendMetric('sales')">销售额</button><button type="button" class="${metric === "orders" ? "active" : ""}" onclick="setDashboardTrendMetric('orders')">订单数</button></div>
+    </div>
+    <div class="dashboard-trend-total"><span>本月累计</span><strong>${metric === "sales" ? money(total) : `${total} 单`}</strong></div>
+    <div class="dashboard-trend-chart"><svg viewBox="0 0 ${width} ${height}" role="img" aria-label="本月${metric === "sales" ? "销售额" : "订单数"}趋势图">
+      <line x1="${left}" y1="${bottom}" x2="${right}" y2="${bottom}" class="trend-axis"></line>
+      <line x1="${left}" y1="${top + (bottom - top) / 2}" x2="${right}" y2="${top + (bottom - top) / 2}" class="trend-grid"></line>
+      ${chartPoints ? `<polyline points="${chartPoints}" class="trend-line"></polyline>` : ""}
+      ${points.map((item, index) => {
+    const coordinate = chartPoints.split(" ")[index] || `${left},${bottom}`;
+    const parts = coordinate.split(",");
+    return Number(item[metric] || 0) ? `<circle cx="${parts[0]}" cy="${parts[1]}" r="3.5"><title>${html(item.label)}：${metric === "sales" ? money(item.sales) : `${item.orders} 单`}</title></circle>` : "";
+  }).join("")}
+      ${labels.map((entry) => {
+    const x = points.length <= 1 ? left : left + (right - left) * entry.index / (points.length - 1);
+    return `<text x="${x.toFixed(1)}" y="156" text-anchor="middle">${html(entry.item.label)}</text>`;
+  }).join("")}
+    </svg></div>
+  </section>`;
+}
+
+function renderDashboardTrend() {
+  const container = document.getElementById("dashboardTrendPanel");
+  if (container) container.innerHTML = dashboardTrendHtml((state.dashboardData && state.dashboardData.trend) || []);
+}
+
+function setDashboardTrendMetric(metric) {
+  state.dashboardTrendMetric = metric === "orders" ? "orders" : "sales";
+  renderDashboardTrend();
+}
+
 function renderDashboardRemote() {
   const data = state.dashboardData;
   if (!data) return `<div class="card card-pad"><div class="empty">${html(state.dashboardError || (state.dashboardLoading ? "正在加载销售概览…" : "销售概览尚未加载"))}</div></div>`;
@@ -5705,6 +5813,7 @@ function renderDashboardRemote() {
       ${dashboardMetric("今日下单客户数", metrics.todayCustomerCount || 0, "客", "gold", "今日有效销售单客户去重")}
       ${dashboardMetric("今日订单数量", metrics.todayOrderCount || 0, "单", "red", "除待确认和已取消外的全部订单")}
     </div>
+    <div id="dashboardTrendPanel">${dashboardTrendHtml(data.trend || [])}</div>
   </section>
   <div class="grid two-col" style="margin-top:16px">
     <div class="card card-pad"><h3>最近订单</h3><div class="order-list">${(data.recentOrders || []).map(orderCard).join("") || `<div class="empty">暂无订单</div>`}</div></div>
@@ -5733,7 +5842,7 @@ async function loadAuditLogs(page) {
     state.auditError = error.message;
   } finally {
     state.auditLoading = false;
-    if (state.route === "audit") render();
+    if (state.route === "audit") renderAuditResults();
   }
 }
 
@@ -5755,8 +5864,25 @@ function auditSummaryHtml(item) {
   return `<details class="audit-change-detail"><summary>${html(summary)}</summary><pre>修改前：${html(JSON.stringify(item.before || {}, null, 2))}\n修改后：${html(JSON.stringify(item.after || {}, null, 2))}</pre></details>`;
 }
 
-function renderAuditCenter() {
+function auditResultsHtml() {
   const page = state.remotePages.audit || { page: 1, totalPages: 0, total: 0 };
+  return `${state.auditError ? `<div class="card card-pad audit-error">${html(state.auditError)}</div>` : ""}
+    <div class="card table-wrap audit-table"><table><thead><tr><th>时间</th><th>操作人员</th><th>操作</th><th>业务 / 编号</th><th>修改摘要</th><th>结果</th><th>请求编号</th></tr></thead><tbody>
+      ${state.auditItems.map((item) => `<tr><td>${html(String(item.createdAt || "").replace("T", " ").slice(0, 19))}</td><td><strong>${html(item.actorName || "-")}</strong><small>${html(item.actorRole || "")}</small></td><td>${html(item.action || "-")}</td><td>${html(item.entityType || "-")}<small>${html(item.entityId || "")}</small></td><td>${auditSummaryHtml(item)}</td><td><span class="badge ${item.result === "成功" ? "success" : "danger"}">${html(item.result || "-")}</span></td><td><code>${html(item.requestId || "-")}</code></td></tr>`).join("") || `<tr><td colspan="7"><div class="empty">${state.auditLoading ? "正在加载…" : "暂无操作日志"}</div></td></tr>`}
+    </tbody></table></div>
+    ${paginationControls("audit", page.page, page.totalPages, page.total)}`;
+}
+
+function renderAuditResults() {
+  const container = document.getElementById("auditResultsPanel");
+  if (!container) {
+    if (state.route === "audit") render();
+    return;
+  }
+  container.innerHTML = auditResultsHtml();
+}
+
+function renderAuditCenter() {
   return `<section class="audit-page">
     <div class="card card-pad audit-filter-card">
       <div class="audit-filter-grid">
@@ -5769,11 +5895,7 @@ function renderAuditCenter() {
         <button class="btn" onclick="exportAuditLogs()">导出 CSV</button>
       </div>
     </div>
-    ${state.auditError ? `<div class="card card-pad audit-error">${html(state.auditError)}</div>` : ""}
-    <div class="card table-wrap audit-table"><table><thead><tr><th>时间</th><th>操作人员</th><th>操作</th><th>业务 / 编号</th><th>修改摘要</th><th>结果</th><th>请求编号</th></tr></thead><tbody>
-      ${state.auditItems.map((item) => `<tr><td>${html(String(item.createdAt || "").replace("T", " ").slice(0, 19))}</td><td><strong>${html(item.actorName || "-")}</strong><small>${html(item.actorRole || "")}</small></td><td>${html(item.action || "-")}</td><td>${html(item.entityType || "-")}<small>${html(item.entityId || "")}</small></td><td>${auditSummaryHtml(item)}</td><td><span class="badge ${item.result === "成功" ? "success" : "danger"}">${html(item.result || "-")}</span></td><td><code>${html(item.requestId || "-")}</code></td></tr>`).join("") || `<tr><td colspan="7"><div class="empty">${state.auditLoading ? "正在加载…" : "暂无操作日志"}</div></td></tr>`}
-    </tbody></table></div>
-    ${paginationControls("audit", page.page, page.totalPages, page.total)}
+    <div id="auditResultsPanel">${auditResultsHtml()}</div>
   </section>`;
 }
 

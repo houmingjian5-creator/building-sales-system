@@ -4,6 +4,8 @@ const path = require("path");
 
 const appSource = fs.readFileSync(path.join(__dirname, "../public/app.js"), "utf8");
 const stylesSource = fs.readFileSync(path.join(__dirname, "../public/styles.css"), "utf8");
+const businessStylesSource = fs.readFileSync(path.join(__dirname, "../public/business-pages.css"), "utf8");
+const combinedStyles = `${stylesSource}\n${businessStylesSource}`;
 
 const renderShellSource = appSource.slice(
   appSource.indexOf("function render()"),
@@ -70,8 +72,8 @@ assert(stylesSource.includes("width: min(520px"), "电脑购物车抽屉宽度�
 assert(stylesSource.includes("max-width: 1179px"), "中等宽度窗口必须在控件拥挤前切换单列商品卡");
 assert(mobileStyles.includes("env(safe-area-inset-bottom)"), "手机底部控件必须兼容全面屏安全区");
 assert(mobileStyles.includes(".modal-backdrop"), "手机弹层必须覆盖底部导航和结算条");
-assert(mobileStyles.includes(".dashboard-metric-grid.month-metrics"), "手机概览指标必须单独优化");
-assert(mobileStyles.includes("grid-template-columns: repeat(2"), "手机概览指标必须采用两列布局");
+assert(businessStylesSource.includes("Dashboard workbench (option E)"), "销售概览必须采用已确认的 E 版经营工作台");
+assert(businessStylesSource.includes(".dashboard-trend-card"), "手机概览必须展示经营趋势卡片");
 assert(renderShellSource.includes('class="side-assistant-entry'), "电脑侧栏必须包含固定的小材入口");
 assert(renderShellSource.includes('class="side-user-avatar"'), "窄屏电脑侧栏必须保留登录人头像标识");
 assert(renderShellSource.includes('title="小材 AI 业务助手"'), "窄屏小材入口必须提供可识别提示");
@@ -86,13 +88,15 @@ assert(mobileStyles.includes(".product-card > :nth-child(2)"), "手机商品文�
 assert(mobileStyles.includes(".product-card .product-thumb-button.catalog"), "手机商品缩略图尺寸必须与卡片网格列一致");
 assert(appSource.includes('<td class="product-actions-cell"><div class="row-actions">'), "商品表格操作按钮必须包在正常表格单元格内，避免手机端错行");
 assert(appSource.includes('class="product-mobile-list"'), "产品管理必须提供不依赖横向表格的手机商品列表");
-assert(mobileStyles.includes("Mobile table-card hybrid layout (option D)"), "手机端必须采用已确认的 D 版表卡混合布局");
-assert(mobileStyles.includes(".create-product-column .product-card-qty"), "D 版已选商品数量控件必须固定在商品行右侧");
+assert(businessStylesSource.includes("Mobile compact card layout (option A)"), "手机端必须采用已确认的 A 版紧凑卡片布局");
+assert(businessStylesSource.includes(".route-create .product-card .product-card-qty"), "A 版商品数量控件必须占用独立区域");
 assert(mobileStyles.includes(".route-products .product-table"), "手机产品管理必须隐藏桌面宽表格");
 assert(mobileStyles.includes(".product-mobile-item"), "手机产品管理必须渲染紧凑商品卡片");
 assert(mobileStyles.includes(".create-product-layout,"), "开单商品列必须限制手机端宽度，避免分类标签撑宽页面");
 assert(mobileStyles.includes(".mobile-product-filters .subcategory-panel-head"), "手机二级分类必须移除占高的大标题面板");
 assert(appSource.includes('class="user-mobile-list"'), "人员管理必须提供手机表卡列表");
 assert(mobileStyles.includes(".route-costs .cost-summary-grid"), "成本控制五项指标必须提供手机紧凑布局");
+assert(businessStylesSource.includes("nth-child(4)"), "成本控制五项指标必须按三加二方式分行");
+assert(combinedStyles.includes(".order-document-mobile-items"), "订单详情必须提供手机逐商品明细");
 
 console.log("Mobile sales workflow layout tests passed");

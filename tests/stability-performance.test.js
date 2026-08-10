@@ -72,6 +72,8 @@ Promise.all([firstWrite, secondWrite]).then(() => {
   assert.strictEqual(dashboard.metrics.todaySales, 80, "概览必须按所选销售和实际付款金额汇总");
   assert.strictEqual(dashboard.metrics.todayOrderCount, 1, "概览必须排除待确认订单");
   assert.strictEqual(dashboard.metrics.todayCustomerCount, 1, "概览客户数必须去重并遵守销售筛选");
+  assert(Array.isArray(dashboard.trend) && dashboard.trend.length >= now.getDate(), "概览接口必须返回本月每日经营趋势");
+  assert.strictEqual(dashboard.trend[now.getDate() - 1].sales, 80, "趋势销售额必须沿用权限和实际付款口径");
 
 const appSource = fs.readFileSync(path.join(__dirname, "../public/app.js"), "utf8");
 const functionNames = Array.from(appSource.matchAll(/^(?:async\s+)?function\s+([\w$]+)\s*\(/gm)).map((match) => match[1]);
