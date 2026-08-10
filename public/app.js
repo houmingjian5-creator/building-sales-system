@@ -4221,17 +4221,17 @@ function cartLine(item) {
         <div class="product-spec">${html(details.unit || "未填写单位")}</div>
         ${availability ? `<div class="cart-unavailable-badge">${availability} · 请删除或更换</div>` : ""}
       </div>
+      <div class="cart-line-delete">
+        ${actionButton("从购物车删除", "delete", `removeCartItem(${JSON.stringify(item.productId)})`)}
+      </div>
       <div class="cart-line-side">
-        <label class="cart-price-field"><span>单价 ¥</span><input type="number" min="0" step="0.01" inputmode="decimal" value="${normalizedCartPrice(item.price)}" onchange="setCartPrice(${jsArg(item.productId)},this.value)" onkeydown="if(event.key==='Enter')this.blur()" /></label>
+        <label class="cart-price-field"><span>单价</span><span class="cart-price-input"><b>¥</b><input type="number" min="0" step="0.01" inputmode="decimal" value="${normalizedCartPrice(item.price)}" onchange="setCartPrice(${jsArg(item.productId)},this.value)" onkeydown="if(event.key==='Enter')this.blur()" /></span></label>
         <div class="cart-line-controls">
           <button type="button" onclick="changeQty(${jsArg(item.productId)}, -1)">-</button>
           <input class="qty-input" type="number" min="1" step="1" inputmode="numeric" value="${quantity}" onchange="setCartQuantity(${jsArg(item.productId)}, this.value)" onkeydown="if(event.key==='Enter')this.blur()" />
           <button type="button" onclick="changeQty(${jsArg(item.productId)}, 1)">+</button>
         </div>
-        <div class="cart-line-bottom">
-          <strong class="cart-line-total">${money(quantity * displayPrice)}</strong>
-          ${actionButton("从购物车删除", "delete", `removeCartItem(${JSON.stringify(item.productId)})`)}
-        </div>
+        <strong class="cart-line-total">${money(quantity * displayPrice)}</strong>
       </div>
     </div>
   `;

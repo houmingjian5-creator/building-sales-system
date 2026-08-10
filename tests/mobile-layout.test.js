@@ -107,5 +107,11 @@ assert(businessStylesSource.includes(".order-document-modal .document-toolbar,.o
 assert(businessStylesSource.includes(".ai-master-list { display:flex"), "手机 AI 开单必须使用横向紧凑商品状态列表");
 assert(businessStylesSource.includes(".ai-detail-panel:not(.active)"), "手机 AI 开单只能展开当前商品详情");
 assert(businessStylesSource.includes(".product-mobile-actions { display:grid; grid-template-columns:repeat(3"), "手机产品页必须只展示三个主要操作按钮");
+assert(appSource.includes('class="cart-line-delete"'), "购物车删除按钮必须独立于单价和数量控制行");
+assert(appSource.includes('class="cart-price-input"'), "购物车单价必须使用横向金额输入容器");
+assert(businessStylesSource.includes("grid-template-columns:repeat(4,minmax(0,1fr))!important"), "E 版概览的四个月度指标必须保持同排");
+assert(businessStylesSource.includes(".route-orders .order-filter-toolbar .filter-field:last-of-type { grid-column:auto!important; }"), "手机订单三个筛选项必须保持同一行");
+assert(businessStylesSource.includes("grid-template-columns:40px minmax(0,1fr) 54px 84px!important"), "A 版产品行必须为图片、信息、价格状态和操作保留独立列");
+assert(businessStylesSource.includes("grid-template-columns:minmax(0,1fr) 112px!important"), "A 版客户行必须为操作按钮保留独立列");
 
 console.log("Mobile sales workflow layout tests passed");
