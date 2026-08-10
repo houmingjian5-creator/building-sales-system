@@ -8,6 +8,14 @@ assert(!appSource.includes("?."), "public/app.js must remain compatible with the
 assert(!appSource.includes("??"), "public/app.js must not use nullish coalescing on the production Node.js runtime");
 
 const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), "building-sales-runtime-"));
+function removeTempTree(target) {
+  if (!fs.existsSync(target)) return;
+  if (typeof fs.rmSync === "function") {
+    fs.rmSync(target, { recursive: true, force: true });
+    return;
+  }
+  fs.rmdirSync(target, { recursive: true });
+}
 process.env.RUNTIME_SESSION_PATH = path.join(tempRoot, "sessions.json");
 process.env.AUDIT_LOG_DIR = path.join(tempRoot, "audit-logs");
 
@@ -84,9 +92,9 @@ assert(appSource.includes("latestApiFetch"), "页面搜索必须取消过期请�
 const indexSource = fs.readFileSync(path.join(__dirname, "../public/index.html"), "utf8");
 assert(indexSource.includes("core.js?v="), "统一请求层必须拆分为独立静态资源");
 
-  fs.rmSync(tempRoot, { recursive: true, force: true });
+  removeTempTree(tempRoot);
   console.log("Stability, session, audit and pagination tests passed");
 }).catch((error) => {
-  fs.rmSync(tempRoot, { recursive: true, force: true });
+  removeTempTree(tempRoot);
   throw error;
 });
