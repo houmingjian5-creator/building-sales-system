@@ -35,6 +35,8 @@ assert(mobileMoreSource.includes('mobileMoreRouteButton("returns"'), "更多抽�
 assert(mobileMoreSource.includes('class="mobile-assistant-entry"'), "更多抽屉必须包含固定的小材入口");
 assert(mobileMoreSource.includes('isAdmin() ? mobileMoreRouteButton("users"'), "人员管理必须继续受管理员权限控制");
 assert(mobileMoreSource.includes('isAdmin() ? mobileMoreRouteButton("costs"'), "成本控制必须继续受管理员权限控制");
+assert(mobileMoreSource.includes("canExportProducts"), "手机产品导出必须收进更多抽屉，不能挤占产品页主操作区");
+assert(mobileMoreSource.includes("state.user.role !== \"销售人员\""), "销售人员仍不得看到手机商品导出入口");
 
 const mobileCartSource = appSource.slice(
   appSource.indexOf("function renderMobileCart"),
@@ -90,6 +92,8 @@ assert(appSource.includes('<td class="product-actions-cell"><div class="row-acti
 assert(appSource.includes('class="product-mobile-list"'), "产品管理必须提供不依赖横向表格的手机商品列表");
 assert(businessStylesSource.includes("Mobile compact card layout (option A)"), "手机端必须采用已确认的 A 版紧凑卡片布局");
 assert(businessStylesSource.includes(".route-create .product-card .product-card-qty"), "A 版商品数量控件必须占用独立区域");
+assert(businessStylesSource.includes("create-order-meta-details:not(.is-open)"), "折叠客户信息后不得遗留空白占位");
+assert(businessStylesSource.includes("position:relative!important; top:auto!important"), "手机商品筛选区不得覆盖首个商品");
 assert(mobileStyles.includes(".route-products .product-table"), "手机产品管理必须隐藏桌面宽表格");
 assert(mobileStyles.includes(".product-mobile-item"), "手机产品管理必须渲染紧凑商品卡片");
 assert(mobileStyles.includes(".create-product-layout,"), "开单商品列必须限制手机端宽度，避免分类标签撑宽页面");
@@ -98,5 +102,10 @@ assert(appSource.includes('class="user-mobile-list"'), "人员管理必须提供
 assert(mobileStyles.includes(".route-costs .cost-summary-grid"), "成本控制五项指标必须提供手机紧凑布局");
 assert(businessStylesSource.includes("nth-child(4)"), "成本控制五项指标必须按三加二方式分行");
 assert(combinedStyles.includes(".order-document-mobile-items"), "订单详情必须提供手机逐商品明细");
+assert(appSource.includes('class="order-document-mobile-view"'), "订单详情必须提供独立手机视图，不能缩放桌面票据");
+assert(businessStylesSource.includes(".order-document-modal .document-toolbar,.order-document-modal .doc-preview { display:none!important; }"), "手机订单详情必须隐藏桌面票据布局");
+assert(businessStylesSource.includes(".ai-master-list { display:flex"), "手机 AI 开单必须使用横向紧凑商品状态列表");
+assert(businessStylesSource.includes(".ai-detail-panel:not(.active)"), "手机 AI 开单只能展开当前商品详情");
+assert(businessStylesSource.includes(".product-mobile-actions { display:grid; grid-template-columns:repeat(3"), "手机产品页必须只展示三个主要操作按钮");
 
 console.log("Mobile sales workflow layout tests passed");

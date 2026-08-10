@@ -595,6 +595,7 @@ function mobileMoreRouteButton(route, label) {
 
 function renderMobileMoreSheet() {var _state$user2, _state$user3;
   if (!state.mobileMoreOpen) return "";
+  const canExportProducts = state.route === "products" && state.user && state.user.role !== "销售人员";
   return `
     <div class="mobile-sheet-layer mobile-more-layer" onclick="closeMobileMore()">
       <section class="mobile-sheet mobile-more-sheet" role="dialog" aria-modal="true" aria-label="更多功能" onclick="event.stopPropagation()">
@@ -607,6 +608,7 @@ function renderMobileMoreSheet() {var _state$user2, _state$user3;
           ${isAdmin() ? mobileMoreRouteButton("users", "人员管理") : ""}
           ${isAdmin() ? mobileMoreRouteButton("costs", "成本控制") : ""}
           ${isAdmin() ? mobileMoreRouteButton("audit", "操作日志") : ""}
+          ${canExportProducts ? `<button type="button" onclick="closeMobileMore();exportProducts('selected')" ${state.selectedProductIds.length ? "" : "disabled"}><span class="nav-icon">选</span><span>导出已选</span></button><button type="button" onclick="closeMobileMore();exportProducts('all')"><span class="nav-icon">导</span><span>导出全部</span></button>` : ""}
         </div>
         <button type="button" class="mobile-logout-button" onclick="closeMobileMore();logout()"><span class="nav-icon">退</span><span>退出登录</span></button>
       </section>
@@ -1845,11 +1847,31 @@ function documentModal(id) {
   const s = byId(salesUsers, order.salesUserId);
   const title = order.no.startsWith("TH") || order.status === "已退货" ? "退货单" : "销售订单";
   const rows = getDisplayRows(order);
+  const mobileRows = rows.filter((row) => !row.empty);
   return `
     <div class="modal-backdrop">
       <div class="modal order-document-modal">
         <div class="modal-head"><h3>订单详情 - ${title}</h3><button class="icon-btn modal-close-button" title="关闭" aria-label="关闭" onclick="closeModal()">${svgIcon("close")}</button></div>
         <div class="modal-body">
+          <section class="order-document-mobile-view">
+            <div class="order-document-mobile-summary">
+              <div class="order-document-mobile-title"><div><span>订单编号</span><strong>${html(order.no)}</strong></div><b>${html(order.status || "-")}</b></div>
+              <div class="order-document-mobile-total"><span>订单金额</span><strong>${money(order.amount)}</strong><small>共 ${mobileRows.length} 种商品</small></div>
+              <div class="order-document-mobile-meta">
+                <span><b>客户</b>${html(c.name || "-")}</span><span><b>日期</b>${html(order.date || "-")}</span>
+                <span><b>销售</b>${html((s === null || s === void 0 ? void 0 : s.name) || "-")}</span><span><b>电话</b>${html(order.phone || c.phone || "-")}</span>
+              </div>
+              <div class="order-document-mobile-address"><b>地址</b><span>${html(orderAddressForDisplay(order, c) || "-")}</span></div>
+            </div>
+            <div class="order-document-mobile-section-title"><strong>商品明细</strong><span>${mobileRows.length} 种</span></div>
+            <div class="order-document-mobile-list">${mobileRows.map((row) => `<article><span class="document-item-index">${row.index}</span><div><strong>${html(row.name)}</strong><small>${html(row.spec || "无规格")} · ${html(row.unit || "-")}</small><span>${html(row.quantity)} × ${money(row.price)}</span></div><b>${money(row.amount)}</b></article>`).join("")}</div>
+            <div class="order-document-mobile-remark"><b>备注</b><span>${html(String(order.remark || "").trim() || "无")}</span></div>
+            <div class="order-document-mobile-actions">
+              <button class="btn" onclick="printOrder('${order.id}')">${svgIcon("print")}<span>打印</span></button>
+              <button class="btn" onclick="copyOrderText('${order.id}')">${svgIcon("copy")}<span>复制文字</span></button>
+              <button class="btn primary" onclick="downloadOrderImage('${order.id}')">${svgIcon("image")}<span>导出图片</span></button>
+            </div>
+          </section>
           <div class="document-toolbar">
             <div class="document-phone"><span>销售电话</span><strong>${html((s === null || s === void 0 ? void 0 : s.phone) || c.phone || "-")}</strong></div>
             <div class="document-actions">
@@ -3169,13 +3191,17 @@ function renderProducts() {var _state$user0;
   const canManage = isAdmin();
   const canExport = ((_state$user0 = state.user) === null || _state$user0 === void 0 ? void 0 : _state$user0.role) !== "销售人员";
   return `
-    <div class="toolbar">
+    <div class="toolbar product-management-toolbar">
       <input id="productSearchInput" class="input" placeholder="搜索商品名称 / 规格 / 编码 / 别名" value="${html(state.productQuery)}" oncompositionstart="this.dataset.composing='true'" oncompositionend="this.dataset.composing='false';updateProductQuery(this)" oninput="updateProductQuery(this)" />
       <div class="spacer"></div>
-      ${canExport ? `<button id="productExportSelectedBtn" class="btn" onclick="exportProducts('selected')" ${state.selectedProductIds.length ? "" : "disabled"}>导出已选</button>
-      <button class="btn" onclick="exportProducts('all')">导出全部</button>
-      ` : ""}
-      ${canManage ? `<button class="btn" onclick="downloadProductTemplate()">下载导入模板</button><button class="btn" onclick="document.getElementById('productImportFile').click()">批量上传</button><input id="productImportFile" type="file" accept=".xlsx" hidden onchange="importProducts(this)" /><button class="btn primary" onclick="openModal('product')">新增商品</button>` : ""}
+      <div class="product-desktop-actions">
+        ${canExport ? `<button id="productExportSelectedBtn" class="btn" onclick="exportProducts('selected')" ${state.selectedProductIds.length ? "" : "disabled"}>导出已选</button><button class="btn" onclick="exportProducts('all')">导出全部</button>` : ""}
+        ${canManage ? `<button class="btn" onclick="downloadProductTemplate()">下载导入模板</button><button class="btn" onclick="document.getElementById('productImportFile').click()">批量上传</button><button class="btn primary" onclick="openModal('product')">新增商品</button>` : ""}
+      </div>
+      ${canManage ? `<input id="productImportFile" type="file" accept=".xlsx" hidden onchange="importProducts(this)" />` : ""}
+      <div class="product-mobile-actions">
+        ${canManage ? `<button class="btn" onclick="downloadProductTemplate()">下载模板</button><button class="btn" onclick="document.getElementById('productImportFile').click()">批量上传</button><button class="btn primary" onclick="openModal('product')">新增商品</button>` : ""}
+      </div>
     </div>
     ${categoryTabs()}
     ${subcategoryTabs()}
