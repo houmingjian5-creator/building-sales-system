@@ -5,7 +5,8 @@ const path = require("path");
 const appSource = fs.readFileSync(path.join(__dirname, "../public/app.js"), "utf8");
 const stylesSource = fs.readFileSync(path.join(__dirname, "../public/styles.css"), "utf8");
 const businessStylesSource = fs.readFileSync(path.join(__dirname, "../public/business-pages.css"), "utf8");
-const combinedStyles = `${stylesSource}\n${businessStylesSource}`;
+const mobileV2Source = fs.readFileSync(path.join(__dirname, "../public/mobile-v2.css"), "utf8");
+const combinedStyles = `${stylesSource}\n${businessStylesSource}\n${mobileV2Source}`;
 
 const renderShellSource = appSource.slice(
   appSource.indexOf("function render()"),
@@ -13,6 +14,7 @@ const renderShellSource = appSource.slice(
 );
 assert(renderShellSource.includes("renderMobileNavigation()"), "登录后页面必须渲染手机底部导航");
 assert(renderShellSource.includes("renderMobileMoreSheet()"), "登录后页面必须渲染手机更多功能抽屉");
+assert(renderShellSource.includes("renderMobileFilterSheet()"), "登录后页面必须渲染统一筛选抽屉");
 assert(renderShellSource.includes("renderMobileCart()"), "登录后页面必须渲染手机购物车入口");
 assert(renderShellSource.includes("has-mobile-cart"), "开单页面必须标记手机购物车占位状态");
 assert(renderShellSource.includes("route-${html(state.route)}"), "页面外壳必须提供路由类以隔离各手机页面布局");
@@ -64,6 +66,7 @@ const finalSetRoute = appSource.slice(
 );
 assert(finalSetRoute.includes("state.mobileMoreOpen = false"), "切换页面时必须关闭更多抽屉");
 assert(finalSetRoute.includes("state.mobileCartOpen = false"), "切换页面时必须关闭购物车抽屉");
+assert(finalSetRoute.includes('state.mobileFilterOpen = ""'), "切换页面时必须关闭筛选抽屉");
 
 const mobileStyles = stylesSource.slice(stylesSource.indexOf("/* Mobile sales workflow */"));
 assert(mobileStyles.includes("@media (max-width: 720px)"), "手机布局断点必须统一为 720px");
@@ -104,14 +107,17 @@ assert(businessStylesSource.includes("nth-child(4)"), "成本控制五项指标�
 assert(combinedStyles.includes(".order-document-mobile-items"), "订单详情必须提供手机逐商品明细");
 assert(appSource.includes('class="order-document-mobile-view"'), "订单详情必须提供独立手机视图，不能缩放桌面票据");
 assert(businessStylesSource.includes(".order-document-modal .document-toolbar,.order-document-modal .doc-preview { display:none!important; }"), "手机订单详情必须隐藏桌面票据布局");
-assert(businessStylesSource.includes(".ai-master-list { display:flex"), "手机 AI 开单必须使用横向紧凑商品状态列表");
-assert(businessStylesSource.includes(".ai-detail-panel:not(.active)"), "手机 AI 开单只能展开当前商品详情");
-assert(businessStylesSource.includes(".product-mobile-actions { display:grid; grid-template-columns:repeat(3"), "手机产品页必须只展示三个主要操作按钮");
+assert(mobileV2Source.includes(".mobile-v2 .ai-master-list { display: grid; grid-template-columns: 1fr"), "手机 AI 开单必须采用全屏单列工作区");
+assert(appSource.includes('class="mobile-page-more"'), "手机产品页低频批量操作必须进入页面更多菜单");
 assert(appSource.includes('class="cart-line-delete"'), "购物车删除按钮必须独立于单价和数量控制行");
 assert(appSource.includes('class="cart-price-input"'), "购物车单价必须使用横向金额输入容器");
-assert(businessStylesSource.includes("grid-template-columns:repeat(4,minmax(0,1fr))!important"), "E 版概览的四个月度指标必须保持同排");
-assert(businessStylesSource.includes(".route-orders .order-filter-toolbar .filter-field:last-of-type { grid-column:auto!important; }"), "手机订单三个筛选项必须保持同一行");
-assert(businessStylesSource.includes("grid-template-columns:40px minmax(0,1fr) 54px 84px!important"), "A 版产品行必须为图片、信息、价格状态和操作保留独立列");
-assert(businessStylesSource.includes("grid-template-columns:minmax(0,1fr) 112px!important"), "A 版客户行必须为操作按钮保留独立列");
+assert(mobileV2Source.includes(".month-metrics .dashboard-metric:first-child"), "E 版概览必须突出本月销售额主指标");
+assert(mobileV2Source.includes("grid-template-columns: repeat(3,minmax(0,1fr))"), "E 版概览其余三个月度指标必须紧凑同排");
+assert(appSource.includes("toggleMobileFilter('orders')"), "手机订单状态、付款状态和销售人员必须进入筛选抽屉");
+assert(mobileV2Source.includes("grid-template-columns: 42px minmax(0,1fr) 64px auto"), "A 版产品行必须为图片、信息、价格状态和操作保留独立列");
+assert(mobileV2Source.includes(".customer-actions-mobile"), "A 版客户行必须使用主操作加更多菜单");
+assert(mobileV2Source.includes("height: 90dvh"), "手机购物车必须使用近全屏抽屉");
+assert(mobileV2Source.includes("--m-header: 48px"), "统一手机设计系统必须使用紧凑固定顶栏");
+assert(mobileV2Source.includes("--m-nav: 58px"), "统一手机设计系统必须使用 58px 底部导航");
 
 console.log("Mobile sales workflow layout tests passed");

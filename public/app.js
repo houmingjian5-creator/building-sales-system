@@ -85,6 +85,7 @@ const state = {
   auditFilters: { startDate: "", endDate: "", actorId: "", entityType: "", result: "", keyword: "" },
   mobileMoreOpen: false,
   mobileCartOpen: false,
+  mobileFilterOpen: "",
   mobileOrderDetailsOpen: false,
   cartStorageWarningShown: false
 };
@@ -460,7 +461,7 @@ function render() {
   }
 
   app.innerHTML = `
-    <div class="app-shell route-${html(state.route)} ${["create", "returns"].includes(state.route) ? "has-mobile-cart" : ""}">
+    <div class="app-shell mobile-v2 route-${html(state.route)} ${["create", "returns"].includes(state.route) ? "has-mobile-cart" : ""}">
       ${state.toast ? `<div class="toast">✓ ${state.toast}</div>` : ""}
       <aside class="sidebar">
         <div class="side-brand"><div class="brand-mark">建</div><strong>建材订单管理</strong></div>
@@ -500,6 +501,7 @@ function render() {
       </main>
       ${renderMobileNavigation()}
       ${renderMobileMoreSheet()}
+      ${renderMobileFilterSheet()}
       ${renderMobileCart()}
       ${renderXiaocai()}
       ${renderModal()}
@@ -559,6 +561,7 @@ async function logout() {
     state.auditError = "";
     state.mobileMoreOpen = false;
     state.mobileCartOpen = false;
+    state.mobileFilterOpen = "";
     state.aiDraft = null;
     state.aiGroups = [];
     state.aiActiveGroupId = "";
@@ -625,6 +628,43 @@ function toggleMobileMore() {
 function closeMobileMore() {
   state.mobileMoreOpen = false;
   render();
+}
+
+function mobileFilterSelect(label, value, options, handler) {
+  return `<label class="mobile-filter-field"><span>${html(label)}</span><select class="select" onchange="${handler}">${optionList(options, value)}</select></label>`;
+}
+
+function renderMobileFilterSheet() {
+  if (!state.mobileFilterOpen) return "";
+  let fields = "";
+  if (state.mobileFilterOpen === "customers") {
+    fields = canChooseSalesperson() ? `<label class="mobile-filter-field"><span>客户归属</span><select class="select" onchange="updateCustomerOwnerFilter(this.value)">${salesFilterOptions(state.customerOwnerFilter)}</select></label>` : `<div class="hint">销售人员仅显示自己的客户。</div>`;
+  } else if (state.mobileFilterOpen === "orders") {
+    fields = mobileFilterSelect("订单状态", state.orderStatus || "全部", ORDER_STATUS_FILTERS, "updateOrderStatusFilter(this.value)") +
+      mobileFilterSelect("付款状态", state.orderPayStatus || "全部", PAY_STATUS_FILTERS, "updateOrderPayFilter(this.value)") +
+      (canChooseSalesperson() ? `<label class="mobile-filter-field"><span>下单销售</span><select class="select" onchange="updateOrderSalesFilter(this.value)">${salesFilterOptions(state.orderSalesFilter)}</select></label>` : "");
+  } else if (state.mobileFilterOpen === "products") {
+    fields = mobileFilterSelect("一级分类", state.category, ["全部", "水电", "木", "瓦", "油", "辅助商品"], "setProductCategory(this.value)");
+  }
+  return `<div class="mobile-sheet-layer mobile-filter-layer" onclick="closeMobileFilter()"><section class="mobile-sheet mobile-filter-sheet" role="dialog" aria-modal="true" aria-label="筛选条件" onclick="event.stopPropagation()"><div class="mobile-sheet-handle"></div><div class="mobile-sheet-head"><div><strong>筛选条件</strong><span>调整后列表立即更新</span></div><button type="button" class="icon-btn" onclick="closeMobileFilter()" aria-label="关闭">×</button></div><div class="mobile-filter-fields">${fields}</div><button type="button" class="btn primary mobile-filter-done" onclick="closeMobileFilter()">完成</button></section></div>`;
+}
+
+function toggleMobileFilter(route) {
+  state.mobileFilterOpen = state.mobileFilterOpen === route ? "" : route;
+  state.mobileMoreOpen = false;
+  state.mobileCartOpen = false;
+  render();
+}
+
+function closeMobileFilter() {
+  state.mobileFilterOpen = "";
+  render();
+}
+
+function mobileFilterChip(label, value, resetCall) {
+  if (!value || value === "全部") return "";
+  const shown = byId(salesUsers, value) ? byId(salesUsers, value).name : value;
+  return `<button type="button" class="mobile-filter-chip" onclick="${resetCall}"><span>${html(label)}：${html(shown)}</span><b>×</b></button>`;
 }
 
 function mobileCartItemCount() {
@@ -707,7 +747,7 @@ function customerCard(c) {
   const owner = byId(salesUsers, c.ownerId);
   const stats = customerStats(c.id);
   return `
-    <div class="customer-card">
+    <article class="customer-card">
       <div class="customer-main">
         <div class="customer-name">${c.name} <span class="badge success">正常</span></div>
         <div class="meta"><span>☎ ${c.phone}</span><span>录入：${(owner === null || owner === void 0 ? void 0 : owner.name) || "-"}</span></div>
@@ -717,12 +757,16 @@ function customerCard(c) {
         <span>最近成交：${stats.last}</span>
         <span>共成交 ${stats.count} 单</span>
       </div>
-      <div class="customer-actions">
+      <div class="customer-actions customer-actions-desktop">
         ${actionButton("历史订单", "orders", `openModal('customerOrders','${c.id}')`)}
         ${actionButton("编辑", "edit", `openModal('customer','${c.id}')`)}
         ${isAdmin() ? actionButton("删除客户", "delete", `deleteCustomer(${JSON.stringify(c.id)})`) : ""}
       </div>
-    </div>
+      <div class="mobile-row-actions customer-actions-mobile">
+        <button type="button" class="mobile-row-primary" onclick="openModal('customerOrders',${jsArg(c.id)})">查看详情</button>
+        <details class="mobile-row-more"><summary aria-label="更多操作">•••</summary><div><button type="button" onclick="openModal('customer',${jsArg(c.id)})">编辑客户</button>${isAdmin() ? `<button type="button" class="danger" onclick="deleteCustomer(${JSON.stringify(c.id)})">删除客户</button>` : ""}</div></details>
+      </div>
+    </article>
   `;
 }
 
@@ -2973,7 +3017,9 @@ function renderCustomers() {
   const remote = state.remotePages.customers;
   const list = remote ? remote.items : visibleCustomers();
   return `
-    <div class="toolbar filter-toolbar">
+    <div class="mobile-page-tools"><input id="customerSearchInputMobile" class="input" placeholder="搜索客户名称/联系人/电话" value="${html(state.query)}" oninput="updatePageQuery(this)" /><button type="button" class="btn mobile-filter-button" onclick="toggleMobileFilter('customers')">筛选</button><button class="btn primary" onclick="openModal('customer')">新增</button></div>
+    <div class="mobile-filter-chips">${mobileFilterChip("归属", state.customerOwnerFilter, "updateCustomerOwnerFilter('全部')")}</div>
+    <div class="toolbar filter-toolbar desktop-page-tools">
       <input id="customerSearchInput" class="input" placeholder="搜索客户名称/联系人/电话" value="${html(state.query)}" oninput="updatePageQuery(this)" />
       ${canChooseSalesperson() ? `<select class="select compact-select" onchange="updateCustomerOwnerFilter(this.value)">${salesFilterOptions(state.customerOwnerFilter)}</select>` : ""}
       <button class="btn primary" onclick="openModal('customer')">＋ 新增客户</button>
@@ -3191,7 +3237,9 @@ function renderProducts() {var _state$user0;
   const canManage = isAdmin();
   const canExport = ((_state$user0 = state.user) === null || _state$user0 === void 0 ? void 0 : _state$user0.role) !== "销售人员";
   return `
-    <div class="toolbar product-management-toolbar">
+    <div class="mobile-page-tools product-mobile-primary"><input id="productSearchInputMobile" class="input" placeholder="搜索商品名称/规格/编码/别名" value="${html(state.productQuery)}" oncompositionstart="this.dataset.composing='true'" oncompositionend="this.dataset.composing='false';updateProductQuery(this)" oninput="updateProductQuery(this)" /><button type="button" class="btn mobile-filter-button" onclick="toggleMobileFilter('products')">筛选</button>${canManage ? `<button class="btn primary" onclick="openModal('product')">新增</button>` : ""}<details class="mobile-page-more"><summary aria-label="页面更多操作">•••</summary><div>${canManage ? `<button type="button" onclick="downloadProductTemplate()">下载模板</button><button type="button" onclick="document.getElementById('productImportFile').click()">批量上传</button>` : ""}${canExport ? `<button type="button" onclick="exportProducts('selected')" ${state.selectedProductIds.length ? "" : "disabled"}>导出已选</button><button type="button" onclick="exportProducts('all')">导出全部</button>` : ""}</div></details></div>
+    <div class="mobile-filter-chips">${mobileFilterChip("分类", state.category, "setProductCategory('全部')")}</div>
+    <div class="toolbar product-management-toolbar desktop-page-tools">
       <input id="productSearchInput" class="input" placeholder="搜索商品名称 / 规格 / 编码 / 别名" value="${html(state.productQuery)}" oncompositionstart="this.dataset.composing='true'" oncompositionend="this.dataset.composing='false';updateProductQuery(this)" oninput="updateProductQuery(this)" />
       <div class="spacer"></div>
       <div class="product-desktop-actions">
@@ -3199,9 +3247,7 @@ function renderProducts() {var _state$user0;
         ${canManage ? `<button class="btn" onclick="downloadProductTemplate()">下载导入模板</button><button class="btn" onclick="document.getElementById('productImportFile').click()">批量上传</button><button class="btn primary" onclick="openModal('product')">新增商品</button>` : ""}
       </div>
       ${canManage ? `<input id="productImportFile" type="file" accept=".xlsx" hidden onchange="importProducts(this)" />` : ""}
-      <div class="product-mobile-actions">
-        ${canManage ? `<button class="btn" onclick="downloadProductTemplate()">下载模板</button><button class="btn" onclick="document.getElementById('productImportFile').click()">批量上传</button><button class="btn primary" onclick="openModal('product')">新增商品</button>` : ""}
-      </div>
+      <div class="product-mobile-actions"></div>
     </div>
     ${categoryTabs()}
     ${subcategoryTabs()}
@@ -3256,7 +3302,11 @@ function productTableResultsHtml(list, pageData, canManage = isAdmin(), canExpor
             <strong>${money(p.price)}</strong>
             <span class="badge ${isProductActive(p) ? "success" : "danger"}">${html(p.status || "在售")}</span>
           </div>
-          <div class="row-actions">${productActions(p)}</div>
+          <div class="row-actions product-actions-desktop">${productActions(p)}</div>
+          <div class="mobile-row-actions product-actions-mobile">
+            ${canManage ? `<button type="button" class="mobile-row-primary" onclick="openModal('product',${jsArg(p.id)})">编辑</button>` : `<button type="button" class="mobile-row-primary" onclick="openModal('productImage',${jsArg(p.id)})">查看</button>`}
+            <details class="mobile-row-more"><summary aria-label="更多操作">•••</summary><div><button type="button" onclick="openModal('productImage',${jsArg(p.id)})">查看图片</button>${canManage ? `<button type="button" class="danger" onclick="deleteProduct(${jsArg(p.id)})">删除商品</button>` : ""}</div></details>
+          </div>
         </article>
       `).join("")}
     </div>
@@ -3525,7 +3575,9 @@ function renderOrders() {
   const list = remote ? remote.items : visibleOrders();
   const pageData = remote ? { items: remote.items, page: remote.page, pageSize: remote.pageSize, total: remote.total, totalPages: remote.totalPages, start: (remote.page - 1) * remote.pageSize } : paginateList(list, "orders", EDIT_PAGE_SIZES.orders);
   return `
-    <div class="toolbar filter-toolbar order-filter-toolbar">
+    <div class="mobile-page-tools"><input id="orderSearchInputMobile" class="input" placeholder="搜索订单号/客户名称/手机号" value="${html(state.orderQuery)}" oninput="updateOrderQuery(this)" /><button type="button" class="btn mobile-filter-button" onclick="toggleMobileFilter('orders')">筛选</button><button class="btn primary" onclick="state.orderType='sale';setRoute('create')">开单</button></div>
+    <div class="mobile-filter-chips">${mobileFilterChip("状态", state.orderStatus || "全部", "updateOrderStatusFilter('全部')")}${mobileFilterChip("付款", payFilter, "updateOrderPayFilter('全部')")}${mobileFilterChip("销售", state.orderSalesFilter, "updateOrderSalesFilter('全部')")}</div>
+    <div class="toolbar filter-toolbar order-filter-toolbar desktop-page-tools">
       <input id="orderSearchInput" class="input" placeholder="搜索订单号/客户名称/手机号" value="${html(state.orderQuery)}" oninput="updateOrderQuery(this)" />
       <div class="filter-field"><label>订单状态</label><select class="select compact-select" onchange="updateOrderStatusFilter(this.value)">${optionList(ORDER_STATUS_FILTERS, state.orderStatus || "全部")}</select></div>
       <div class="filter-field"><label>付款状态</label><select class="select compact-select" onchange="updateOrderPayFilter(this.value)">${optionList(PAY_STATUS_FILTERS, payFilter)}</select></div>
@@ -4996,6 +5048,7 @@ function openOrderRoute(type = "sale") {
   state.modal = null;
   state.mobileMoreOpen = false;
   state.mobileCartOpen = false;
+  state.mobileFilterOpen = "";
   state.mobileOrderDetailsOpen = false;
   state.query = "";
   if (typeof resetPage === "function") resetPage("createProducts");
@@ -5013,6 +5066,7 @@ function setRoute(route) {
   state.modal = null;
   state.mobileMoreOpen = false;
   state.mobileCartOpen = false;
+  state.mobileFilterOpen = "";
   if (route === "create" || route === "returns") state.mobileOrderDetailsOpen = false;
   if (route === "returns") state.orderType = "return";
   if (route === "create") state.orderType = "sale";
