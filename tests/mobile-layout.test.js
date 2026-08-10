@@ -102,10 +102,13 @@ assert(mobileStyles.includes(".product-mobile-item"), "手机产品管理必须�
 assert(mobileStyles.includes(".create-product-layout,"), "开单商品列必须限制手机端宽度，避免分类标签撑宽页面");
 assert(mobileStyles.includes(".mobile-product-filters .subcategory-panel-head"), "手机二级分类必须移除占高的大标题面板");
 assert(appSource.includes('class="user-mobile-list"'), "人员管理必须提供手机表卡列表");
+assert(appSource.includes('user-actions-mobile'), "手机人员管理必须使用主操作加更多菜单");
 assert(mobileStyles.includes(".route-costs .cost-summary-grid"), "成本控制五项指标必须提供手机紧凑布局");
 assert(businessStylesSource.includes("nth-child(4)"), "成本控制五项指标必须按三加二方式分行");
 assert(combinedStyles.includes(".order-document-mobile-items"), "订单详情必须提供手机逐商品明细");
 assert(appSource.includes('class="order-document-mobile-view"'), "订单详情必须提供独立手机视图，不能缩放桌面票据");
+assert(appSource.includes('class="audit-mobile-list"'), "操作日志必须提供紧凑手机列表，不能强制缩放桌面表格");
+assert(appSource.includes("toggleMobileFilter('audit')"), "手机操作日志详细条件必须进入统一筛选抽屉");
 assert(businessStylesSource.includes(".order-document-modal .document-toolbar,.order-document-modal .doc-preview { display:none!important; }"), "手机订单详情必须隐藏桌面票据布局");
 assert(mobileV2Source.includes(".mobile-v2 .ai-master-list { display: grid; grid-template-columns: 1fr"), "手机 AI 开单必须采用全屏单列工作区");
 assert(appSource.includes('class="mobile-page-more"'), "手机产品页低频批量操作必须进入页面更多菜单");

@@ -3,6 +3,8 @@
 .mobile-filter-chips,
 .customer-actions-mobile,
 .product-actions-mobile,
+.user-actions-mobile,
+.audit-mobile-list,
 .mobile-filter-layer,
 .mobile-page-more {
   display: none;
@@ -428,8 +430,33 @@
   .mobile-v2 .order-document-mobile-list article { display: grid; grid-template-columns: 25px minmax(0,1fr) auto; gap: 7px; padding: 8px; border-bottom: 1px solid var(--m-line); }
 
   .mobile-v2 .user-mobile-list { display: grid; gap: 6px; }
-  .mobile-v2 .user-mobile-item { padding: 9px; border: 1px solid var(--m-line); border-radius: var(--m-radius); background: #fff; }
-  .mobile-v2 .audit-filter-card { padding: 8px; }
+  .mobile-v2 .user-mobile-tools { grid-template-columns: minmax(0,1fr) auto; }
+  .mobile-v2 .user-mobile-item {
+    display: grid;
+    grid-template-columns: minmax(0,1fr) auto;
+    gap: 4px 8px;
+    padding: 9px;
+    border: 1px solid var(--m-line);
+    border-radius: var(--m-radius);
+    background: #fff;
+  }
+  .mobile-v2 .user-mobile-item > div:first-child,
+  .mobile-v2 .user-mobile-item > div:nth-child(2) { display: grid; min-width: 0; gap: 2px; }
+  .mobile-v2 .user-mobile-item > small { grid-column: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .mobile-v2 .user-actions-desktop { display: none; }
+  .mobile-v2 .user-actions-mobile { display: flex; grid-column: 2; grid-row: 1/3; align-items: center; gap: 4px; }
+  .mobile-v2 .desktop-audit-filter { display: none; }
+  .mobile-v2 .audit-mobile-tools { grid-template-columns: minmax(0,1fr) auto auto; }
+  .mobile-v2 .audit-table { display: none; }
+  .mobile-v2 .audit-mobile-list { display: grid; gap: 6px; }
+  .mobile-v2 .audit-mobile-item { display: grid; gap: 5px; padding: 9px; border: 1px solid var(--m-line); border-radius: var(--m-radius); background: #fff; }
+  .mobile-v2 .audit-mobile-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+  .mobile-v2 .audit-mobile-head strong { min-width: 0; font-size: 13px; overflow-wrap: anywhere; }
+  .mobile-v2 .audit-mobile-meta { display: flex; flex-wrap: wrap; gap: 3px 10px; color: var(--m-muted); font-size: 10px; }
+  .mobile-v2 .audit-mobile-entity { display: flex; gap: 6px; min-width: 0; font-size: 11px; }
+  .mobile-v2 .audit-mobile-entity span { min-width: 0; overflow-wrap: anywhere; color: var(--m-muted); }
+  .mobile-v2 .audit-mobile-summary { padding: 6px 7px; border-radius: 7px; background: #f5f7fb; font-size: 11px; overflow-wrap: anywhere; }
+  .mobile-v2 .audit-mobile-item code { color: var(--m-muted); font-size: 9px; overflow-wrap: anywhere; }
   .mobile-v2 .audit-filter-grid { grid-template-columns: repeat(2,minmax(0,1fr)); gap: 6px; }
   .mobile-v2 .audit-filter-grid input[placeholder],
   .mobile-v2 .audit-filter-grid .btn { grid-column: 1/-1; }

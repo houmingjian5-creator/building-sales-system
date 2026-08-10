@@ -645,6 +645,8 @@ function renderMobileFilterSheet() {
       (canChooseSalesperson() ? `<label class="mobile-filter-field"><span>下单销售</span><select class="select" onchange="updateOrderSalesFilter(this.value)">${salesFilterOptions(state.orderSalesFilter)}</select></label>` : "");
   } else if (state.mobileFilterOpen === "products") {
     fields = mobileFilterSelect("一级分类", state.category, ["全部", "水电", "木", "瓦", "油", "辅助商品"], "setProductCategory(this.value)");
+  } else if (state.mobileFilterOpen === "audit") {
+    fields = `<label class="mobile-filter-field"><span>开始日期</span><input class="input" type="date" value="${html(state.auditFilters.startDate)}" onchange="updateAuditFilter('startDate',this.value)" /></label><label class="mobile-filter-field"><span>结束日期</span><input class="input" type="date" value="${html(state.auditFilters.endDate)}" onchange="updateAuditFilter('endDate',this.value)" /></label><label class="mobile-filter-field"><span>操作人员</span><select class="select" onchange="updateAuditFilter('actorId',this.value)"><option value="">全部操作人员</option>${salesUsers.map((user) => `<option value="${html(user.id)}" ${state.auditFilters.actorId === user.id ? "selected" : ""}>${html(user.name)}</option>`).join("")}</select></label>${mobileFilterSelect("业务类型", state.auditFilters.entityType, ["", "账号", "客户", "商品", "订单", "成本", "人员", "操作日志", "批量数据"], "updateAuditFilter('entityType',this.value)")}${mobileFilterSelect("操作结果", state.auditFilters.result, ["", "成功", "失败"], "updateAuditFilter('result',this.value)")}`;
   }
   return `<div class="mobile-sheet-layer mobile-filter-layer" onclick="closeMobileFilter()"><section class="mobile-sheet mobile-filter-sheet" role="dialog" aria-modal="true" aria-label="筛选条件" onclick="event.stopPropagation()"><div class="mobile-sheet-handle"></div><div class="mobile-sheet-head"><div><strong>筛选条件</strong><span>调整后列表立即更新</span></div><button type="button" class="icon-btn" onclick="closeMobileFilter()" aria-label="关闭">×</button></div><div class="mobile-filter-fields">${fields}</div><button type="button" class="btn primary mobile-filter-done" onclick="closeMobileFilter()">完成</button></section></div>`;
 }
@@ -1263,7 +1265,8 @@ function cycleStatus(orderId) {
 function renderUsers() {
   const list = filteredUsers();
   return `
-    <div class="toolbar">
+    <div class="mobile-page-tools user-mobile-tools"><input id="userSearchInputMobile" class="input" placeholder="搜索姓名/手机号/角色" value="${html(state.query)}" oninput="updateUserQuery(this)" /><button class="btn primary" onclick="openModal('user')">添加人员</button></div>
+    <div class="toolbar desktop-page-tools">
       <input id="userSearchInput" class="input" placeholder="搜索姓名/手机号/角色" value="${state.query}" oninput="updateUserQuery(this)" />
       <div class="spacer"></div>
       <button class="btn primary" onclick="openModal('user')">＋ 添加人员</button>
@@ -1278,7 +1281,8 @@ function renderUsers() {
         <div><strong>${html(u.name)}</strong><span>${html(u.phone || "-")}</span></div>
         <div><b>${html(u.role || "-")}</b><span class="badge ${u.status === "启用" ? "success" : "danger"}">${html(u.status || "-")}</span></div>
         <small>${html(roleDesc(u.role))}</small>
-        <div class="row-actions">${actionButton("编辑", "edit", `openModal('user','${u.id}')`)}${actionButton(u.status === "启用" ? "停用" : "启用", "refresh", `toggleUserStatus('${u.id}')`)}</div>
+        <div class="row-actions user-actions-desktop">${actionButton("编辑", "edit", `openModal('user','${u.id}')`)}${actionButton(u.status === "启用" ? "停用" : "启用", "refresh", `toggleUserStatus('${u.id}')`)}</div>
+        <div class="mobile-row-actions user-actions-mobile"><button type="button" class="mobile-row-primary" onclick="openModal('user',${jsArg(u.id)})">编辑</button><details class="mobile-row-more"><summary aria-label="更多操作">•••</summary><div><button type="button" onclick="toggleUserStatus(${jsArg(u.id)})">${u.status === "启用" ? "停用账号" : "启用账号"}</button></div></details></div>
       </article>`).join("")}</div>
   `;
 }
@@ -5950,6 +5954,7 @@ function auditResultsHtml() {
     <div class="card table-wrap audit-table"><table><thead><tr><th>时间</th><th>操作人员</th><th>操作</th><th>业务 / 编号</th><th>修改摘要</th><th>结果</th><th>请求编号</th></tr></thead><tbody>
       ${state.auditItems.map((item) => `<tr><td>${html(String(item.createdAt || "").replace("T", " ").slice(0, 19))}</td><td><strong>${html(item.actorName || "-")}</strong><small>${html(item.actorRole || "")}</small></td><td>${html(item.action || "-")}</td><td>${html(item.entityType || "-")}<small>${html(item.entityId || "")}</small></td><td>${auditSummaryHtml(item)}</td><td><span class="badge ${item.result === "成功" ? "success" : "danger"}">${html(item.result || "-")}</span></td><td><code>${html(item.requestId || "-")}</code></td></tr>`).join("") || `<tr><td colspan="7"><div class="empty">${state.auditLoading ? "正在加载…" : "暂无操作日志"}</div></td></tr>`}
     </tbody></table></div>
+    <div class="audit-mobile-list">${state.auditItems.map((item) => `<article class="audit-mobile-item"><div class="audit-mobile-head"><strong>${html(item.action || "-")}</strong><span class="badge ${item.result === "成功" ? "success" : "danger"}">${html(item.result || "-")}</span></div><div class="audit-mobile-meta"><span>${html(String(item.createdAt || "").replace("T", " ").slice(0, 19))}</span><span>${html(item.actorName || "-")} · ${html(item.actorRole || "")}</span></div><div class="audit-mobile-entity"><b>${html(item.entityType || "-")}</b><span>${html(item.entityId || "")}</span></div><div class="audit-mobile-summary">${auditSummaryHtml(item)}</div><code>${html(item.requestId || "-")}</code></article>`).join("") || `<div class="empty">${state.auditLoading ? "正在加载…" : "暂无操作日志"}</div>`}</div>
     ${paginationControls("audit", page.page, page.totalPages, page.total)}`;
 }
 
@@ -5964,7 +5969,9 @@ function renderAuditResults() {
 
 function renderAuditCenter() {
   return `<section class="audit-page">
-    <div class="card card-pad audit-filter-card">
+    <div class="mobile-page-tools audit-mobile-tools"><input class="input" placeholder="关键词、编号或请求编号" value="${html(state.auditFilters.keyword)}" oninput="updateAuditFilter('keyword',this.value)" /><button type="button" class="btn mobile-filter-button" onclick="toggleMobileFilter('audit')">筛选</button><button type="button" class="btn" onclick="exportAuditLogs()">导出</button></div>
+    <div class="mobile-filter-chips">${mobileFilterChip("开始", state.auditFilters.startDate, "updateAuditFilter('startDate','')")}${mobileFilterChip("结束", state.auditFilters.endDate, "updateAuditFilter('endDate','')")}${mobileFilterChip("业务", state.auditFilters.entityType, "updateAuditFilter('entityType','')")}${mobileFilterChip("结果", state.auditFilters.result, "updateAuditFilter('result','')")}</div>
+    <div class="card card-pad audit-filter-card desktop-audit-filter">
       <div class="audit-filter-grid">
         <input class="input" type="date" value="${html(state.auditFilters.startDate)}" onchange="updateAuditFilter('startDate',this.value)" title="开始日期" />
         <input class="input" type="date" value="${html(state.auditFilters.endDate)}" onchange="updateAuditFilter('endDate',this.value)" title="结束日期" />
