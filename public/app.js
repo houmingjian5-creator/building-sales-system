@@ -94,6 +94,43 @@ let inputRenderTimer = null;
 let toastTimer = null;
 let assistantAbortController = null;
 let assistantStageTimer = null;
+let lastRenderedRoute = "";
+const motionCloseTimers = {};
+
+function motionIsReduced() {
+  return Boolean(window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches);
+}
+
+function cancelMotionClose(key) {
+  if (!motionCloseTimers[key]) return;
+  clearTimeout(motionCloseTimers[key]);
+  delete motionCloseTimers[key];
+}
+
+function closeWithMotion(key, selector, finish) {
+  cancelMotionClose(key);
+  const layer = document.querySelector(selector);
+  if (!layer || motionIsReduced()) {
+    finish();
+    return;
+  }
+  layer.classList.add("motion-overlay-exit");
+  motionCloseTimers[key] = setTimeout(() => {
+    delete motionCloseTimers[key];
+    finish();
+  }, 160);
+}
+
+function pulseMotion(selector) {
+  requestAnimationFrame(() => {
+    document.querySelectorAll(selector).forEach((element) => {
+      element.classList.remove("motion-value-pop");
+      void element.offsetWidth;
+      element.classList.add("motion-value-pop");
+      setTimeout(() => element.classList.remove("motion-value-pop"), 360);
+    });
+  });
+}
 
 let salesUsers = [
 { id: "u1", name: "钱锦健", phone: "13800000001", role: "超级管理员", status: "启用" },
@@ -398,7 +435,14 @@ function showToast(text) {
   toastTimer = setTimeout(() => {
     state.toast = "";
     const current = document.querySelector(".toast");
-    if (current) current.remove();
+    if (!current || motionIsReduced()) {
+      if (current) current.remove();
+      return;
+    }
+    current.classList.add("motion-toast-exit");
+    setTimeout(() => {
+      if (current.isConnected) current.remove();
+    }, 160);
   }, 1800);
 }
 
@@ -456,9 +500,13 @@ function render() {
     return;
   }
   if (!state.user) {
+    lastRenderedRoute = "";
     renderLogin();
     return;
   }
+
+  const routeChanged = lastRenderedRoute !== state.route;
+  lastRenderedRoute = state.route;
 
   app.innerHTML = `
     <div class="app-shell mobile-v2 route-${html(state.route)} ${["create", "returns"].includes(state.route) ? "has-mobile-cart" : ""}">
@@ -497,7 +545,7 @@ function render() {
             <button class="btn ghost" onclick="logout()">退出</button>
           </div>
         </header>
-        <section class="content">${renderPage()}</section>
+        <section class="content ${routeChanged ? "motion-page-enter" : ""}">${renderPage()}</section>
       </main>
       ${renderMobileNavigation()}
       ${renderMobileMoreSheet()}
@@ -620,14 +668,21 @@ function renderMobileMoreSheet() {var _state$user2, _state$user3;
 }
 
 function toggleMobileMore() {
-  state.mobileMoreOpen = !state.mobileMoreOpen;
+  cancelMotionClose("mobileMore");
+  if (state.mobileMoreOpen) {
+    closeMobileMore();
+    return;
+  }
+  state.mobileMoreOpen = true;
   state.mobileCartOpen = false;
   render();
 }
 
 function closeMobileMore() {
-  state.mobileMoreOpen = false;
-  render();
+  closeWithMotion("mobileMore", ".mobile-more-layer", () => {
+    state.mobileMoreOpen = false;
+    render();
+  });
 }
 
 function mobileFilterSelect(label, value, options, handler) {
@@ -652,15 +707,22 @@ function renderMobileFilterSheet() {
 }
 
 function toggleMobileFilter(route) {
-  state.mobileFilterOpen = state.mobileFilterOpen === route ? "" : route;
+  cancelMotionClose("mobileFilter");
+  if (state.mobileFilterOpen === route) {
+    closeMobileFilter();
+    return;
+  }
+  state.mobileFilterOpen = route;
   state.mobileMoreOpen = false;
   state.mobileCartOpen = false;
   render();
 }
 
 function closeMobileFilter() {
-  state.mobileFilterOpen = "";
-  render();
+  closeWithMotion("mobileFilter", ".mobile-filter-layer", () => {
+    state.mobileFilterOpen = "";
+    render();
+  });
 }
 
 function mobileFilterChip(label, value, resetCall) {
@@ -702,14 +764,21 @@ function renderMobileCart() {
 }
 
 function toggleMobileCart() {
-  state.mobileCartOpen = !state.mobileCartOpen;
+  cancelMotionClose("mobileCart");
+  if (state.mobileCartOpen) {
+    closeMobileCart();
+    return;
+  }
+  state.mobileCartOpen = true;
   state.mobileMoreOpen = false;
   render();
 }
 
 function closeMobileCart() {
-  state.mobileCartOpen = false;
-  render();
+  closeWithMotion("mobileCart", ".mobile-cart-layer", () => {
+    state.mobileCartOpen = false;
+    render();
+  });
 }
 
 function desktopCartButton() {
@@ -3764,6 +3833,7 @@ async function loadProductDetail(productId) {
 }
 
 function openModal(type, id) {
+  cancelMotionClose("modal");
   state.modal = { type, id };
   if (type === "editOrder") {
     const order = byId(orders, id);
@@ -3793,11 +3863,15 @@ function openModal(type, id) {
 }
 
 function closeModal() {
-  state.modal = null;
-  state.editOrderDraft = null;
-  state.editProductPickerOpen = false;
-  state.editCustomerPickerOpen = false;
-  render();
+  const closingModal = state.modal;
+  closeWithMotion("modal", ".modal-backdrop", () => {
+    if (state.modal !== closingModal) return;
+    state.modal = null;
+    state.editOrderDraft = null;
+    state.editProductPickerOpen = false;
+    state.editCustomerPickerOpen = false;
+    render();
+  });
 }
 
 function editOrderCustomerChoices() {var _state$editOrderDraft, _state$user11;
@@ -4226,6 +4300,7 @@ function renderKeepingCartScroll(callback) {var _document$getElementB20;
     window.scrollTo(scrollX, scrollY);
     const scroller = document.getElementById("cartItemsScroller");
     if (scroller) scroller.scrollTop = cartScroll;
+    pulseMotion(".cart-line-total, .mobile-cart-summary strong, .desktop-cart-trigger strong, .cart-drawer-checkout strong");
   });
 }
 
@@ -4280,6 +4355,7 @@ function addToCart(productId) {
   }
   persistCart(state.orderType, true);
   render();
+  pulseMotion(".product-card.selected, .mobile-cart-summary strong, .desktop-cart-trigger strong");
   showToast("已加入购物车");
 }
 
@@ -4290,7 +4366,7 @@ function cartLine(item) {
   const displayPrice = signedOrderPrice(p, item.price);
   const availability = details.missing ? "商品已不存在" : !details.available ? "商品已停用" : "";
   return `
-    <div class="cart-line ${availability ? "cart-line-unavailable" : ""}">
+    <div class="cart-line ${availability ? "cart-line-unavailable" : ""}" data-cart-product-id="${html(item.productId)}">
       <div class="cart-line-main">
         <strong>${html(details.name)}${details.spec ? ` <span>${html(details.spec)}</span>` : ""}</strong>
         <div class="product-spec">${html(details.unit || "未填写单位")}</div>
@@ -4319,6 +4395,16 @@ function changeQty(productId, delta) {
 }
 
 function removeCartItem(productId) {
+  const line = Array.from(document.querySelectorAll(".cart-line")).find((element) => element.dataset.cartProductId === String(productId));
+  if (line && !motionIsReduced()) {
+    state.cart = state.cart.filter((item) => item.productId !== productId);
+    persistCart(state.orderType, true);
+    line.classList.add("motion-cart-remove");
+    setTimeout(() => {
+      renderKeepingCartScroll(() => {});
+    }, 130);
+    return;
+  }
   renderKeepingCartScroll(() => {
     state.cart = state.cart.filter((item) => item.productId !== productId);
   });
@@ -5369,7 +5455,7 @@ function productCard(p) {
   `<button class="icon-btn product-add-btn" title="加入购物车" onclick="addToCart(${jsArg(p.id)})">${svgIcon("plus")}</button>` :
   `<span class="badge danger">停用</span>`;
   return `
-    <article class="product-card ${active ? "" : "disabled"} ${selected ? "selected" : ""}">
+    <article class="product-card ${active ? "" : "disabled"} ${selected ? "selected" : ""}" data-product-id="${html(p.id)}">
       ${productThumbnail(p, "catalog")}
       <div>
         <h4 class="product-title">${html(p.name)}</h4>
@@ -6042,7 +6128,23 @@ function bindCartPersistenceGuards() {
     if (document.visibilityState === "hidden") saveCurrentCart();
   });
   document.addEventListener("keydown", (event) => {
-    if (event.key === "Escape" && state.mobileCartOpen) closeMobileCart();
+    if (event.key !== "Escape") return;
+    if (state.modal) {
+      event.preventDefault();
+      closeModal();
+    } else if (state.mobileCartOpen) {
+      event.preventDefault();
+      closeMobileCart();
+    } else if (state.mobileFilterOpen) {
+      event.preventDefault();
+      closeMobileFilter();
+    } else if (state.mobileMoreOpen) {
+      event.preventDefault();
+      closeMobileMore();
+    } else if (state.assistantOpen) {
+      event.preventDefault();
+      toggleXiaocai();
+    }
   });
   window.__buildingSalesCartPersistenceBound = true;
 }

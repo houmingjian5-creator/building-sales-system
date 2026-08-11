@@ -1,0 +1,263 @@
+:root {
+  --motion-fast: 120ms;
+  --motion-normal: 180ms;
+  --motion-slow: 220ms;
+  --motion-standard: cubic-bezier(.2, .72, .2, 1);
+  --motion-exit: cubic-bezier(.4, 0, 1, 1);
+}
+
+@keyframes motion-page-in {
+  from { opacity: 0; transform: translateY(6px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes motion-backdrop-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes motion-backdrop-out {
+  from { opacity: 1; }
+  to { opacity: 0; }
+}
+
+@keyframes motion-dialog-in {
+  from { opacity: 0; transform: translateY(5px) scale(.985); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+@keyframes motion-dialog-out {
+  from { opacity: 1; transform: translateY(0) scale(1); }
+  to { opacity: 0; transform: translateY(3px) scale(.99); }
+}
+
+@keyframes motion-drawer-right-in {
+  from { opacity: .75; transform: translateX(24px); }
+  to { opacity: 1; transform: translateX(0); }
+}
+
+@keyframes motion-drawer-right-out {
+  from { opacity: 1; transform: translateX(0); }
+  to { opacity: 0; transform: translateX(20px); }
+}
+
+@keyframes motion-sheet-up-in {
+  from { opacity: .9; transform: translateY(22px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes motion-sheet-down-out {
+  from { opacity: 1; transform: translateY(0); }
+  to { opacity: 0; transform: translateY(18px); }
+}
+
+@keyframes motion-toast-in {
+  from { opacity: 0; transform: translate(-50%, -8px); }
+  to { opacity: 1; transform: translate(-50%, 0); }
+}
+
+@keyframes motion-toast-out {
+  from { opacity: 1; transform: translate(-50%, 0); }
+  to { opacity: 0; transform: translate(-50%, -6px); }
+}
+
+@keyframes motion-value-pop {
+  0%, 100% { color: inherit; transform: scale(1); }
+  40% { color: var(--primary, #315be8); transform: scale(1.045); }
+}
+
+@keyframes motion-cart-remove {
+  to { opacity: 0; transform: translateX(10px); }
+}
+
+@keyframes motion-spin {
+  to { transform: rotate(360deg); }
+}
+
+.motion-page-enter {
+  animation: motion-page-in var(--motion-normal) var(--motion-standard) both;
+}
+
+.modal-backdrop,
+.cart-drawer-layer,
+.mobile-sheet-layer {
+  animation: motion-backdrop-in var(--motion-normal) ease-out both;
+}
+
+.modal-backdrop > .modal {
+  animation: motion-dialog-in var(--motion-normal) var(--motion-standard) both;
+  transform-origin: center center;
+}
+
+.cart-drawer-layer > .cart-drawer {
+  animation: motion-drawer-right-in var(--motion-slow) var(--motion-standard) both;
+}
+
+.mobile-sheet-layer > .mobile-sheet {
+  animation: motion-sheet-up-in var(--motion-slow) var(--motion-standard) both;
+}
+
+.motion-overlay-exit {
+  animation: motion-backdrop-out var(--motion-fast) var(--motion-exit) both !important;
+  pointer-events: none !important;
+}
+
+.motion-overlay-exit > .modal {
+  animation: motion-dialog-out var(--motion-fast) var(--motion-exit) both !important;
+}
+
+.motion-overlay-exit > .cart-drawer {
+  animation: motion-drawer-right-out var(--motion-normal) var(--motion-exit) both !important;
+}
+
+.motion-overlay-exit > .mobile-sheet {
+  animation: motion-sheet-down-out var(--motion-normal) var(--motion-exit) both !important;
+}
+
+.toast {
+  animation: motion-toast-in var(--motion-normal) var(--motion-standard) both;
+}
+
+.toast.motion-toast-exit {
+  animation: motion-toast-out var(--motion-fast) var(--motion-exit) both;
+}
+
+.motion-value-pop {
+  animation: motion-value-pop 320ms var(--motion-standard) both;
+  transform-origin: center;
+}
+
+.motion-cart-remove {
+  animation: motion-cart-remove var(--motion-fast) var(--motion-exit) both;
+  pointer-events: none;
+}
+
+.btn,
+.icon-btn,
+.nav button,
+.mobile-bottom-nav button,
+.category-tabs button,
+.subcategory-tabs button,
+.mobile-filter-chip,
+.order-tool-button,
+.cart-line-controls button,
+.product-card-qty button,
+.product-card-add,
+.side-assistant-entry,
+.mobile-cart-bar button,
+.status-badge,
+.badge {
+  transition: transform var(--motion-fast) var(--motion-standard),
+    background-color var(--motion-normal) ease,
+    border-color var(--motion-normal) ease,
+    color var(--motion-normal) ease,
+    opacity var(--motion-fast) ease;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.btn:active:not(:disabled),
+.icon-btn:active:not(:disabled),
+.nav button:active:not(:disabled),
+.mobile-bottom-nav button:active:not(:disabled),
+.category-tabs button:active:not(:disabled),
+.subcategory-tabs button:active:not(:disabled),
+.mobile-filter-chip:active:not(:disabled),
+.order-tool-button:active:not(:disabled),
+.cart-line-controls button:active:not(:disabled),
+.product-card-qty button:active:not(:disabled),
+.product-card-add:active:not(:disabled),
+.side-assistant-entry:active:not(:disabled),
+.mobile-cart-bar button:active:not(:disabled) {
+  transform: scale(.965);
+}
+
+.order-status-dropdown,
+.order-payment-dropdown,
+.order-more-dropdown,
+.customer-picker-menu,
+.address-history-menu {
+  transform-origin: top center;
+  animation: motion-dialog-in var(--motion-fast) var(--motion-standard) both;
+}
+
+.cost-order-toggle svg,
+.mobile-sheet-head svg,
+details > summary::marker {
+  transition: transform var(--motion-normal) var(--motion-standard);
+}
+
+[onclick="analyzeAiOrder()"]:disabled::before,
+[onclick^="saveCostControl"]:disabled::before {
+  content: "";
+  display: inline-block;
+  width: 13px;
+  height: 13px;
+  margin-right: 7px;
+  border: 2px solid currentColor;
+  border-right-color: transparent;
+  border-radius: 50%;
+  vertical-align: -2px;
+  animation: motion-spin 700ms linear infinite;
+}
+
+.xiaocai-layer,
+.xiaocai-panel,
+.assistant-panel {
+  animation: motion-dialog-in var(--motion-normal) var(--motion-standard) both;
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .btn:hover:not(:disabled),
+  .icon-btn:hover:not(:disabled),
+  .nav button:hover:not(:disabled),
+  .category-tabs button:hover:not(:disabled),
+  .subcategory-tabs button:hover:not(:disabled),
+  .side-assistant-entry:hover:not(:disabled) {
+    transform: translateY(-1px);
+  }
+
+  .product-card:hover,
+  .customer-card:hover,
+  .order-card:hover,
+  .cost-order-card:hover {
+    transform: translateY(-1px);
+  }
+
+  .product-card,
+  .customer-card,
+  .order-card,
+  .cost-order-card {
+    transition: transform var(--motion-normal) var(--motion-standard), border-color var(--motion-normal) ease;
+  }
+}
+
+@media (max-width: 720px) {
+  .cart-drawer-layer > .cart-drawer,
+  .mobile-sheet-layer > .mobile-sheet {
+    animation-name: motion-sheet-up-in;
+  }
+
+  .motion-overlay-exit > .cart-drawer,
+  .motion-overlay-exit > .mobile-sheet {
+    animation-name: motion-sheet-down-out !important;
+  }
+
+  .product-card,
+  .customer-card,
+  .order-card,
+  .cost-order-card {
+    transition: border-color var(--motion-fast) ease, background-color var(--motion-fast) ease;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    scroll-behavior: auto !important;
+    animation-duration: .01ms !important;
+    animation-delay: 0ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: .01ms !important;
+  }
+}
