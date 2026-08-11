@@ -42,6 +42,8 @@ assert(!applySource.includes('document.querySelectorAll("[data-ai-matched-line]"
 const analyzeSource = functionSource("analyzeAiOrder", "addDraftLine");
 assert(analyzeSource.includes("state.aiDraftDirty"), "已有人工修改时重新识别必须检测草稿状态");
 assert(analyzeSource.includes("重新识别会重新生成全部匹配结果"), "重新识别覆盖人工修改前必须明确确认");
+assert(analyzeSource.includes("timeoutMs: 65000"), "AI 开单必须允许模型在普通接口超时后继续完成识别");
+assert(!analyzeSource.includes("setTimeout(() => controller.abort()"), "AI 开单不能保留与统一请求层冲突的重复计时器");
 
 const modalSource = functionSource("aiOrderModal", "renderAiDraft");
 assert(modalSource.includes("setAiActiveGroup"), "分类标签必须使用不清空草稿的切换函数");

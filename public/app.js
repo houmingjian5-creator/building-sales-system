@@ -873,14 +873,12 @@ async function analyzeAiOrder() {
   state.aiLoading = true;
   state.aiError = "";
   render();
-  const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), 55000);
   try {
     const response = await apiFetch("/api/ai/order-draft", {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ groups: validGroups, customerId: state.selectedCustomerId }),
-      signal: controller.signal
+      timeoutMs: 65000
     });
     const raw = await response.text();
     let data;
@@ -916,10 +914,8 @@ async function analyzeAiOrder() {
     render();
   } catch (error) {
     state.aiLoading = false;
-    state.aiError = error.name === "AbortError" ? "识别等待超时，请稍后重试；材料较多时可以减少单次分类窗口数量。" : error.message;
+    state.aiError = error.message;
     render();
-  } finally {
-    clearTimeout(timeoutId);
   }
 }
 
