@@ -46,6 +46,13 @@ assert(analyzeSource.includes("重新识别会重新生成全部匹配结果"), 
 const modalSource = functionSource("aiOrderModal", "renderAiDraft");
 assert(modalSource.includes("setAiActiveGroup"), "分类标签必须使用不清空草稿的切换函数");
 assert(modalSource.includes("state.aiSourceEditorOpen"), "查看分类原文时必须保持展开状态");
+assert(modalSource.includes("productPrimaryCategories()"), "AI 开单一级分类必须使用完整产品分类目录");
+assert(modalSource.includes("productSubcategoriesFor(activeGroup.cat1)"), "AI 开单二级分类不能只从当前商品分页生成");
+
+const categorySource = functionSource("productPrimaryCategories", "productSubcategoriesFor");
+const subcategorySource = functionSource("productSubcategoriesFor", "jsArg");
+assert(categorySource.includes("state.productCategories"), "完整产品分类目录必须来自精简启动接口");
+assert(subcategorySource.includes("catalogItems.concat(loadedItems)"), "分类目录应兼容当前已加载商品中的新分类");
 
 const openSource = functionSource("openAiOrderModal", "addAiGroup");
 assert(openSource.includes("if (!state.aiGroups.length || aiSessionChanged)"), "关闭后重新打开同一客户的 AI 开单必须恢复未保存草稿");

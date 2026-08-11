@@ -1359,9 +1359,9 @@ function renderModal() {
 function aiOrderModal() {
   const customer = byId(customers, state.selectedCustomerId);
   const draft = state.aiDraft;
-  const cat1Options = [...new Set(products.map((product) => product.cat1).filter(Boolean))];
+  const cat1Options = productPrimaryCategories();
   const activeGroup = state.aiGroups.find((group) => group.id === state.aiActiveGroupId) || state.aiGroups[0];
-  const cat2Options = activeGroup ? [...new Set(products.filter((product) => product.cat1 === activeGroup.cat1).map((product) => product.cat2).filter(Boolean))] : [];
+  const cat2Options = activeGroup ? productSubcategoriesFor(activeGroup.cat1) : [];
   const sourceEditor = `
     <div class="ai-group-tabs">${state.aiGroups.map((group, index) => `<button class="ai-group-tab ${group.id === state.aiActiveGroupId ? "active" : ""}" onclick="setAiActiveGroup(${jsArg(group.id)})"><span>${html(group.cat2 || group.cat1 || `分类 ${index + 1}`)}</span>${state.aiGroups.length > 1 ? `<i onclick="event.stopPropagation();removeAiGroup(${jsArg(group.id)})">×</i>` : ""}</button>`).join("")}<button class="ai-group-add" onclick="addAiGroup()">＋ 添加分类窗口</button></div>
     ${activeGroup ? `<section class="ai-group-panel"><div class="ai-group-filters"><div class="field"><label>一级分类 *</label><select class="select" onchange="setAiGroupCategory('${html(activeGroup.id)}',this.value)"><option value="">请选择一级分类</option>${cat1Options.map((cat1) => `<option value="${html(cat1)}" ${activeGroup.cat1 === cat1 ? "selected" : ""}>${html(cat1)}</option>`).join("")}</select></div><div class="field"><label>二级分类（选填）</label><select class="select" ${activeGroup.cat1 ? "" : "disabled"} onchange="setAiGroupSubcategory('${html(activeGroup.id)}',this.value)"><option value="">全部二级分类</option>${cat2Options.map((cat2) => `<option value="${html(cat2)}" ${activeGroup.cat2 === cat2 ? "selected" : ""}>${html(cat2)}</option>`).join("")}</select></div></div><div class="field"><label>该分类下的材料清单</label><textarea class="textarea ai-textarea" oninput="updateAiGroupText('${html(activeGroup.id)}',this.value)" placeholder="只填写属于当前分类的材料，例如：20管6根，20弯头30个...">${html(activeGroup.content)}</textarea></div><div class="hint">匹配范围：${activeGroup.cat1 ? html(activeGroup.cat1) : "尚未选择"}${activeGroup.cat2 ? ` / ${html(activeGroup.cat2)}` : activeGroup.cat1 ? " / 全部二级分类" : ""}。系统不会跨出这个范围推荐商品。</div></section>` : ""}
@@ -2488,16 +2488,31 @@ function productMeta(p) {
   return [p.cat1, p.cat2].filter(Boolean).join(" / ") || "-";
 }
 
+function productPrimaryCategories() {
+  const catalogCategories = state.productCategories && typeof state.productCategories === "object"
+    ? Object.keys(state.productCategories).filter(Boolean)
+    : [];
+  const loadedCategories = products.map((product) => product.cat1).filter(Boolean);
+  return Array.from(new Set(catalogCategories.concat(loadedCategories)))
+    .sort((a, b) => a.localeCompare(b, "zh-CN"));
+}
+
+function productSubcategoriesFor(category) {
+  if (!category) return [];
+  const catalogItems = state.productCategories && Array.isArray(state.productCategories[category])
+    ? state.productCategories[category]
+    : [];
+  const loadedItems = products
+    .filter((product) => product.cat1 === category)
+    .map((product) => product.cat2)
+    .filter(Boolean);
+  return Array.from(new Set(catalogItems.concat(loadedItems)))
+    .sort((a, b) => a.localeCompare(b, "zh-CN"));
+}
+
 function productSubcategories() {
   if (state.category === "全部") return [];
-  if (state.productCategories && Array.isArray(state.productCategories[state.category])) {
-    return state.productCategories[state.category];
-  }
-  return [...new Set(products.
-  filter((p) => p.cat1 === state.category).
-  map((p) => p.cat2).
-  filter(Boolean))].
-  sort((a, b) => a.localeCompare(b, "zh-CN"));
+  return productSubcategoriesFor(state.category);
 }
 
 function jsArg(value) {
