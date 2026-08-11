@@ -1891,7 +1891,15 @@ function deliveryModal(id) {
 
 function documentModal(id) {
   const order = byId(orders, id);
-  const c = byId(customers, order.customerId);
+  if (!order) {
+    return `<div class="modal-backdrop">
+      <div class="modal order-document-modal">
+        <div class="modal-head"><h3>订单详情</h3><button class="icon-btn modal-close-button" title="关闭" aria-label="关闭" onclick="closeModal()">${svgIcon("close")}</button></div>
+        <div class="modal-body"><div class="empty">订单不存在或列表已经刷新，请关闭后重新打开。</div></div>
+      </div>
+    </div>`;
+  }
+  const c = orderCustomerForDisplay(order);
   const s = byId(salesUsers, order.salesUserId);
   const title = order.no.startsWith("TH") || order.status === "已退货" ? "退货单" : "销售订单";
   const rows = getDisplayRows(order);
@@ -1932,10 +1940,10 @@ function documentModal(id) {
             <h2>${title}</h2>
             <div class="doc-subtitle">材达家建材销售系统</div>
             <div class="doc-info">
-              <div><span>客户：</span>${c.name}</div>
-              <div><span>单号：</span>${order.no}</div>
-              <div><span>日期：</span>${order.date}</div>
-              <div class="right"><span>销售：</span>${(s === null || s === void 0 ? void 0 : s.name) || "-"}</div>
+              <div><span>客户：</span>${html(c.name || "-")}</div>
+              <div><span>单号：</span>${html(order.no || "-")}</div>
+              <div><span>日期：</span>${html(order.date || "-")}</div>
+              <div class="right"><span>销售：</span>${html((s === null || s === void 0 ? void 0 : s.name) || "-")}</div>
               <div class="doc-address"><span>地址：</span>${html(orderAddressForDisplay(order, c) || "-")}</div>
             </div>
             <table><thead><tr><th>编号</th><th>商品名称</th><th>单位</th><th>数量</th><th>单价</th><th>金额</th></tr></thead><tbody>${rows.map((row) => row.empty ? `<tr><td>${row.index}</td><td></td><td></td><td></td><td></td><td></td></tr>` : `<tr><td>${row.index}</td><td>${html(row.name)}</td><td>${html(row.unit)}</td><td>${row.quantity}</td><td>${money(row.price)}</td><td>${money(row.amount)}</td></tr>`).join("")}</tbody></table>

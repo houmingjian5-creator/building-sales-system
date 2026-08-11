@@ -30,5 +30,46 @@ assert(
   app.includes("drawWrappedText(ctx, remark"),
   "Image exports must render wrapped remarks."
 );
+const documentModalSource = app.slice(app.indexOf("function documentModal"), app.indexOf("function userModal"));
+assert(
+  documentModalSource.includes("if (!order)") && documentModalSource.includes("orderCustomerForDisplay(order)"),
+  "Order details must render from the order customer snapshot even when the customer page has not been loaded."
+);
+assert(
+  !documentModalSource.includes("byId(customers, order.customerId)"),
+  "Order details must not depend on the lazily loaded global customer list."
+);
+const testOrder = {
+  id: "order-lazy-customer",
+  no: "ORD-LAZY-CUSTOMER",
+  customerId: "customer-not-loaded",
+  customerName: "订单快照客户",
+  customerPhone: "13800000000",
+  customerAddress: "订单快照地址",
+  salesUserId: "sales-1",
+  date: "2026/8/11",
+  status: "待确认",
+  amount: 100,
+  items: []
+};
+const renderDocumentWithoutCustomers = new Function(
+  "byId", "orders", "salesUsers", "orderCustomerForDisplay", "getDisplayRows", "html", "svgIcon", "money", "orderAddressForDisplay", "amountToChinese",
+  `${documentModalSource}; return documentModal;`
+)(
+  (list, id) => list.find((item) => item.id === id),
+  [testOrder],
+  [{ id: "sales-1", name: "测试销售", phone: "13900000000" }],
+  (order) => ({ name: order.customerName, phone: order.customerPhone, address: order.customerAddress }),
+  () => [],
+  (value) => String(value == null ? "" : value),
+  () => "<svg></svg>",
+  (value) => `¥${Number(value || 0)}`,
+  (order, customer) => order.address || customer.address || "",
+  () => "壹佰元整"
+);
+assert(
+  renderDocumentWithoutCustomers(testOrder.id).includes("订单快照客户"),
+  "The order detail modal must open from order snapshot data before customers are loaded."
+);
 
 console.log("Order document and modal regression tests passed");
