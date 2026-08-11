@@ -122,5 +122,13 @@ assert(mobileV2Source.includes(".customer-actions-mobile"), "A 版客户行必�
 assert(mobileV2Source.includes("height: 90dvh"), "手机购物车必须使用近全屏抽屉");
 assert(mobileV2Source.includes("--m-header: 48px"), "统一手机设计系统必须使用紧凑固定顶栏");
 assert(mobileV2Source.includes("--m-nav: 58px"), "统一手机设计系统必须使用 58px 底部导航");
+assert(mobileV2Source.includes("desktop-page-tools") && mobileV2Source.includes("display: none !important"), "手机端必须强制隐藏客户、产品、订单和人员的桌面工具栏，避免重复搜索框");
+assert(mobileV2Source.includes(".dashboard-metric.violet .dashboard-metric-icon"), "概览客户、开客和订单指标必须使用可区分的彩色圆形图标");
+assert(mobileV2Source.includes("grid-template-columns: 27px 28px 27px"), "开单数量步进器必须使用紧凑的单边框分段布局");
+assert(appSource.includes('class="order-mobile-heading"'), "手机订单卡必须提供订单编号与双状态同排的独立头部");
+assert(appSource.includes('class="order-mobile-summary"'), "手机订单卡金额必须移到客户和日期摘要行");
+assert(mobileV2Source.includes("grid-template-columns: repeat(4, 38px) minmax(38px,1fr)"), "手机订单卡必须直接展示查看、编辑、订单状态、回款状态和更多五项操作");
+const orderMoreSource = appSource.slice(appSource.indexOf("function orderMoreMenu"), appSource.indexOf("function orderStatusMenu"));
+assert(!orderMoreSource.includes("mobile-only-order-action"), "订单编辑已直接展示后不得在更多菜单中重复出现");
 
 console.log("Mobile sales workflow layout tests passed");

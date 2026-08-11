@@ -5115,7 +5115,6 @@ function orderMoreMenu(orderId) {
   return `<div class="order-more-menu order-popover-menu">
     <button type="button" class="icon-btn order-tool-button order-more-trigger" title="更多操作" aria-label="更多操作" onpointerdown="event.stopPropagation();this.parentElement.toggleAttribute('open')">${svgIcon("more")}</button>
     <div class="order-more-dropdown">
-      <button type="button" class="mobile-only-order-action" onclick="handleOrderAction('edit',${jsArg(orderId)})"><span>${svgIcon("edit")}</span>编辑订单</button>
       <button type="button" onclick="repeatOrder(${jsArg(orderId)})"><span>${svgIcon("copy")}</span>再来一单</button>
       <button type="button" onclick="openModal('delivery',${jsArg(orderId)})"><span>${svgIcon("truck")}</span>开送货单</button>
       ${canCurrentUserDeleteOrder(order) ? `<button type="button" class="danger" onclick="deleteOrder(${jsArg(orderId)})"><span>${svgIcon("delete")}</span>删除订单</button>` : ""}
@@ -5244,29 +5243,38 @@ function orderCard(order) {
   !isReturn &&
   currentActualAmount !== null &&
   Math.round(currentActualAmount * 100) !== Math.round(Number(order.amount || 0) * 100);
+  const amountMarkup = isReturn ?
+  `<strong class="order-amount">${money(displayedAmount)}</strong>` :
+  `<button
+      type="button"
+      class="order-amount order-amount-button${hasAdjustedAmount ? " adjusted" : ""}"
+      title="修改实际收款金额"
+      aria-label="修改订单 ${html(order.no)} 的实际收款金额"
+      onclick="openModal('paymentAmount',${jsArg(order.id)})"
+    >
+      <strong>${money(displayedAmount)}</strong>
+      ${hasAdjustedAmount ? `<span class="order-original-amount">${money(order.amount)}</span>` : ""}
+    </button>`;
   return `
     <article class="order-card order-card-polished">
       <div class="order-card-accent"></div>
       <div class="order-card-body">
+        <div class="order-mobile-heading">
+          <h3>${html(order.no)}</h3>
+          <span class="badge ${orderBadgeClass(status)}">${html(status)}</span>
+          <span class="badge ${paymentStatusTone(payStatus)}">${html(payStatus)}</span>
+        </div>
+        <div class="order-mobile-summary">
+          <div><span><b>客户</b>${html(customer.name || "-")}</span><span><b>日期</b>${html(order.date || "-")}</span></div>
+          ${amountMarkup}
+        </div>
         <div class="order-card-head">
           <div class="order-card-title-row">
             <h3>${html(order.no)}</h3>
             <span class="badge ${orderBadgeClass(status)}">${html(status)}</span>
             <span class="badge ${paymentStatusTone(payStatus)}">${html(payStatus)}</span>
           </div>
-          ${
-  isReturn ?
-  `<strong class="order-amount">${money(displayedAmount)}</strong>` :
-  `<button
-                  type="button"
-                  class="order-amount order-amount-button${hasAdjustedAmount ? " adjusted" : ""}"
-                  title="修改实际收款金额"
-                  aria-label="修改订单 ${html(order.no)} 的实际收款金额"
-                  onclick="openModal('paymentAmount',${jsArg(order.id)})"
-                >
-                  <strong>${money(displayedAmount)}</strong>
-                  ${hasAdjustedAmount ? `<span class="order-original-amount">${money(order.amount)}</span>` : ""}
-                </button>`}
+          ${amountMarkup}
         </div>
         <div class="order-card-meta order-card-meta-grid">
           <span><b>客户</b>${
