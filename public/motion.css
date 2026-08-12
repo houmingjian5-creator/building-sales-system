@@ -218,14 +218,12 @@ details > summary::marker {
 
   .product-card:hover,
   .customer-card:hover,
-  .order-card:hover,
   .cost-order-card:hover {
     transform: translateY(-1px);
   }
 
   .product-card,
   .customer-card,
-  .order-card,
   .cost-order-card {
     transition: transform var(--motion-normal) var(--motion-standard), border-color var(--motion-normal) ease;
   }

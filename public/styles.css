@@ -5270,6 +5270,22 @@ tbody tr:hover {
   flex: 0 0 auto;
 }
 
+/* Keep an open order menu above the cards rendered after it. */
+.order-card.order-card-polished.has-open-popover {
+  z-index: 100;
+  overflow: visible;
+}
+
+.order-card.has-open-popover .order-card-body,
+.order-card.has-open-popover .order-card-bottom,
+.order-card.has-open-popover .order-actions {
+  overflow: visible;
+}
+
+.order-popover-menu[open] {
+  z-index: 110;
+}
+
 .order-popover-menu > summary {
   list-style: none;
   cursor: pointer;
@@ -5301,7 +5317,7 @@ tbody tr:hover {
 .order-status-dropdown,
 .order-more-dropdown {
   position: absolute;
-  z-index: 40;
+  z-index: 120;
   top: calc(100% + 7px);
   right: 0;
   width: 180px;

@@ -5,6 +5,7 @@ const path = require("path");
 const root = path.join(__dirname, "..");
 const app = fs.readFileSync(path.join(root, "public", "app.js"), "utf8");
 const styles = fs.readFileSync(path.join(root, "public", "styles.css"), "utf8");
+const motion = fs.readFileSync(path.join(root, "public", "motion.css"), "utf8");
 
 assert(
   !/class="modal-backdrop"[^>]*onclick=/.test(app),
@@ -70,6 +71,19 @@ const renderDocumentWithoutCustomers = new Function(
 assert(
   renderDocumentWithoutCustomers(testOrder.id).includes("订单快照客户"),
   "The order detail modal must open from order snapshot data before customers are loaded."
+);
+
+assert(
+  app.includes("syncOrderPopoverLayer") && app.includes("has-open-popover"),
+  "Opening an order popover must elevate its containing order card."
+);
+assert(
+  styles.includes(".order-card.order-card-polished.has-open-popover") && styles.includes("z-index: 100"),
+  "Open order popovers must render above following order cards."
+);
+assert(
+  !motion.includes(".order-card:hover"),
+  "Order cards must not rise when hovered."
 );
 
 console.log("Order document and modal regression tests passed");

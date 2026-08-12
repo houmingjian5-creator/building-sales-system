@@ -5254,10 +5254,35 @@ function canCurrentUserDeleteOrder(order) {
   order.salesUserId === state.user.id;
 }
 
+function syncOrderPopoverLayer(menu) {
+  if (!menu || !menu.closest) return;
+  const card = menu.closest(".order-card");
+  if (!card) return;
+  card.classList.toggle("has-open-popover", menu.hasAttribute("open"));
+}
+
+function closeOrderPopover(menu) {
+  if (!menu) return;
+  menu.removeAttribute("open");
+  syncOrderPopoverLayer(menu);
+}
+
+function toggleOrderPopover(menu, event) {
+  if (event) event.stopPropagation();
+  if (!menu) return;
+  const shouldOpen = !menu.hasAttribute("open");
+  document.querySelectorAll(".order-popover-menu[open]").forEach((otherMenu) => {
+    if (otherMenu !== menu) closeOrderPopover(otherMenu);
+  });
+  if (shouldOpen) menu.setAttribute("open", "");else
+  menu.removeAttribute("open");
+  syncOrderPopoverLayer(menu);
+}
+
 function orderMoreMenu(orderId) {
   const order = byId(orders, orderId);
   return `<div class="order-more-menu order-popover-menu">
-    <button type="button" class="icon-btn order-tool-button order-more-trigger" title="更多操作" aria-label="更多操作" onpointerdown="event.stopPropagation();this.parentElement.toggleAttribute('open')">${svgIcon("more")}</button>
+    <button type="button" class="icon-btn order-tool-button order-more-trigger" title="更多操作" aria-label="更多操作" onpointerdown="toggleOrderPopover(this.parentElement,event)">${svgIcon("more")}</button>
     <div class="order-more-dropdown">
       <button type="button" onclick="repeatOrder(${jsArg(orderId)})"><span>${svgIcon("copy")}</span>再来一单</button>
       <button type="button" onclick="openModal('delivery',${jsArg(orderId)})"><span>${svgIcon("truck")}</span>开送货单</button>
@@ -5267,7 +5292,7 @@ function orderMoreMenu(orderId) {
 }
 
 function orderStatusMenu(orderId, selected) {
-  return `<details class="order-status-menu order-popover-menu">
+  return `<details class="order-status-menu order-popover-menu" ontoggle="syncOrderPopoverLayer(this)">
     <summary class="icon-btn order-tool-button" title="修改订单状态" aria-label="修改订单状态">${svgIcon("down")}</summary>
     <div class="order-status-dropdown">
       ${ORDER_STATUS_CHOICES.map((value) => `
@@ -5279,7 +5304,7 @@ function orderStatusMenu(orderId, selected) {
 }
 
 function orderPaymentMenu(orderId, selected) {
-  return `<details class="order-payment-menu order-popover-menu">
+  return `<details class="order-payment-menu order-popover-menu" ontoggle="syncOrderPopoverLayer(this)">
     <summary class="icon-btn order-tool-button order-payment-trigger" title="修改回款状态" aria-label="修改回款状态"><strong>￥</strong>${svgIcon("down")}</summary>
     <div class="order-status-dropdown payment-dropdown">
       ${["待回款", "已回款"].map((value) => `
@@ -5450,9 +5475,13 @@ function exportOrderImage(orderId) {
 
 function bindGlobalClickHandlers() {
   if (window.__buildingSalesClickBound) return;
+  document.addEventListener("toggle", (event) => {
+    const menu = event.target;
+    if (menu && menu.matches && menu.matches("details.order-popover-menu")) syncOrderPopoverLayer(menu);
+  }, true);
   document.addEventListener("click", (event) => {
     document.querySelectorAll(".order-popover-menu[open]").forEach((menu) => {
-      if (!menu.contains(event.target)) menu.removeAttribute("open");
+      if (!menu.contains(event.target)) closeOrderPopover(menu);
     });
     const orderAction = event.target.closest("[data-order-action]");
     if (orderAction) {
