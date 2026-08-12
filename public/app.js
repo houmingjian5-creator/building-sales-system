@@ -4749,13 +4749,39 @@ function updateCostRemark(orderId, value) {
   order.costControl.remark = value;
 }
 
-function setCostReconciliationStatus(orderId, value) {
+async function setCostReconciliationStatus(orderId, value) {
   if (!COST_RECONCILIATION_OPTIONS.includes(value)) return;
   const order = costOrderById(orderId);
-  if (!order) return;
+  if (!order || state.costSavingId) return;
+  const previousControl = cloneCostControl(order.costControl);
   order.costControl = cloneCostControl(order.costControl);
+  if (order.costControl.reconciliationStatus === value) return;
   order.costControl.reconciliationStatus = value;
+  state.costSavingId = orderId;
   rerenderCostControl();
+  try {
+    const response = await apiFetch(`/api/cost-control/${encodeURIComponent(orderId)}`, {
+      method: "PATCH",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(order.costControl)
+    });
+    const data = await response.json();
+    if (!response.ok) throw new Error(data.error || "对单状态保存失败");
+    const index = state.costOrders.findIndex((item) => item.id === orderId);
+    if (index >= 0) {
+      state.costOrders[index] = {
+        ...data.order,
+        costControl: cloneCostControl(data.order.costControl)
+      };
+    }
+    showToast("对单状态已保存");
+  } catch (error) {
+    order.costControl = previousControl;
+    alert(error.message || "对单状态保存失败");
+  } finally {
+    state.costSavingId = "";
+    if (state.route === "costs") rerenderCostControl();
+  }
 }
 
 function toggleCostOrder(orderId) {

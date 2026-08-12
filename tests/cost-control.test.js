@@ -199,4 +199,10 @@ assert(appSource.includes("cost-order-view-btn"), "Each cost order must expose a
 assert(appSource.includes("openCostOrderDocument"), "Cost orders must use the guarded order-detail flow.");
 assert(appSource.includes("byId(orders, id) || costOrderById(id)"), "Order details must support cost-page lazy-loaded orders.");
 
+const reconciliationSaveSource = frontendFunctionSource("setCostReconciliationStatus", "toggleCostOrder");
+assert(appSource.includes("async function setCostReconciliationStatus"), "Reconciliation status changes must save asynchronously.");
+assert(reconciliationSaveSource.includes("apiFetch(`/api/cost-control/"), "Reconciliation status changes must persist immediately.");
+assert(reconciliationSaveSource.includes("order.costControl = previousControl"), "Failed reconciliation saves must restore the previous status.");
+assert(reconciliationSaveSource.includes('showToast("对单状态已保存")'), "Successful reconciliation saves must confirm persistence.");
+
 console.log("cost control tests passed");
