@@ -2844,6 +2844,32 @@ function mergeProductCache(items) {
   products = Array.from(map.values());
 }
 
+function mergeCustomerCache(items) {
+  const map = new Map(customers.map((item) => [item.id, item]));
+  (items || []).forEach((item) => map.set(item.id, item));
+  customers = Array.from(map.values());
+}
+
+async function loadRepeatOrderReferences(order) {
+  const productIds = Array.from(new Set((order.items || []).map((item) => item.productId).filter(Boolean)));
+  const targetSalesUserId = isSalesRole() ? state.user.id : order.salesUserId;
+  const requests = [
+    apiFetch(`/api/customers${queryString({ ids: order.customerId, salesUserId: targetSalesUserId, page: 1, pageSize: 1 })}`)
+  ];
+  if (productIds.length) {
+    requests.push(apiFetch(`/api/products${queryString({ ids: productIds.join(","), page: 1, pageSize: Math.min(200, productIds.length) })}`));
+  }
+  const responses = await Promise.all(requests);
+  const customerData = await responses[0].json().catch(() => ({}));
+  if (!responses[0].ok) throw new Error(customerData.error || "客户信息加载失败");
+  mergeCustomerCache(customerData.items || customerData.customers || []);
+  if (responses[1]) {
+    const productData = await responses[1].json().catch(() => ({}));
+    if (!responses[1].ok) throw new Error(productData.error || "商品信息加载失败");
+    mergeProductCache(productData.items || productData.products || []);
+  }
+}
+
 async function hydrateCartProducts() {
   const ids = Array.from(new Set(state.cart.map((item) => item.productId).filter(Boolean)));
   if (!ids.length) return;
@@ -5367,11 +5393,20 @@ function handleOrderAction(action, orderId) {
   }
 }
 
-function repeatOrder(orderId) {
+async function repeatOrder(orderId) {
   const order = byId(orders, orderId);
   if (!order) return alert("订单不存在");
-  const customer = byId(visibleCustomers(), order.customerId);
-  if (!customer) return alert("当前账号无权为该客户开单");
+  if (isSalesRole() && order.salesUserId !== state.user.id) return alert("当前账号无权复制该订单");
+  const originalSalespersonActive = activeSalesUsers().some((user) => user.id === order.salesUserId);
+  if (!isSalesRole() && !originalSalespersonActive) return alert("原订单销售人员已停用，暂时无法再来一单");
+  try {
+    await loadRepeatOrderReferences(order);
+  } catch (error) {
+    return alert(error.message || "订单关联数据加载失败，请稍后重试");
+  }
+  const targetSalesUserId = isSalesRole() ? state.user.id : order.salesUserId;
+  const customer = byId(customers, order.customerId);
+  if (!customer || customer.ownerId !== targetSalesUserId) return alert("当前账号无权为该客户开单");
   const invalidQuantityItems = (order.items || []).filter((item) => !isPositiveInteger(item.quantity));
   if (invalidQuantityItems.length) {
     const names = invalidQuantityItems.slice(0, 3).map((item) => orderItemDetails(item).label).join("、");
@@ -5405,8 +5440,7 @@ function repeatOrder(orderId) {
 
   state.cart = nextCart;
   state.selectedCustomerId = customer.id;
-  const originalSalespersonActive = activeSalesUsers().some((user) => user.id === order.salesUserId);
-  state.salesUserId = canChooseSalesperson() && originalSalespersonActive ? order.salesUserId : state.user.id;
+  state.salesUserId = canChooseSalesperson() ? order.salesUserId : state.user.id;
   state.orderDraftCustomerId = customer.id;
   state.orderAddress = order.address || customer.address || "";
   state.orderPhone = order.phone || customer.phone || "";

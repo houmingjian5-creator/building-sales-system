@@ -3462,7 +3462,9 @@ async function handleApi(req, res) {
     if (method === "GET") {
       const keyword = url.searchParams.get("q") || url.searchParams.get("search") || "";
       const ownerId = url.searchParams.get("salesUserId") || url.searchParams.get("ownerId") || "";
+      const ids = String(url.searchParams.get("ids") || "").split(",").filter(Boolean);
       let list = db.customers.filter((customer) => user.role !== "销售人员" || customer.ownerId === user.id);
+      if (ids.length) list = list.filter((customer) => ids.indexOf(String(customer.id)) >= 0);
       if (ownerId && user.role !== "销售人员") list = list.filter((customer) => customer.ownerId === ownerId);
       if (keyword) list = list.filter((customer) => queryTextMatch([customer.name, customer.contact, customer.phone, customer.address], keyword));
       list = list.map((customer) => {
@@ -3473,7 +3475,7 @@ async function handleApi(req, res) {
           stats: summary.stats,
         });
       });
-      if (url.searchParams.has("page") || url.searchParams.has("pageSize") || keyword || ownerId) {
+      if (url.searchParams.has("page") || url.searchParams.has("pageSize") || keyword || ownerId || ids.length) {
         return sendJson(res, 200, pagedResult(list, url, 20));
       }
       return sendJson(res, 200, { customers: list });

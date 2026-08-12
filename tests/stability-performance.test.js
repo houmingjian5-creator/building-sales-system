@@ -89,6 +89,9 @@ const duplicateNames = Array.from(new Set(functionNames.filter((name, index) => 
 assert.deepStrictEqual(duplicateNames, [], "app.js 不得再保留会覆盖前方实现的同名函数");
 assert(appSource.includes('/api/bootstrap?mode=summary'), "登录启动必须使用精简 bootstrap");
 assert(appSource.includes("latestApiFetch"), "页面搜索必须取消过期请求");
+assert(appSource.includes("async function repeatOrder(orderId)"), "再来一单必须先异步补载订单关联数据");
+assert(appSource.includes("await loadRepeatOrderReferences(order)"), "再来一单不得依赖当前分页中的客户和商品缓存");
+assert(appSource.includes('state.salesUserId = canChooseSalesperson() ? order.salesUserId : state.user.id'), "管理员再来一单必须沿用原订单销售人员");
 const indexSource = fs.readFileSync(path.join(__dirname, "../public/index.html"), "utf8");
 assert(indexSource.includes("core.js?v="), "统一请求层必须拆分为独立静态资源");
 
