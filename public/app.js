@@ -79,6 +79,7 @@ const state = {
   productCategories: {},
   dataLoaded: { customers: false, products: false, createProducts: false, orders: false, dashboard: false },
   remotePages: {},
+  customerOrderDetails: {},
   auditItems: [],
   auditLoading: false,
   auditError: "",
@@ -604,6 +605,7 @@ async function logout() {
     state.dashboardError = "";
     state.productCategories = {};
     state.remotePages = {};
+    state.customerOrderDetails = {};
     state.dataLoaded = { customers: false, products: false, createProducts: false, orders: false, dashboard: false };
     state.auditItems = [];
     state.auditError = "";
@@ -816,7 +818,7 @@ function kpi(label, value, type) {
 
 function customerCard(c) {
   const owner = byId(salesUsers, c.ownerId);
-  const stats = customerStats(c.id);
+  const stats = c.stats && typeof c.stats === "object" ? c.stats : customerStats(c.id);
   return `
     <article class="customer-card">
       <div class="customer-main">
@@ -1919,8 +1921,44 @@ async function deleteProductImage(button, productId, imageUrl) {var _button$clos
 
 function customerOrdersModal(id) {
   const c = byId(customers, id);
-  const list = orders.filter((o) => o.customerId === id);
-  return modalShell(`${c.name} 的历史订单`, `<div class="order-list">${list.length ? list.map(orderCard).join("") : "<div class='empty'>暂无订单</div>"}</div>`, "关闭", "closeModal()");
+  const detail = state.customerOrderDetails[id];
+  if (!c) return modalShell("客户历史订单", "<div class='empty'>客户不存在或已无权查看</div>", "关闭", "closeModal()");
+  let content = "<div class='empty'>正在加载完整历史订单...</div>";
+  if (detail && detail.error) content = `<div class="empty">${html(detail.error)}<br><button class="btn small" onclick="loadCustomerOrderHistory(${jsArg(id)})">重新加载</button></div>`;
+  if (detail && !detail.loading && !detail.error) {
+    const list = Array.isArray(detail.orders) ? detail.orders : [];
+    content = `<div class="order-list">${list.length ? list.map(orderCard).join("") : "<div class='empty'>暂无订单</div>"}</div>`;
+  }
+  return modalShell(`${c.name} 的历史订单`, content, "关闭", "closeModal()");
+}
+
+function mergeOrderCache(items) {
+  (Array.isArray(items) ? items : []).forEach((item) => {
+    const index = orders.findIndex((order) => order.id === item.id);
+    if (index >= 0) orders[index] = item;
+    else orders.push(item);
+  });
+}
+
+async function loadCustomerOrderHistory(id) {
+  state.customerOrderDetails[id] = { loading: true, error: "", orders: [] };
+  if (state.modal && state.modal.type === "customerOrders" && state.modal.id === id) render();
+  try {
+    const response = await latestApiFetch(`customer-orders-${id}`, `/api/customers/${encodeURIComponent(id)}/orders`);
+    if (!response) return;
+    const data = await response.json();
+    if (!response.ok) throw new Error(data.error || "客户历史订单加载失败");
+    const list = Array.isArray(data.orders) ? data.orders : [];
+    mergeOrderCache(list);
+    state.customerOrderDetails[id] = { loading: false, error: "", orders: list };
+    if (data.customer) {
+      const customer = byId(customers, id);
+      if (customer && data.customer.stats) customer.stats = data.customer.stats;
+    }
+  } catch (error) {
+    state.customerOrderDetails[id] = { loading: false, error: error.message || "客户历史订单加载失败", orders: [] };
+  }
+  if (state.modal && state.modal.type === "customerOrders" && state.modal.id === id) render();
 }
 
 function deliveryModal(id) {
@@ -3856,6 +3894,7 @@ function openModal(type, id) {
   }
   render();
   if ((type === "product" || type === "productImage") && id) loadProductDetail(id);
+  if (type === "customerOrders" && id) loadCustomerOrderHistory(id);
   if (type === "editOrder") {
     const order = byId(orders, id);
     loadCustomers({ forCreate: true, salesUserId: order === null || order === void 0 ? void 0 : order.salesUserId }).then(render).catch((error) => alert(error.message));

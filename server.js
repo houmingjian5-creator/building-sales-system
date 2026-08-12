@@ -421,6 +421,35 @@ function dashboardIsReturn(order) {
   return Boolean(order && (order.type === "return" || String(order.no || "").startsWith("TH") || order.status === "已退货"));
 }
 
+function customerOrderMatchesCustomer(db, order, customer) {
+  if (!order || !customer || order.deletedAt) return false;
+  if (order.customerId === customer.id) return true;
+  if (order.customerId && db.customers.some((item) => item.id === order.customerId)) return false;
+  const customerPhone = normalizeCustomerPhone(customer.phone);
+  const orderPhone = normalizeCustomerPhone(order.customerPhone || order.phone);
+  return Boolean(customerPhone && orderPhone && customerPhone === orderPhone);
+}
+
+function customerOrdersForUser(db, customer, user) {
+  return db.orders.filter((order) => {
+    if (!customerOrderMatchesCustomer(db, order, customer)) return false;
+    return !user || user.role !== "销售人员" || order.salesUserId === user.id;
+  });
+}
+
+function customerStatsPayload(db, customer, user) {
+  const customerOrders = customerOrdersForUser(db, customer, user).filter((order) => !dashboardIsReturn(order));
+  const dates = customerOrders.map((order) => order.date).filter(Boolean).sort((a, b) => String(b).localeCompare(String(a)));
+  return {
+    orders: customerOrders,
+    stats: {
+      total: customerOrders.reduce((sum, order) => sum + effectiveOrderAmount(order), 0),
+      last: dates[0] || "-",
+      count: customerOrders.length,
+    },
+  };
+}
+
 function dashboardIsPerformanceOrder(order) {
   return Boolean(order && !order.deletedAt && ["待确认", "已取消"].indexOf(order.status) < 0);
 }
@@ -3319,15 +3348,11 @@ async function handleApi(req, res) {
       if (ownerId && user.role !== "销售人员") list = list.filter((customer) => customer.ownerId === ownerId);
       if (keyword) list = list.filter((customer) => queryTextMatch([customer.name, customer.contact, customer.phone, customer.address], keyword));
       list = list.map((customer) => {
-        const customerOrders = db.orders.filter((order) => !order.deletedAt && order.customerId === customer.id && !dashboardIsReturn(order));
-        const dates = customerOrders.map((order) => order.date).filter(Boolean).sort((a, b) => String(b).localeCompare(String(a)));
+        const summary = customerStatsPayload(db, customer, user);
+        const customerOrders = summary.orders;
         return Object.assign({}, customer, {
           orderAddresses: Array.from(new Set(customerOrders.map((order) => String(order.address || "").trim()).filter(Boolean))).slice(0, 20),
-          stats: {
-            total: customerOrders.reduce((sum, order) => sum + effectiveOrderAmount(order), 0),
-            last: dates[0] || "-",
-            count: customerOrders.length,
-          },
+          stats: summary.stats,
         });
       });
       if (url.searchParams.has("page") || url.searchParams.has("pageSize") || keyword || ownerId) {
@@ -3355,6 +3380,24 @@ async function handleApi(req, res) {
       writeDb(db);
       return sendJson(res, 201, { customer });
     }
+  }
+
+  if (method === "GET" && /^\/api\/customers\/[^/]+\/orders$/.test(url.pathname)) {
+    const user = requireUser(req, res);
+    if (!user) return;
+    const encodedId = url.pathname.slice("/api/customers/".length, -"/orders".length);
+    const id = decodeURIComponent(encodedId);
+    const db = readDb();
+    const customer = db.customers.find((item) => item.id === id);
+    if (!customer) return sendError(res, 404, "客户不存在");
+    if (user.role === "销售人员" && customer.ownerId !== user.id) return sendError(res, 403, "无权查看该客户");
+    const history = customerOrdersForUser(db, customer, user)
+      .slice()
+      .sort((a, b) => String(b.date || b.createdAt || "").localeCompare(String(a.date || a.createdAt || "")));
+    return sendJson(res, 200, {
+      customer: Object.assign({}, customer, { stats: customerStatsPayload(db, customer, user).stats }),
+      orders: history.map(publicOrder),
+    });
   }
 
   if (url.pathname.startsWith("/api/customers/")) {
@@ -4026,6 +4069,9 @@ module.exports.publicCostControlOrder = publicCostControlOrder;
 module.exports.dateInRange = dateInRange;
 module.exports.dashboardPayload = dashboardPayload;
 module.exports.pagedResult = pagedResult;
+module.exports.customerOrderMatchesCustomer = customerOrderMatchesCustomer;
+module.exports.customerOrdersForUser = customerOrdersForUser;
+module.exports.customerStatsPayload = customerStatsPayload;
 module.exports.sessionTokenHash = sessionTokenHash;
 module.exports.createSession = createSession;
 module.exports.deleteSession = deleteSession;
