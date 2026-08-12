@@ -1992,8 +1992,12 @@ function deliveryModal(id) {
   `;
 }
 
+function orderForDocument(id) {
+  return byId(orders, id) || costOrderById(id);
+}
+
 function documentModal(id) {
-  const order = byId(orders, id);
+  const order = orderForDocument(id);
   if (!order) {
     return `<div class="modal-backdrop">
       <div class="modal order-document-modal">
@@ -2204,14 +2208,15 @@ function getDisplayRows(order) {
 }
 
 function getOrderDoc(orderId) {
-  const order = byId(orders, orderId);
+  const order = orderForDocument(orderId);
+  if (!order) throw new Error("订单不存在");
   const customer = orderCustomerForDisplay(order);
   const title = order.no.startsWith("TH") || order.status === "已退货" ? "退货单" : "销售订单";
   return { order, customer, title, rows: getOrderRows(order) };
 }
 
 function buildOrderText(orderId) {
-  const order = byId(orders, orderId);
+  const order = orderForDocument(orderId);
   if (!order) throw new Error("订单不存在");
   const customer = orderCustomerForDisplay(order);
   const excludedTerms = ["运费", "搬运费", "货拉拉"];
@@ -4651,6 +4656,12 @@ function costOrderById(orderId) {
   return state.costOrders.find((order) => order.id === orderId);
 }
 
+function openCostOrderDocument(orderId) {
+  if (!isAdmin()) return;
+  if (!costOrderById(orderId)) return alert("订单不存在或已不在成本控制范围内");
+  openModal("document", orderId);
+}
+
 function refreshCostCard(orderId) {
   const order = costOrderById(orderId);
   const card = document.querySelector(`[data-cost-order="${orderId}"]`);
@@ -5092,6 +5103,7 @@ function renderCostOrderCard(order) {
           <strong>${html(order.no)}</strong>
           ${statusBadge(order.status)}
           <span class="cost-reconcile-badge ${costReconcileClass(control.reconciliationStatus)}">${html(control.reconciliationStatus)}</span>
+          <button type="button" class="icon-btn cost-order-view-btn" title="查看订单详情" aria-label="查看订单详情" onclick="event.stopPropagation();openCostOrderDocument(${jsArg(order.id)})">${svgIcon("view")}</button>
         </div>
         <div class="cost-card-metrics">
           <span><small>实际付款</small><strong>${money(order.effectiveAmount)}</strong></span>

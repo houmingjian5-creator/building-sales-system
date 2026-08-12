@@ -113,7 +113,14 @@ const order = {
   payStatus: "\u5df2\u56de\u6b3e",
   amount: 100,
   actualPaidAmount: 90,
-  items: [],
+  items: [{
+    productId: "product-1",
+    name: "Test material",
+    spec: "20kg",
+    unit: "bag",
+    quantity: 2,
+    price: 50
+  }],
   costControl: normalized
 };
 
@@ -134,6 +141,8 @@ assert.strictEqual(costOrder.customerPhone, "13800000000");
 assert.strictEqual(costOrder.salesName, "Sales A");
 assert.strictEqual(costOrder.effectiveAmount, 90);
 assert.strictEqual(costOrder.costTotals.profit, 54.25);
+assert.strictEqual(costOrder.items.length, 1);
+assert.strictEqual(costOrder.items[0].name, "Test material");
 
 const normalOrder = server.publicOrder(order);
 assert.strictEqual(normalOrder.costControl, undefined);
@@ -185,5 +194,9 @@ assert(appSource.includes("summary.profit / summary.revenue"), "整体毛利率�
 assert(stylesSource.includes(".cost-filter-toggle"), "手机成本筛选必须提供折叠入口");
 assert(stylesSource.includes(".cost-filter-content.is-open"), "手机成本筛选必须支持展开");
 assert(stylesSource.includes("grid-template-columns: repeat(5"), "桌面成本汇总必须容纳五张统计卡");
+
+assert(appSource.includes("cost-order-view-btn"), "Each cost order must expose an order-detail button.");
+assert(appSource.includes("openCostOrderDocument"), "Cost orders must use the guarded order-detail flow.");
+assert(appSource.includes("byId(orders, id) || costOrderById(id)"), "Order details must support cost-page lazy-loaded orders.");
 
 console.log("cost control tests passed");

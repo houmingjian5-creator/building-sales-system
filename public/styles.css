@@ -5876,6 +5876,27 @@ tbody tr:hover {
   font-size: 20px;
 }
 
+.cost-order-view-btn {
+  width: 36px;
+  min-width: 36px;
+  height: 36px;
+  margin-left: 2px;
+  border-color: #d7e1f0;
+  background: #f8faff;
+  color: #365fce;
+}
+
+.cost-order-view-btn svg {
+  width: 18px;
+  height: 18px;
+}
+
+.cost-order-view-btn:hover {
+  border-color: #aebfea;
+  background: #edf3ff;
+  color: #234fca;
+}
+
 .cost-paid-amount {
   display: flex;
   flex-direction: column;
@@ -6635,6 +6656,13 @@ tbody tr:hover {
   .cost-order-title > strong {
     font-size: 16px;
     overflow-wrap: anywhere;
+  }
+
+  .cost-order-view-btn {
+    width: 34px;
+    min-width: 34px;
+    height: 34px;
+    margin-left: 0;
   }
 
   .cost-card-metrics {

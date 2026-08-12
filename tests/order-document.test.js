@@ -33,7 +33,7 @@ assert(
 );
 const documentModalSource = app.slice(app.indexOf("function documentModal"), app.indexOf("function userModal"));
 assert(
-  documentModalSource.includes("if (!order)") && documentModalSource.includes("orderCustomerForDisplay(order)"),
+  documentModalSource.includes("orderForDocument(id)") && documentModalSource.includes("if (!order)") && documentModalSource.includes("orderCustomerForDisplay(order)"),
   "Order details must render from the order customer snapshot even when the customer page has not been loaded."
 );
 assert(
@@ -54,11 +54,11 @@ const testOrder = {
   items: []
 };
 const renderDocumentWithoutCustomers = new Function(
-  "byId", "orders", "salesUsers", "orderCustomerForDisplay", "getDisplayRows", "html", "svgIcon", "money", "orderAddressForDisplay", "amountToChinese",
+  "orderForDocument", "byId", "salesUsers", "orderCustomerForDisplay", "getDisplayRows", "html", "svgIcon", "money", "orderAddressForDisplay", "amountToChinese",
   `${documentModalSource}; return documentModal;`
 )(
+  (id) => id === testOrder.id ? testOrder : null,
   (list, id) => list.find((item) => item.id === id),
-  [testOrder],
   [{ id: "sales-1", name: "测试销售", phone: "13900000000" }],
   (order) => ({ name: order.customerName, phone: order.customerPhone, address: order.customerAddress }),
   () => [],
