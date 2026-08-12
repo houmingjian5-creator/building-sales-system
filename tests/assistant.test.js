@@ -15,6 +15,7 @@ const db = {
   ],
   customers: [
     { id: 'c-a', name: '甲客户', phone: '13800000001', ownerId: 'u-a' },
+    { id: 'c-never', name: '从未下单客户', phone: '13800000003', ownerId: 'u-a' },
     { id: 'c-b', name: '乙客户', phone: '13800000002', ownerId: 'u-b' },
   ],
   products: [
@@ -30,9 +31,9 @@ const db = {
   ],
 };
 
-assert.deepStrictEqual(server.assistantVisibleCustomers(db, users.salesA).map((item) => item.id), ['c-a']);
+assert.deepStrictEqual(server.assistantVisibleCustomers(db, users.salesA).map((item) => item.id), ['c-a', 'c-never']);
 assert.deepStrictEqual(server.assistantVisibleOrders(db, users.salesA).map((item) => item.id), ['o-1', 'o-2', 'o-4', 'o-5']);
-assert.strictEqual(server.assistantVisibleCustomers(db, users.admin).length, 2);
+assert.strictEqual(server.assistantVisibleCustomers(db, users.admin).length, 3);
 
 const scopedOrders = server.assistantVisibleOrders(db, users.salesA);
 const summary = server.assistantSalesSummary(scopedOrders, { period: 'custom', dateFrom: '2026-07-01', dateTo: '2026-07-31' });
@@ -52,6 +53,25 @@ assert.strictEqual(adminResults[0].data[0].cost, 20, 'admins may receive product
 const history = server.assistantCustomerHistory(db, server.assistantVisibleCustomers(db, users.salesA), scopedOrders, '甲客户');
 assert.strictEqual(history.customer.id, 'c-a');
 assert.strictEqual(history.commonProducts[0].quantity, 8, 'customer product history should subtract returned quantity');
+assert.strictEqual(history.orderCount, 2, 'customer history should exclude pending and cancelled orders');
+
+const inactive = server.assistantInactiveCustomers(
+  db,
+  server.assistantVisibleCustomers(db, users.salesA),
+  scopedOrders,
+  { days: 20 },
+  new Date('2026-08-12T04:00:00.000Z'),
+);
+assert.strictEqual(inactive.asOfDate, '2026-08-12');
+assert.strictEqual(inactive.cutoffDate, '2026-07-23');
+assert.strictEqual(inactive.total, 2);
+assert.strictEqual(inactive.rows.find((row) => row.customerId === 'c-a').lastOrderDate, '2026-07-01');
+assert.strictEqual(inactive.rows.find((row) => row.customerId === 'c-a').daysSinceLastOrder, 42);
+assert.strictEqual(inactive.rows.find((row) => row.customerId === 'c-never').neverOrdered, true);
+assert.strictEqual(inactive.rows.some((row) => row.customerId === 'c-b'), false, 'sales users must not receive another salesperson customer');
+assert.strictEqual(server.assistantInactiveCustomerDays('我名下哪些客户最近20天以上没有下单了'), 20);
+assert.ok(server.assistantAgentSystemPrompt(users.salesA, new Date('2026-08-12T04:00:00.000Z')).includes('2026-08-12'));
+assert.ok(server.assistantCurrentTurnContent('今天几号', [], new Date('2026-08-12T04:00:00.000Z')).includes('2026-08-12'));
 
 const ranking = server.assistantCustomerRanking(server.assistantVisibleCustomers(db, users.salesA), scopedOrders, {
   period: 'custom',
@@ -98,6 +118,7 @@ assert.strictEqual(server.assistantNeedsSmartModel('搜索最新建材政策'), 
 assert.strictEqual(server.assistantNeedsSmartModel('你好'), false);
 assert.strictEqual(server.assistantToolDefinitions(users.admin).some((tool) => tool.function.name === 'cost_control_summary'), true);
 assert.strictEqual(server.assistantToolDefinitions(users.salesA).some((tool) => tool.function.name === 'cost_control_summary'), false);
+assert.strictEqual(server.assistantToolDefinitions(users.salesA).some((tool) => tool.function.name === 'inactive_customers'), true);
 assert.ok(server.assistantSystemHelp('成本控制').length > 0);
 
 console.log('Xiaocai assistant permission and business-rule tests passed');

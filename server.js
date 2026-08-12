@@ -1739,6 +1739,7 @@ const ASSISTANT_HISTORY_LIMIT = 100;
 const ASSISTANT_TOOL_NAMES = new Set([
   'customer_search',
   'customer_history',
+  'inactive_customers',
   'product_search',
   'order_search',
   'sales_summary',
@@ -1809,6 +1810,26 @@ function assistantChinaDate(date = new Date()) {
   };
 }
 
+function assistantDateKeyTime(value) {
+  const match = String(value || '').match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (!match) return NaN;
+  return Date.UTC(Number(match[1]), Number(match[2]) - 1, Number(match[3]));
+}
+
+function assistantDateKeyBefore(value, days) {
+  const time = assistantDateKeyTime(value);
+  if (!Number.isFinite(time)) return '';
+  const date = new Date(time - Number(days || 0) * 24 * 60 * 60 * 1000);
+  return `${date.getUTCFullYear()}-${String(date.getUTCMonth() + 1).padStart(2, '0')}-${String(date.getUTCDate()).padStart(2, '0')}`;
+}
+
+function assistantDaysBetween(fromDate, toDate) {
+  const from = assistantDateKeyTime(fromDate);
+  const to = assistantDateKeyTime(toDate);
+  if (!Number.isFinite(from) || !Number.isFinite(to)) return null;
+  return Math.max(0, Math.floor((to - from) / (24 * 60 * 60 * 1000)));
+}
+
 function assistantOrderDate(order) {
   const match = String((order && order.date) || '').match(/(\d{4})[/-](\d{1,2})[/-](\d{1,2})/);
   if (!match) return null;
@@ -1850,8 +1871,54 @@ function assistantFindCustomers(customers, query) {
   if (!needle) return [];
   return customers.filter((customer) => {
     const text = normalizeMatchText([customer.name, customer.contact, customer.phone, customer.address].join(' '));
-    return text.includes(needle) || needle.includes(normalizeMatchText(customer.name || customer.contact));
+    const customerNeedle = normalizeMatchText(customer.name || customer.contact);
+    return text.includes(needle) || Boolean(customerNeedle && needle.includes(customerNeedle));
   }).slice(0, 8);
+}
+
+function assistantInactiveCustomerDays(message) {
+  const text = String(message || '');
+  if (!/(客户|顾客)/.test(text) || !/(未下单|没下单|没有下单|未再下单|没再下单|多久没下单)/.test(text)) return 0;
+  const match = text.match(/(\d{1,4})\s*天/);
+  return Math.max(1, Math.min(3650, Number(match && match[1] || 20)));
+}
+
+function assistantInactiveCustomers(db, customers, orders, args, nowDate) {
+  const options = args && typeof args === 'object' ? args : {};
+  const days = Math.max(1, Math.min(3650, Number(options.days || 20)));
+  const limit = Math.max(1, Math.min(100, Number(options.limit || 50)));
+  const today = assistantChinaDate(nowDate || new Date()).key;
+  const rows = customers.map(function (customer) {
+    let latestDate = '';
+    orders.forEach(function (order) {
+      if (!customerOrderMatchesCustomer(db, order, customer)) return;
+      if (!assistantIsPerformanceOrder(order) || assistantIsReturn(order)) return;
+      const orderDate = assistantOrderDate(order);
+      if (orderDate && (!latestDate || orderDate.key > latestDate)) latestDate = orderDate.key;
+    });
+    const elapsedDays = latestDate ? assistantDaysBetween(latestDate, today) : null;
+    return {
+      customerId: customer.id,
+      customer: assistantCustomerLabel(customer),
+      lastOrderDate: latestDate,
+      daysSinceLastOrder: elapsedDays,
+      neverOrdered: !latestDate,
+    };
+  }).filter(function (row) {
+    return row.neverOrdered || row.daysSinceLastOrder >= days;
+  }).sort(function (a, b) {
+    if (a.neverOrdered !== b.neverOrdered) return a.neverOrdered ? -1 : 1;
+    return Number(b.daysSinceLastOrder || 0) - Number(a.daysSinceLastOrder || 0) || a.customer.localeCompare(b.customer, 'zh-CN');
+  });
+  return {
+    asOfDate: today,
+    inactiveDays: days,
+    cutoffDate: assistantDateKeyBefore(today, days),
+    total: rows.length,
+    neverOrderedCount: rows.filter(function (row) { return row.neverOrdered; }).length,
+    rows: rows.slice(0, limit),
+    truncated: rows.length > limit,
+  };
 }
 
 function assistantProductRows(db, query, user, limit = 8) {
@@ -1943,7 +2010,7 @@ function assistantCustomerHistory(db, customers, orders, query) {
   }
   const customer = matches[0];
   const customerOrders = orders
-    .filter((order) => order.customerId === customer.id)
+    .filter((order) => customerOrderMatchesCustomer(db, order, customer) && assistantIsPerformanceOrder(order))
     .sort((a, b) => orderHistoryTime(b, 0) - orderHistoryTime(a, 0));
   const productMap = new Map((db.products || []).map((product) => [String(product.id), product]));
   const stats = new Map();
@@ -2336,10 +2403,12 @@ async function searchWeb(query, maxResults) {
 
 function assistantFallbackPlan(message) {
   const tools = [];
+  const inactiveDays = assistantInactiveCustomerDays(message);
+  if (inactiveDays) tools.push({ name: 'inactive_customers', args: { days: inactiveDays, limit: 50 } });
   if (/待回款|未回款|欠款|应收/.test(message)) tools.push({ name: 'receivables', args: {} });
   if (/热销|销量|排行|卖得最多|高频/.test(message)) tools.push({ name: 'product_ranking', args: { period: /今天|今日/.test(message) ? 'today' : 'month' } });
   if (/销售额|销售情况|销售数据|业绩|下单客户|订单数量|经营|简报/.test(message)) tools.push({ name: 'sales_summary', args: { period: /今天|今日/.test(message) ? 'today' : 'month' } });
-  if (/客户|购买|买过|常买|复购/.test(message)) tools.push({ name: 'customer_history', args: { query: message.replace(/客户|购买|买过|常买|复购|最近|历史|什么|查询/g, ' ').trim() } });
+  if (!inactiveDays && /客户|购买|买过|常买|复购/.test(message)) tools.push({ name: 'customer_history', args: { query: message.replace(/客户|购买|买过|常买|复购|最近|历史|什么|查询/g, ' ').trim() } });
   if (/订单(?!数量)|ORD|TH\d/i.test(message) && !/销售情况|销售数据|经营|简报/.test(message)) tools.push({ name: 'order_search', args: { query: message } });
   if (/商品|产品|价格|多少钱|规格|成本|利润|毛利|库存/.test(message) || !tools.length) tools.push({ name: 'product_search', args: { query: message, limit: 8 } });
   return { tools: tools.slice(0, 3) };
@@ -2347,7 +2416,7 @@ function assistantFallbackPlan(message) {
 
 async function assistantPlan(message, history) {
   const system = `你是建材销售系统“小材”的查询规划器。只输出JSON，不回答用户。
-允许工具：customer_search、customer_history、product_search、order_search、sales_summary、receivables、product_ranking。
+允许工具：customer_search、customer_history、inactive_customers、product_search、order_search、sales_summary、receivables、product_ranking。
 输出格式：{"tools":[{"name":"工具名","args":{}}]}，最多3个工具。
 时间period只能是today、month、custom、all；自定义日期用dateFrom/dateTo，格式YYYY-MM-DD。
 客户和商品查询要从用户原话提取简短名称或手机号，不要把整句客套话放入query。
@@ -2375,6 +2444,7 @@ function executeAssistantTools(db, user, plan) {
       return { name: tool.name, data: assistantFindCustomers(customers, args.query || '').map((customer) => ({ id: customer.id, label: assistantCustomerLabel(customer), address: customer.address || '' })) };
     }
     if (tool.name === 'customer_history') return { name: tool.name, data: assistantCustomerHistory(db, customers, orders, args.query || '') };
+    if (tool.name === 'inactive_customers') return { name: tool.name, data: assistantInactiveCustomers(db, customers, orders, args) };
     if (tool.name === 'product_search') return { name: tool.name, data: assistantProductRows(db, args.query || '', user, args.limit) };
     if (tool.name === 'order_search') return { name: tool.name, data: assistantOrderSearch(orders, customers, args) };
     if (tool.name === 'sales_summary') return { name: tool.name, data: assistantSalesSummary(orders, args) };
@@ -2443,6 +2513,13 @@ function assistantFallbackResponse(results, warning = '') {
       } else {
         lines.push('在你有权限查看的客户中没有找到匹配记录。');
       }
+    } else if (result.name === 'inactive_customers') {
+      const data = result.data;
+      lines.push(`截至 ${data.asOfDate}，共有 ${data.total} 位客户连续 ${data.inactiveDays} 天以上没有有效下单，其中 ${data.neverOrderedCount} 位从未有效下单。`);
+      if (data.total > 10) lines.push('下方明细先展示未下单时间最长的前10位，可到客户管理继续查看。');
+      blocks.push({ type: 'table', title: `${data.inactiveDays}天以上未下单客户`, columns: ['客户', '最近有效下单', '距今天数'], rows: data.rows.map(function (row) {
+        return [row.customer, row.lastOrderDate || '从未下单', row.neverOrdered ? '—' : `${row.daysSinceLastOrder}天`];
+      }) });
     }
   });
   return {
@@ -2510,6 +2587,10 @@ function assistantToolDefinitions(user) {
     assistantToolDefinition('customer_history', '查询一个客户的历史订单、最近订单和常购商品。', {
       query: { type: 'string', description: '客户名称、联系人或手机号' },
     }),
+    assistantToolDefinition('inactive_customers', '由服务器按照当前中国日期查询连续多天没有有效销售订单的客户，包括从未下单客户。排除待确认、已取消、退货和逻辑删除订单。', {
+      days: { type: 'integer', minimum: 1, maximum: 3650, description: '连续未下单天数，默认20天' },
+      limit: { type: 'integer', minimum: 1, maximum: 100 },
+    }),
     assistantToolDefinition('product_search', '查询真实产品库中的商品名称、规格、分类、单位和售价；管理员查询成本或毛利时也使用本工具。', {
       query: { type: 'string', description: '商品名称、品牌、规格、编码或别名' },
       limit: { type: 'integer', minimum: 1, maximum: 10 },
@@ -2554,8 +2635,8 @@ function assistantNeedsSmartModel(message) {
   return hasWebIntent || hasAnalysisIntent || text.length > 500;
 }
 
-function assistantAgentSystemPrompt(user) {
-  const today = assistantChinaDate().key;
+function assistantAgentSystemPrompt(user, nowDate) {
+  const today = assistantChinaDate(nowDate || new Date()).key;
   return `你是建材销售系统中的AI助手“小材”，也是一个具备广泛通用知识的自然对话助手。
 当前日期：${today}。当前用户角色：${user.role}。
 
@@ -2569,7 +2650,24 @@ function assistantAgentSystemPrompt(user) {
 7. 严格遵守服务器已经裁剪的数据权限。不得索要、猜测或泄露密码、密钥、会话和内部安全信息。
 8. 回答使用自然、友好的中文，可使用Markdown标题、列表、粗体和链接。先给结论，再给必要说明；不要输出JSON。
 9. 网络结论只引用web_search返回的网址。系统数据无需伪造外部引用。
-10. 对含糊的“它、这个客户、第二个商品、那笔订单”等，结合对话历史理解；仍不明确时再简短追问。`;
+10. 对含糊的“它、这个客户、第二个商品、那笔订单”等，结合对话历史理解；仍不明确时再简短追问。
+11. ${today} 是服务器提供的本轮唯一日期基准。历史对话中如果出现其他“今天”日期，一律视为旧信息，不得沿用。
+12. 查询“多少天没有下单的客户”必须使用inactive_customers的服务器计算结果，不得自行推算日期或编造客户名单。`;
+}
+
+function assistantPreloadedResults(db, user, message) {
+  const inactiveDays = assistantInactiveCustomerDays(message);
+  if (!inactiveDays) return [];
+  return executeAssistantTools(db, user, { tools: [{ name: 'inactive_customers', args: { days: inactiveDays, limit: 50 } }] });
+}
+
+function assistantCurrentTurnContent(message, preloadedResults, nowDate) {
+  const today = assistantChinaDate(nowDate || new Date()).key;
+  let content = `【服务器当前中国日期：${today}。这是本轮唯一日期基准，忽略历史对话中不同的“今天”日期。】`;
+  if (preloadedResults && preloadedResults.length) {
+    content += `\n【服务器已按权限和有效订单口径预计算的数据，不得自行改算：${JSON.stringify(preloadedResults).slice(0, 22000)}】`;
+  }
+  return `${content}\n\n用户本轮问题：${message}`;
 }
 
 function assistantHistoryMessages(history) {
@@ -2646,7 +2744,7 @@ function assistantBlocksFromResults(results) {
 function assistantLinksFromResults(results) {
   const names = new Set(results.map(function (result) { return result.name; }));
   const links = [];
-  if (names.has('customer_search') || names.has('customer_history') || names.has('customer_ranking')) links.push({ label: '查看客户管理', route: 'customers' });
+  if (names.has('customer_search') || names.has('customer_history') || names.has('inactive_customers') || names.has('customer_ranking')) links.push({ label: '查看客户管理', route: 'customers' });
   if (names.has('product_search') || names.has('product_ranking')) links.push({ label: '查看产品管理', route: 'products' });
   if (names.has('order_search') || names.has('receivables') || names.has('cost_control_summary')) links.push({ label: '查看订单管理', route: 'orders' });
   if (names.has('sales_summary') || names.has('sales_trend') || names.has('salesperson_performance')) links.push({ label: '查看销售概览', route: 'dashboard' });
@@ -2673,10 +2771,11 @@ function assistantSourcesFromResults(results) {
 
 async function assistantAgentAttempt(db, user, message, history, model, onStage, cancelToken) {
   const tools = assistantToolDefinitions(user);
+  const preloadedResults = assistantPreloadedResults(db, user, message);
   const messages = [{ role: 'system', content: assistantAgentSystemPrompt(user) }]
     .concat(assistantHistoryMessages(history))
-    .concat([{ role: 'user', content: message }]);
-  const results = [];
+    .concat([{ role: 'user', content: assistantCurrentTurnContent(message, preloadedResults) }]);
+  const results = preloadedResults.slice();
   let usage = null;
   let finalContent = '';
   for (let round = 0; round < 3; round += 1) {
@@ -2703,8 +2802,12 @@ async function assistantAgentAttempt(db, user, message, history, model, onStage,
     for (const toolCall of toolCalls) {
       const toolName = toolCall && toolCall.function ? toolCall.function.name : '';
       if (onStage) onStage(toolName === 'web_search' ? '正在搜索公开网络资料' : '正在查询权限内业务数据');
-      const result = await executeAssistantAgentTool(db, user, toolCall);
-      results.push(result);
+      let result = null;
+      if (toolName === 'inactive_customers') {
+        result = results.find(function (item) { return item.name === 'inactive_customers'; }) || null;
+      }
+      if (!result) result = await executeAssistantAgentTool(db, user, toolCall);
+      if (results.indexOf(result) < 0) results.push(result);
       roundResults.push({ toolCall: toolCall, result: result });
     }
     roundResults.forEach(function (item) {
@@ -2746,6 +2849,21 @@ async function assistantAgentAttempt(db, user, message, history, model, onStage,
 }
 
 async function assistantRun(db, user, message, history, onStage, cancelToken) {
+  const deterministicResults = assistantPreloadedResults(db, user, message);
+  if (deterministicResults.length) {
+    if (onStage) onStage('正在按当前日期核对客户订单');
+    const fallback = assistantFallbackResponse(deterministicResults);
+    return {
+      answer: fallback.answer,
+      blocks: assistantBlocksFromResults(deterministicResults),
+      followUps: ['查看其中一个客户的购买历史', '查询本月销售情况'],
+      links: assistantLinksFromResults(deterministicResults),
+      sources: [],
+      model: 'server-calculation',
+      usage: null,
+      toolNames: ['inactive_customers'],
+    };
+  }
   const preferredModel = assistantNeedsSmartModel(message) ? DEEPSEEK_SMART_MODEL : DEEPSEEK_FAST_MODEL;
   try {
     return await assistantAgentAttempt(db, user, message, history, preferredModel, onStage, cancelToken);
@@ -4035,6 +4153,8 @@ module.exports.assistantSalesSummary = assistantSalesSummary;
 module.exports.assistantReceivables = assistantReceivables;
 module.exports.assistantProductRanking = assistantProductRanking;
 module.exports.assistantCustomerHistory = assistantCustomerHistory;
+module.exports.assistantInactiveCustomers = assistantInactiveCustomers;
+module.exports.assistantInactiveCustomerDays = assistantInactiveCustomerDays;
 module.exports.assistantCustomerRanking = assistantCustomerRanking;
 module.exports.assistantSalesTrend = assistantSalesTrend;
 module.exports.assistantSalespersonPerformance = assistantSalespersonPerformance;
@@ -4046,6 +4166,8 @@ module.exports.assistantIsPublicHttpsUrl = assistantIsPublicHttpsUrl;
 module.exports.assistantNormalizeSearchResults = assistantNormalizeSearchResults;
 module.exports.assistantNeedsSmartModel = assistantNeedsSmartModel;
 module.exports.assistantToolDefinitions = assistantToolDefinitions;
+module.exports.assistantAgentSystemPrompt = assistantAgentSystemPrompt;
+module.exports.assistantCurrentTurnContent = assistantCurrentTurnContent;
 module.exports.executeAssistantTools = executeAssistantTools;
 module.exports.readDb = readDb;
 module.exports.writeDb = writeDb;
