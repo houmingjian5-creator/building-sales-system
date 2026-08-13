@@ -1093,7 +1093,7 @@ button {
   }
 }
 
-@media (max-width: 700px) {
+@media (max-width: 720px) {
   .modal.ai-modal {
     width: 100%;
     height: calc(100vh - 16px);
@@ -1110,14 +1110,16 @@ button {
   }
 
   .ai-master-detail {
+    position: relative;
     grid-template-columns: 1fr;
-    grid-template-rows: auto minmax(0, 1fr);
+    grid-template-rows: minmax(0, 1fr);
+    overflow: hidden;
   }
 
   .ai-result-master {
-    max-height: 225px;
+    max-height: none;
     border-right: 0;
-    border-bottom: 1px solid var(--line);
+    border-bottom: 0;
   }
 
   .ai-master-head {
@@ -1133,20 +1135,39 @@ button {
   }
 
   .ai-master-list {
-    display: flex;
-    gap: 8px;
+    display: block;
     padding: 8px 10px;
-    overflow-x: auto;
-    overflow-y: hidden;
+    overflow-x: hidden;
+    overflow-y: auto;
   }
 
   .ai-nav-item {
-    flex: 0 0 270px;
-    margin: 0;
+    margin-bottom: 8px;
+  }
+
+  .ai-result-detail {
+    position: absolute;
+    inset: 0;
+    z-index: 5;
+    display: block;
+    visibility: hidden;
+    overflow: hidden;
+    background: #fff;
+    box-shadow: -12px 0 28px rgba(15, 23, 42, 0.16);
+    pointer-events: none;
+    transform: translateX(100%);
+    transition: transform 180ms ease, visibility 0s linear 180ms;
+  }
+
+  .ai-master-detail.mobile-editor-open .ai-result-detail {
+    visibility: visible;
+    pointer-events: auto;
+    transform: translateX(0);
+    transition: transform 180ms ease;
   }
 
   .ai-detail-head {
-    grid-template-columns: minmax(0, 1fr) 88px auto;
+    grid-template-columns: minmax(0, 1fr) 78px auto auto;
     padding: 10px 12px;
   }
 
@@ -1156,6 +1177,16 @@ button {
 
   .ai-detail-scroll {
     padding: 12px;
+  }
+
+  .ai-detail-head .ai-mobile-editor-close {
+    display: grid;
+    width: 40px;
+    min-width: 40px;
+    height: 40px;
+    color: var(--text);
+    font-size: 24px;
+    line-height: 1;
   }
 
   .ai-detail-section-head {
@@ -1178,6 +1209,16 @@ button {
 
   .ai-search-scope {
     grid-template-columns: 1fr;
+  }
+}
+
+.ai-mobile-editor-close {
+  display: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ai-result-detail {
+    transition: none !important;
   }
 }
 

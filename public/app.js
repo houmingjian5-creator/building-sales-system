@@ -25,6 +25,7 @@ const state = {
   aiGroups: [],
   aiActiveGroupId: "",
   aiActiveResultKey: "",
+  aiMobileEditorOpen: false,
   aiDraftDirty: false,
   aiSourceDirty: false,
   aiSourceEditorOpen: false,
@@ -616,6 +617,7 @@ async function logout() {
     state.aiGroups = [];
     state.aiActiveGroupId = "";
     state.aiActiveResultKey = "";
+    state.aiMobileEditorOpen = false;
     state.aiDraftDirty = false;
     state.aiSourceDirty = false;
     state.aiSourceEditorOpen = false;
@@ -877,6 +879,7 @@ function openAiOrderModal() {
     state.aiGroups = [{ id: `ai-${Date.now()}`, cat1: "", cat2: "", content: "" }];
     state.aiActiveGroupId = state.aiGroups[0].id;
     state.aiActiveResultKey = "";
+    state.aiMobileEditorOpen = false;
     state.aiDraftCustomerId = state.selectedCustomerId;
     state.aiDraftOrderType = state.orderType;
   }
@@ -983,6 +986,7 @@ async function analyzeAiOrder() {
     const draftItems = aiDraftItems(data);
     const firstIssue = draftItems.find((item) => item.status !== "confirmed");
     state.aiActiveResultKey = (firstIssue || draftItems[0] || {}).key || "";
+    state.aiMobileEditorOpen = false;
     state.aiLoading = false;
     state.aiError = "";
     render();
@@ -1196,15 +1200,19 @@ function setAiResultActive(key) {
   if (!activePanel) return;
   const isMobile = window.matchMedia && window.matchMedia("(max-width: 720px)").matches;
   if (isMobile) {
-    const modalBody = activePanel.closest(".modal-body");
-    if (modalBody) {
-      const bodyTop = modalBody.getBoundingClientRect().top;
-      const panelTop = activePanel.getBoundingClientRect().top;
-      modalBody.scrollTo({ top: modalBody.scrollTop + panelTop - bodyTop - 8, behavior: "smooth" });
-    }
+    state.aiMobileEditorOpen = true;
+    const workspace = activePanel.closest(".ai-master-detail");
+    if (workspace) workspace.classList.add("mobile-editor-open");
+    activePanel.scrollTo({ top: 0 });
     return;
   }
   activePanel.scrollTo({ top: 0 });
+}
+
+function closeAiMobileEditor() {
+  state.aiMobileEditorOpen = false;
+  const workspace = document.querySelector(".ai-master-detail");
+  if (workspace) workspace.classList.remove("mobile-editor-open");
 }
 
 function aiCandidateFromProduct(product) {
@@ -1503,7 +1511,7 @@ function renderAiDraft(draft) {
     return result;
   }, { confirmed: 0, pending: 0, unmatched: 0 });
   return `
-    <div class="ai-result ai-master-detail">
+    <div class="ai-result ai-master-detail ${state.aiMobileEditorOpen ? "mobile-editor-open" : ""}">
       <aside class="ai-result-master">
         <div class="ai-master-head">
           <div><strong>AI识别的商品需求</strong><span>共 <b data-ai-total-count>${items.length}</b> 条</span></div>
@@ -1651,6 +1659,7 @@ function renderAiDetailPanel(item) {
         <div><span>正在处理</span><h4>${html(item.rawName || item.name || "未命名商品")}</h4><small>${html(item.groupTitle || "识别结果")} · ${aiStatusLabel(item.status)}</small></div>
         <label><span>数量</span>${aiDetailQuantity(item)}</label>
         ${item.aiType === "matched" ? `<button type="button" class="icon-btn danger ai-matched-delete" title="删除该商品" aria-label="删除该商品" onclick="removeAiMatchedLine(this)">${svgIcon("delete")}</button>` : ""}
+        <button type="button" class="icon-btn ai-mobile-editor-close" onclick="closeAiMobileEditor()" aria-label="关闭商品编辑">×</button>
       </div>
       <div class="ai-detail-scroll">${aiCandidateWorkspace(item)}</div>
     </div>`;
@@ -3751,6 +3760,7 @@ async function saveOrder() {var _data$learnedAliases;
   state.aiGroups = [];
   state.aiActiveGroupId = "";
   state.aiActiveResultKey = "";
+  state.aiMobileEditorOpen = false;
   state.aiDraftDirty = false;
   state.aiSourceDirty = false;
   state.aiSourceEditorOpen = false;
@@ -6372,6 +6382,7 @@ Object.assign(window, {
   setAiSourceEditorOpen,
   setAiAliasConsent,
   setAiResultActive,
+  closeAiMobileEditor,
   removeAiMatchedLine,
   openModal,
   closeModal,
