@@ -439,13 +439,18 @@ function customerOrdersForUser(db, customer, user) {
 
 function customerStatsPayload(db, customer, user) {
   const customerOrders = customerOrdersForUser(db, customer, user).filter((order) => !dashboardIsReturn(order));
-  const dates = customerOrders.map((order) => order.date).filter(Boolean).sort((a, b) => String(b).localeCompare(String(a)));
+  const validSalesOrders = customerOrders.filter(dashboardIsPerformanceOrder);
+  const dates = validSalesOrders.map((order) => order.date).filter(Boolean).sort((a, b) => {
+    const dateA = dashboardOrderDate(a);
+    const dateB = dashboardOrderDate(b);
+    return Number(dateB || 0) - Number(dateA || 0);
+  });
   return {
     orders: customerOrders,
     stats: {
-      total: customerOrders.reduce((sum, order) => sum + effectiveOrderAmount(order), 0),
+      total: validSalesOrders.reduce((sum, order) => sum + effectiveOrderAmount(order), 0),
       last: dates[0] || "-",
-      count: customerOrders.length,
+      count: validSalesOrders.length,
     },
   };
 }
