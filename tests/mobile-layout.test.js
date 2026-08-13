@@ -110,7 +110,12 @@ assert(appSource.includes('class="order-document-mobile-view"'), "订单详情�
 assert(appSource.includes('class="audit-mobile-list"'), "操作日志必须提供紧凑手机列表，不能强制缩放桌面表格");
 assert(appSource.includes("toggleMobileFilter('audit')"), "手机操作日志详细条件必须进入统一筛选抽屉");
 assert(businessStylesSource.includes(".order-document-modal .document-toolbar,.order-document-modal .doc-preview { display:none!important; }"), "手机订单详情必须隐藏桌面票据布局");
-assert(mobileV2Source.includes(".mobile-v2 .ai-master-list { display: grid; grid-template-columns: 1fr"), "手机 AI 开单必须采用全屏单列工作区");
+assert(mobileV2Source.includes(".mobile-v2 .ai-master-list {") && mobileV2Source.includes("grid-template-columns: 1fr"), "手机 AI 开单必须采用全屏单列工作区");
+assert(mobileV2Source.includes(".mobile-v2 .ai-modal.has-results .modal-body") && mobileV2Source.includes("overflow-y: auto"), "手机 AI 识别结果必须允许纵向滚动进入商品编辑区");
+assert(mobileV2Source.includes("max-height: none") && mobileV2Source.includes("touch-action: pan-y"), "手机 AI 需求列表必须跟随弹层单一滚动，不能形成嵌套滚动锁定");
+const mobileFilterSource = appSource.slice(appSource.indexOf("function renderMobileFilterSheet"), appSource.indexOf("function toggleMobileFilter"));
+assert(mobileFilterSource.includes('mobileFilterSelect("二级分类"'), "手机产品筛选必须提供二级分类选项");
+assert(mobileFilterSource.includes("productSubcategoriesFor(state.category)"), "手机产品二级分类必须跟随一级分类动态生成");
 assert(appSource.includes('class="mobile-page-more"'), "手机产品页低频批量操作必须进入页面更多菜单");
 assert(appSource.includes('class="cart-line-delete"'), "购物车删除按钮必须独立于单价和数量控制行");
 assert(appSource.includes('class="cart-price-input"'), "购物车单价必须使用横向金额输入容器");

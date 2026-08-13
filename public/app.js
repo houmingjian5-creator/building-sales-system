@@ -687,8 +687,8 @@ function closeMobileMore() {
   });
 }
 
-function mobileFilterSelect(label, value, options, handler) {
-  return `<label class="mobile-filter-field"><span>${html(label)}</span><select class="select" onchange="${handler}">${optionList(options, value)}</select></label>`;
+function mobileFilterSelect(label, value, options, handler, disabled = false) {
+  return `<label class="mobile-filter-field"><span>${html(label)}</span><select class="select" ${disabled ? "disabled" : ""} onchange="${handler}">${optionList(options, value)}</select></label>`;
 }
 
 function renderMobileFilterSheet() {
@@ -701,7 +701,10 @@ function renderMobileFilterSheet() {
       mobileFilterSelect("付款状态", state.orderPayStatus || "全部", PAY_STATUS_FILTERS, "updateOrderPayFilter(this.value)") +
       (canChooseSalesperson() ? `<label class="mobile-filter-field"><span>下单销售</span><select class="select" onchange="updateOrderSalesFilter(this.value)">${salesFilterOptions(state.orderSalesFilter)}</select></label>` : "");
   } else if (state.mobileFilterOpen === "products") {
-    fields = mobileFilterSelect("一级分类", state.category, ["全部", "水电", "木", "瓦", "油", "辅助商品"], "setProductCategory(this.value)");
+    const primaryCategories = ["全部"].concat(productPrimaryCategories());
+    const secondaryCategories = state.category === "全部" ? ["全部"] : ["全部"].concat(productSubcategoriesFor(state.category));
+    fields = mobileFilterSelect("一级分类", state.category, primaryCategories, "setProductCategory(this.value)") +
+      mobileFilterSelect("二级分类", state.productSubcategory || "全部", secondaryCategories, "setProductSubcategory(this.value === '全部' ? '' : this.value)", state.category === "全部");
   } else if (state.mobileFilterOpen === "audit") {
     fields = `<label class="mobile-filter-field"><span>开始日期</span><input class="input" type="date" value="${html(state.auditFilters.startDate)}" onchange="updateAuditFilter('startDate',this.value)" /></label><label class="mobile-filter-field"><span>结束日期</span><input class="input" type="date" value="${html(state.auditFilters.endDate)}" onchange="updateAuditFilter('endDate',this.value)" /></label><label class="mobile-filter-field"><span>操作人员</span><select class="select" onchange="updateAuditFilter('actorId',this.value)"><option value="">全部操作人员</option>${salesUsers.map((user) => `<option value="${html(user.id)}" ${state.auditFilters.actorId === user.id ? "selected" : ""}>${html(user.name)}</option>`).join("")}</select></label>${mobileFilterSelect("业务类型", state.auditFilters.entityType, ["", "账号", "客户", "商品", "订单", "成本", "人员", "操作日志", "批量数据"], "updateAuditFilter('entityType',this.value)")}${mobileFilterSelect("操作结果", state.auditFilters.result, ["", "成功", "失败"], "updateAuditFilter('result',this.value)")}`;
   }
@@ -886,7 +889,7 @@ function addAiGroup() {
   state.aiGroups.push(group);
   state.aiActiveGroupId = group.id;
   state.aiSourceDirty = true;
-  render();
+  refreshAiGroupEditor();
 }
 
 function removeAiGroup(groupId) {
@@ -894,7 +897,7 @@ function removeAiGroup(groupId) {
   state.aiGroups = state.aiGroups.filter((group) => group.id !== groupId);
   if (!state.aiGroups.some((group) => group.id === state.aiActiveGroupId)) state.aiActiveGroupId = state.aiGroups[0].id;
   state.aiSourceDirty = true;
-  render();
+  refreshAiGroupEditor();
 }
 
 function setAiGroupCategory(groupId, cat1) {
@@ -903,7 +906,7 @@ function setAiGroupCategory(groupId, cat1) {
   group.cat1 = cat1;
   group.cat2 = "";
   state.aiSourceDirty = true;
-  render();
+  refreshAiGroupEditor();
 }
 
 function setAiGroupSubcategory(groupId, cat2) {
@@ -911,7 +914,7 @@ function setAiGroupSubcategory(groupId, cat2) {
   if (!group) return;
   group.cat2 = cat2;
   state.aiSourceDirty = true;
-  render();
+  refreshAiGroupEditor();
 }
 
 function updateAiGroupText(groupId, value) {
@@ -924,7 +927,7 @@ function updateAiGroupText(groupId, value) {
 function setAiActiveGroup(groupId) {
   if (!state.aiGroups.some((group) => group.id === groupId)) return;
   state.aiActiveGroupId = groupId;
-  render();
+  refreshAiGroupEditor();
 }
 
 function setAiSourceEditorOpen(open) {
@@ -1190,7 +1193,18 @@ function setAiResultActive(key) {
   });
   const activePanel = [...document.querySelectorAll("[data-ai-detail-key]")].
   find((panel) => panel.dataset.aiDetailKey === String(key));
-  activePanel === null || activePanel === void 0 || activePanel.scrollTo({ top: 0 });
+  if (!activePanel) return;
+  const isMobile = window.matchMedia && window.matchMedia("(max-width: 720px)").matches;
+  if (isMobile) {
+    const modalBody = activePanel.closest(".modal-body");
+    if (modalBody) {
+      const bodyTop = modalBody.getBoundingClientRect().top;
+      const panelTop = activePanel.getBoundingClientRect().top;
+      modalBody.scrollTo({ top: modalBody.scrollTop + panelTop - bodyTop - 8, behavior: "smooth" });
+    }
+    return;
+  }
+  activePanel.scrollTo({ top: 0 });
 }
 
 function aiCandidateFromProduct(product) {
@@ -1423,19 +1437,40 @@ function renderModal() {
   return "";
 }
 
-function aiOrderModal() {
-  const customer = byId(customers, state.selectedCustomerId);
-  const draft = state.aiDraft;
+function aiGroupEditorHtml() {
   const cat1Options = productPrimaryCategories();
   const activeGroup = state.aiGroups.find((group) => group.id === state.aiActiveGroupId) || state.aiGroups[0];
   const cat2Options = activeGroup ? productSubcategoriesFor(activeGroup.cat1) : [];
-  const sourceEditor = `
+  const draft = state.aiDraft;
+  return `<div class="ai-group-editor">
     <div class="ai-group-tabs">${state.aiGroups.map((group, index) => `<button class="ai-group-tab ${group.id === state.aiActiveGroupId ? "active" : ""}" onclick="setAiActiveGroup(${jsArg(group.id)})"><span>${html(group.cat2 || group.cat1 || `分类 ${index + 1}`)}</span>${state.aiGroups.length > 1 ? `<i onclick="event.stopPropagation();removeAiGroup(${jsArg(group.id)})">×</i>` : ""}</button>`).join("")}<button class="ai-group-add" onclick="addAiGroup()">＋ 添加分类窗口</button></div>
     ${activeGroup ? `<section class="ai-group-panel"><div class="ai-group-filters"><div class="field"><label>一级分类 *</label><select class="select" onchange="setAiGroupCategory('${html(activeGroup.id)}',this.value)"><option value="">请选择一级分类</option>${cat1Options.map((cat1) => `<option value="${html(cat1)}" ${activeGroup.cat1 === cat1 ? "selected" : ""}>${html(cat1)}</option>`).join("")}</select></div><div class="field"><label>二级分类（选填）</label><select class="select" ${activeGroup.cat1 ? "" : "disabled"} onchange="setAiGroupSubcategory('${html(activeGroup.id)}',this.value)"><option value="">全部二级分类</option>${cat2Options.map((cat2) => `<option value="${html(cat2)}" ${activeGroup.cat2 === cat2 ? "selected" : ""}>${html(cat2)}</option>`).join("")}</select></div></div><div class="field"><label>该分类下的材料清单</label><textarea class="textarea ai-textarea" oninput="updateAiGroupText('${html(activeGroup.id)}',this.value)" placeholder="只填写属于当前分类的材料，例如：20管6根，20弯头30个...">${html(activeGroup.content)}</textarea></div><div class="hint">匹配范围：${activeGroup.cat1 ? html(activeGroup.cat1) : "尚未选择"}${activeGroup.cat2 ? ` / ${html(activeGroup.cat2)}` : activeGroup.cat1 ? " / 全部二级分类" : ""}。系统不会跨出这个范围推荐商品。</div></section>` : ""}
     <div class="ai-actions">
       <button class="btn primary" onclick="analyzeAiOrder()" ${state.aiLoading ? "disabled" : ""}>${state.aiLoading ? "识别中..." : draft ? "重新识别" : "开始识别"}</button>
       <span class="hint">${state.aiLoading ? "正在提交分类材料并等待AI解析，请不要关闭窗口。" : state.aiSourceDirty && draft ? "原始材料已修改；下方人工调整仍会保留，只有点击重新识别才会生成新结果。" : "唯一可靠商品自动匹配；不确定就留给你确认或进入未匹配。"}</span>
-    </div>`;
+    </div></div>`;
+}
+
+function refreshAiGroupEditor() {
+  const current = document.querySelector(".ai-modal .ai-group-editor");
+  if (!current) {
+    render();
+    return;
+  }
+  const template = document.createElement("template");
+  template.innerHTML = aiGroupEditorHtml().trim();
+  const replacement = template.content.firstElementChild;
+  if (!replacement) return;
+  current.replaceWith(replacement);
+  const tabs = replacement.querySelector(".ai-group-tabs");
+  const activeTab = replacement.querySelector(".ai-group-tab.active");
+  if (tabs && activeTab) tabs.scrollLeft = Math.max(0, activeTab.offsetLeft - 12);
+}
+
+function aiOrderModal() {
+  const customer = byId(customers, state.selectedCustomerId);
+  const draft = state.aiDraft;
+  const sourceEditor = aiGroupEditorHtml();
   return `
     <div class="modal-backdrop">
       <div class="modal ai-modal ${draft ? "has-results" : ""}">
@@ -3399,7 +3434,7 @@ function renderProducts() {var _state$user0;
   const canExport = ((_state$user0 = state.user) === null || _state$user0 === void 0 ? void 0 : _state$user0.role) !== "销售人员";
   return `
     <div class="mobile-page-tools product-mobile-primary"><input id="productSearchInputMobile" class="input" placeholder="搜索商品名称/规格/编码/别名" value="${html(state.productQuery)}" oncompositionstart="this.dataset.composing='true'" oncompositionend="this.dataset.composing='false';updateProductQuery(this)" oninput="updateProductQuery(this)" /><button type="button" class="btn mobile-filter-button" onclick="toggleMobileFilter('products')">筛选</button>${canManage ? `<button class="btn primary" onclick="openModal('product')">新增</button>` : ""}<details class="mobile-page-more"><summary aria-label="页面更多操作">•••</summary><div>${canManage ? `<button type="button" onclick="downloadProductTemplate()">下载模板</button><button type="button" onclick="document.getElementById('productImportFile').click()">批量上传</button>` : ""}${canExport ? `<button type="button" onclick="exportProducts('selected')" ${state.selectedProductIds.length ? "" : "disabled"}>导出已选</button><button type="button" onclick="exportProducts('all')">导出全部</button>` : ""}</div></details></div>
-    <div class="mobile-filter-chips">${mobileFilterChip("分类", state.category, "setProductCategory('全部')")}</div>
+    <div class="mobile-filter-chips">${mobileFilterChip("一级分类", state.category, "setProductCategory('全部')")}${mobileFilterChip("二级分类", state.productSubcategory, "setProductSubcategory('')")}</div>
     <div class="toolbar product-management-toolbar desktop-page-tools">
       <input id="productSearchInput" class="input" placeholder="搜索商品名称 / 规格 / 编码 / 别名" value="${html(state.productQuery)}" oncompositionstart="this.dataset.composing='true'" oncompositionend="this.dataset.composing='false';updateProductQuery(this)" oninput="updateProductQuery(this)" />
       <div class="spacer"></div>

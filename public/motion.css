@@ -89,6 +89,15 @@
   transform-origin: center center;
 }
 
+/* AI 分类窗口在切换、新增或删除时只做同步内容更新，避免反复播放动效造成闪烁。 */
+.ai-modal .ai-group-editor,
+.ai-modal .ai-group-tabs,
+.ai-modal .ai-group-panel,
+.ai-modal .ai-actions {
+  animation: none !important;
+  transition: none !important;
+}
+
 .cart-drawer-layer > .cart-drawer {
   animation: motion-drawer-right-in var(--motion-slow) var(--motion-standard) both;
 }

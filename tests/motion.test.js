@@ -5,6 +5,7 @@ const path = require("path");
 const appSource = fs.readFileSync(path.join(__dirname, "../public/app.js"), "utf8");
 const indexSource = fs.readFileSync(path.join(__dirname, "../public/index.html"), "utf8");
 const motionSource = fs.readFileSync(path.join(__dirname, "../public/motion.css"), "utf8");
+assert(motionSource.includes(".ai-modal .ai-group-editor") && motionSource.includes("transition: none !important"), "AI 分类窗口切换不能播放闪烁动效");
 
 assert(indexSource.includes("motion.css?v="), "The final motion stylesheet must be loaded with a cache version");
 assert(indexSource.indexOf("motion.css") > indexSource.indexOf("mobile-v2.css"), "Motion styles must load after layout styles");

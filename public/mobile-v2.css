@@ -530,13 +530,28 @@
   .mobile-v2 .ai-modal .modal-head,
   .mobile-v2 .order-document-modal .modal-head { min-height: var(--m-header); padding: 8px 10px; }
   .mobile-v2 .ai-modal .modal-body { padding: 7px 8px 72px; overflow-x: hidden; }
-  .mobile-v2 .ai-master-detail { display: grid; grid-template-rows: auto minmax(0,1fr); min-width: 0; }
+  .mobile-v2 .ai-modal.has-results .modal-body {
+    display: block;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    -webkit-overflow-scrolling: touch;
+  }
+  .mobile-v2 .ai-master-detail { display: block; min-width: 0; min-height: auto; }
   .mobile-v2 .ai-result-master,
   .mobile-v2 .ai-result-detail { width: 100%; min-width: 0; max-height: none; border: 0; }
   .mobile-v2 .ai-status-summary { flex-wrap: nowrap; gap: 4px; overflow-x: auto; }
-  .mobile-v2 .ai-master-list { display: grid; grid-template-columns: 1fr; gap: 6px; max-height: none; overflow: visible; }
+  .mobile-v2 .ai-master-list {
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: 6px;
+    max-height: none;
+    overflow: visible;
+    touch-action: pan-y;
+  }
   .mobile-v2 .ai-nav-item { width: 100%; min-width: 0; min-height: 96px; padding: 9px; }
-  .mobile-v2 .ai-detail-panel { padding: 9px 0; }
+  .mobile-v2 .ai-result-detail { min-height: 360px; overflow: visible; }
+  .mobile-v2 .ai-detail-panel { height: auto; min-height: 360px; padding: 9px 0; overflow: visible; }
+  .mobile-v2 .ai-detail-scroll { overflow: visible; }
   .mobile-v2 .ai-modal .modal-foot { position: fixed; right: 0; bottom: 0; left: 0; z-index: 5; padding: 7px 8px calc(7px + env(safe-area-inset-bottom)); background: rgba(255,255,255,.98); }
 
   .mobile-v2 .order-document-modal .modal-body { padding: 8px; background: var(--m-canvas); }

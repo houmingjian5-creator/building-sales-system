@@ -14,6 +14,8 @@ function functionSource(name, nextName) {
 const groupSwitchSource = functionSource("setAiActiveGroup", "setAiSourceEditorOpen");
 assert(groupSwitchSource.includes("state.aiActiveGroupId = groupId"), "分类切换必须只更新当前分类");
 assert(!groupSwitchSource.includes("state.aiDraft = null"), "分类切换不能清空 AI 草稿");
+assert(groupSwitchSource.includes("refreshAiGroupEditor()"), "分类切换必须局部更新编辑器，不能重播整个弹层动画");
+assert(!groupSwitchSource.includes("render()"), "分类切换不得整体重绘 AI 弹层");
 
 ["addAiGroup", "removeAiGroup", "setAiGroupCategory", "setAiGroupSubcategory", "updateAiGroupText"].forEach((name, index, names) => {
   const nextName = names[index + 1] || "setAiActiveGroup";
@@ -46,15 +48,17 @@ assert(analyzeSource.includes("timeoutMs: 65000"), "AI 开单必须允许模型�
 assert(!analyzeSource.includes("setTimeout(() => controller.abort()"), "AI 开单不能保留与统一请求层冲突的重复计时器");
 
 const modalSource = functionSource("aiOrderModal", "renderAiDraft");
-assert(modalSource.includes("setAiActiveGroup"), "分类标签必须使用不清空草稿的切换函数");
 assert(modalSource.includes("state.aiSourceEditorOpen"), "查看分类原文时必须保持展开状态");
-assert(modalSource.includes("productPrimaryCategories()"), "AI 开单一级分类必须使用完整产品分类目录");
-assert(modalSource.includes("productSubcategoriesFor(activeGroup.cat1)"), "AI 开单二级分类不能只从当前商品分页生成");
+assert(modalSource.includes("aiGroupEditorHtml()"), "AI 开单弹层必须复用可局部刷新的分类编辑器");
 
 const categorySource = functionSource("productPrimaryCategories", "productSubcategoriesFor");
 const subcategorySource = functionSource("productSubcategoriesFor", "jsArg");
+const groupEditorSource = functionSource("aiGroupEditorHtml", "refreshAiGroupEditor");
+assert(groupEditorSource.includes("setAiActiveGroup"), "分类标签必须使用不清空草稿的切换函数");
 assert(categorySource.includes("state.productCategories"), "完整产品分类目录必须来自精简启动接口");
 assert(subcategorySource.includes("catalogItems.concat(loadedItems)"), "分类目录应兼容当前已加载商品中的新分类");
+assert(groupEditorSource.includes("productPrimaryCategories()"), "AI 分类编辑器一级分类必须使用完整产品分类目录");
+assert(groupEditorSource.includes("productSubcategoriesFor(activeGroup.cat1)"), "AI 分类编辑器二级分类不能只从当前商品分页生成");
 
 const openSource = functionSource("openAiOrderModal", "addAiGroup");
 assert(openSource.includes("if (!state.aiGroups.length || aiSessionChanged)"), "关闭后重新打开同一客户的 AI 开单必须恢复未保存草稿");
