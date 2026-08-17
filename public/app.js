@@ -37,6 +37,7 @@ const state = {
   editProductCategory: "全部",
   editProductSubcategory: "全部",
   editProductPickerOpen: false,
+  editOrderExpandedIndex: -1,
   orderDraftCustomerId: "",
   createCustomerQuery: "",
   createCustomerPickerOpen: false,
@@ -3965,6 +3966,7 @@ function openModal(type, id) {
     state.editProductQuery = "";
     state.editProductCategory = "全部";
     state.editProductSubcategory = "全部";
+    state.editOrderExpandedIndex = -1;
     state.editCustomerQuery = (customer === null || customer === void 0 ? void 0 : customer.name) || "";
     state.editCustomerPickerOpen = false;
   }
@@ -3984,6 +3986,7 @@ function closeModal() {
     state.modal = null;
     state.editOrderDraft = null;
     state.editProductPickerOpen = false;
+    state.editOrderExpandedIndex = -1;
     state.editCustomerPickerOpen = false;
     render();
   });
@@ -4059,15 +4062,19 @@ function editOrderItemsHtml(draft) {
   return `
     <div class="edit-order-items">
       <div class="edit-order-items-head"><strong>订单商品</strong><span>${draft.items.length} 项</span></div>
-      ${draft.items.length ? draft.items.map((item, index) => `
-        <div class="edit-order-line" data-edit-order-line data-edit-order-index="${index}">
+      ${draft.items.length ? draft.items.map((item, index) => {
+    const subtotal = Number(item.quantity || 0) * Number(item.price || 0);
+    const expanded = state.editOrderExpandedIndex === index;
+    return `
+        <div class="edit-order-line${expanded ? " is-expanded" : ""}" data-edit-order-line data-edit-order-index="${index}">
           <button type="button" class="edit-order-drag-handle" title="按住拖动调整顺序" aria-label="拖动商品调整顺序" onpointerdown="startEditOrderDrag(event)" onkeydown="handleEditOrderDragKey(event,${index})">${svgIcon("grip")}</button>
           <div class="edit-order-product"><strong>${html(orderItemDetails(item).label)}</strong><span>单位：${html(item.unit || "-")}</span></div>
+          <button type="button" class="edit-order-mobile-summary" aria-expanded="${expanded ? "true" : "false"}" onclick="toggleEditOrderLine(${index})"><span><strong>${html(orderItemDetails(item).label)}</strong><small>单位：${html(item.unit || "-")}</small></span><span><em id="editOrderMobileMeta${index}">${Number(item.quantity || 0)} × ${money(item.price)}</em><b id="editOrderMobileSubtotal${index}">${money(subtotal)}</b></span><i aria-hidden="true">⌄</i></button>
           <label class="edit-order-quantity-field${isPositiveInteger(item.quantity) ? "" : " has-error"}"><span>数量</span><input id="editOrderItemQty${index}" class="input${isPositiveInteger(item.quantity) ? "" : " quantity-input-invalid"}" type="number" min="1" step="1" inputmode="numeric" value="${Number(item.quantity || 0)}" oninput="updateEditOrderLine(${index},'quantity',this.value);setQuantityInputValidity(this)" />${isPositiveInteger(item.quantity) ? "" : `<small class="quantity-error-text">历史数量不是整数，请修正</small>`}</label>
           <label><span>单价</span><input id="editOrderItemPrice${index}" class="input" type="number" step="0.01" value="${Number(item.price || 0)}" oninput="updateEditOrderLine(${index},'price',this.value)" /></label>
-          <div id="editOrderSubtotal${index}" class="edit-order-subtotal">${money(Number(item.quantity || 0) * Number(item.price || 0))}</div>
+          <div id="editOrderSubtotal${index}" class="edit-order-subtotal">${money(subtotal)}</div>
           ${actionButton("删除商品", "delete", `removeEditOrderLine(${index})`)}
-        </div>`).join("") : `<div class="empty">订单中还没有商品</div>`}
+        </div>`;}).join("") : `<div class="empty">订单中还没有商品</div>`}
     </div>
   `;
 }
@@ -4081,6 +4088,7 @@ function editOrderModal(id) {
   if (!order) return "";
   if (!state.editOrderDraft || state.editOrderDraft.orderId !== id) {var _byId3, _byId4;
     state.editOrderDraft = { orderId: id, customerId: order.customerId, date: order.date || "", phone: order.phone || ((_byId3 = byId(customers, order.customerId)) === null || _byId3 === void 0 ? void 0 : _byId3.phone) || "", address: order.address || "", remark: order.remark || "", items: (order.items || []).map(orderLineSnapshot) };
+    state.editOrderExpandedIndex = -1;
     state.editCustomerQuery = ((_byId4 = byId(customers, order.customerId)) === null || _byId4 === void 0 ? void 0 : _byId4.name) || "";
   }
   const draft = state.editOrderDraft;
@@ -4116,9 +4124,22 @@ function updateEditOrderLine(index, key, value) {var _state$editOrderDraft3;
   if (!item) return;
   item[key] = Number(value || 0);
   const subtotal = document.getElementById(`editOrderSubtotal${index}`);
-  if (subtotal) subtotal.textContent = money(Number(item.quantity || 0) * Number(item.price || 0));
+  const itemSubtotal = Number(item.quantity || 0) * Number(item.price || 0);
+  if (subtotal) subtotal.textContent = money(itemSubtotal);
+  const mobileMeta = document.getElementById(`editOrderMobileMeta${index}`);
+  if (mobileMeta) mobileMeta.textContent = `${Number(item.quantity || 0)} × ${money(item.price)}`;
+  const mobileSubtotal = document.getElementById(`editOrderMobileSubtotal${index}`);
+  if (mobileSubtotal) mobileSubtotal.textContent = money(itemSubtotal);
   const total = document.getElementById("editOrderTotal");
   if (total) total.textContent = money(state.editOrderDraft.items.reduce((sum, line) => sum + Number(line.quantity || 0) * Number(line.price || 0), 0));
+}
+
+function toggleEditOrderLine(index) {
+  if (!state.editOrderDraft || !state.editOrderDraft.items[index]) return;
+  const modalBody = document.querySelector(".edit-order-modal .modal-body");
+  const scrollTop = (modalBody === null || modalBody === void 0 ? void 0 : modalBody.scrollTop) || 0;
+  state.editOrderExpandedIndex = state.editOrderExpandedIndex === index ? -1 : index;
+  refreshEditOrderItems(scrollTop);
 }
 
 function refreshEditOrderItems(scrollTop = null) {
@@ -4239,6 +4260,7 @@ function removeEditOrderLine(index) {
   const line = document.querySelector(`[data-edit-order-index="${index}"]`);
   const finish = () => {
     draft.items.splice(index, 1);
+    state.editOrderExpandedIndex = -1;
     if (state.editOrderDraft !== draft) return;
     refreshEditOrderItems(scrollTop);
     if (state.editProductPickerOpen) refreshEditProductPicker(false);
@@ -4261,6 +4283,7 @@ function moveEditOrderLine(index, direction) {
   const scrollTop = (modalBody === null || modalBody === void 0 ? void 0 : modalBody.scrollTop) || 0;
   const [item] = state.editOrderDraft.items.splice(index, 1);
   state.editOrderDraft.items.splice(target, 0, item);
+  state.editOrderExpandedIndex = -1;
   refreshEditOrderItems(scrollTop);
   requestAnimationFrame(() => {var _document$querySelect;return (_document$querySelect = document.querySelector(`[data-edit-order-index="${target}"] .edit-order-drag-handle`)) === null || _document$querySelect === void 0 ? void 0 : _document$querySelect.focus();});
 }
@@ -4303,6 +4326,7 @@ function moveEditOrderDrag(event) {var _document$elementFrom, _window$matchMedia
   const positions = new Map(lines.map((element) => [element, element.getBoundingClientRect().top]));
   const [item] = state.editOrderDraft.items.splice(from, 1);
   state.editOrderDraft.items.splice(to, 0, item);
+  state.editOrderExpandedIndex = -1;
   if (to > from) drag.list.insertBefore(drag.line, target.nextSibling);else
   drag.list.insertBefore(drag.line, target);
   if ((_window$matchMedia = (_window = window).matchMedia) !== null && _window$matchMedia !== void 0 && _window$matchMedia.call(_window, "(prefers-reduced-motion: reduce)").matches) return;
@@ -6356,6 +6380,7 @@ Object.assign(window, {
   updateOrderDraftField,
   updateEditOrderMeta,
   updateEditOrderLine,
+  toggleEditOrderLine,
   moveEditOrderLine,
   handleEditOrderDragKey,
   startEditOrderDrag,
