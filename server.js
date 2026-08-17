@@ -437,6 +437,31 @@ function customerOrdersForUser(db, customer, user) {
   });
 }
 
+function linkedCustomerForOrder(db, order) {
+  if (!order) return null;
+  const directCustomer = db.customers.find((customer) => customer.id === order.customerId);
+  if (directCustomer) return directCustomer;
+  if (order.customerId && db.customers.some((customer) => customer.id === order.customerId)) return null;
+  const orderPhone = normalizeCustomerPhone(order.customerPhone || order.phone);
+  if (!orderPhone) return null;
+  return db.customers.find((customer) => normalizeCustomerPhone(customer.phone) === orderPhone) || null;
+}
+
+function orderMatchesSearch(db, order, keyword) {
+  const customer = linkedCustomerForOrder(db, order);
+  return queryTextMatch([
+    order.no,
+    order.customerName,
+    order.customerPhone,
+    order.phone,
+    order.address,
+    customer && customer.name,
+    customer && customer.contact,
+    customer && customer.phone,
+    customer && customer.address,
+  ], keyword);
+}
+
 function customerStatsPayload(db, customer, user) {
   const customerOrders = customerOrdersForUser(db, customer, user).filter((order) => !dashboardIsReturn(order));
   const validSalesOrders = customerOrders.filter(dashboardIsPerformanceOrder);
@@ -3856,7 +3881,7 @@ async function handleApi(req, res) {
       if (payStatus) list = list.filter((order) => normalizePayStatus(order.payStatus) === normalizePayStatus(payStatus));
       if (salesUserId && user.role !== "销售人员") list = list.filter((order) => order.salesUserId === salesUserId);
       if (startDate || endDate) list = list.filter((order) => dateInRange(order.date || order.createdAt, startDate, endDate));
-      if (keyword) list = list.filter((order) => queryTextMatch([order.no, order.customerName, order.customerPhone, order.phone, order.address], keyword));
+      if (keyword) list = list.filter((order) => orderMatchesSearch(db, order, keyword));
       const usePaging = url.searchParams.has("page") || url.searchParams.has("pageSize") || keyword || status || payStatus || salesUserId || startDate || endDate;
       if (usePaging) {
         const result = pagedResult(list, url, 20);
@@ -4200,6 +4225,7 @@ module.exports.dashboardPayload = dashboardPayload;
 module.exports.pagedResult = pagedResult;
 module.exports.customerOrderMatchesCustomer = customerOrderMatchesCustomer;
 module.exports.customerOrdersForUser = customerOrdersForUser;
+module.exports.orderMatchesSearch = orderMatchesSearch;
 module.exports.customerStatsPayload = customerStatsPayload;
 module.exports.sessionTokenHash = sessionTokenHash;
 module.exports.createSession = createSession;
