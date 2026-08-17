@@ -4,6 +4,7 @@ const path = require("path");
 
 const appSource = fs.readFileSync(path.join(__dirname, "../public/app.js"), "utf8");
 const stylesSource = fs.readFileSync(path.join(__dirname, "../public/styles.css"), "utf8");
+const indexSource = fs.readFileSync(path.join(__dirname, "../public/index.html"), "utf8");
 const businessStylesSource = fs.readFileSync(path.join(__dirname, "../public/business-pages.css"), "utf8");
 const mobileV2Source = fs.readFileSync(path.join(__dirname, "../public/mobile-v2.css"), "utf8");
 const combinedStyles = `${stylesSource}\n${businessStylesSource}\n${mobileV2Source}`;
@@ -110,9 +111,19 @@ assert(appSource.includes('class="order-document-mobile-view"'), "订单详情�
 assert(appSource.includes('class="audit-mobile-list"'), "操作日志必须提供紧凑手机列表，不能强制缩放桌面表格");
 assert(appSource.includes("toggleMobileFilter('audit')"), "手机操作日志详细条件必须进入统一筛选抽屉");
 assert(businessStylesSource.includes(".order-document-modal .document-toolbar,.order-document-modal .doc-preview { display:none!important; }"), "手机订单详情必须隐藏桌面票据布局");
-assert(mobileV2Source.includes(".mobile-v2 .ai-master-list {") && mobileV2Source.includes("grid-template-columns: 1fr"), "手机 AI 开单必须采用全屏单列工作区");
-assert(mobileV2Source.includes(".mobile-v2 .ai-modal.has-results .modal-body") && mobileV2Source.includes("overflow-y: auto"), "手机 AI 识别结果必须允许纵向滚动进入商品编辑区");
-assert(mobileV2Source.includes("max-height: none") && mobileV2Source.includes("touch-action: pan-y"), "手机 AI 需求列表必须跟随弹层单一滚动，不能形成嵌套滚动锁定");
+const mobileAiStyles = mobileV2Source.slice(
+  mobileV2Source.indexOf("  .mobile-v2 .ai-modal,\n"),
+  mobileV2Source.indexOf("  .mobile-v2 .order-document-modal .modal-body")
+);
+assert(mobileAiStyles.includes(".mobile-v2 .ai-master-list {") && mobileAiStyles.includes("overflow-y: auto"), "手机 AI 商品列表必须独立纵向滚动");
+assert(mobileAiStyles.includes(".mobile-v2 .ai-modal.has-results .modal-body") && mobileAiStyles.includes("flex-direction: column") && mobileAiStyles.includes("overflow: hidden"), "手机 AI 结果区不得恢复为页面下方的普通滚动内容");
+assert(mobileAiStyles.includes("touch-action: pan-y"), "手机 AI 商品列表必须支持自然纵向滑动");
+const aiResultActivation = appSource.slice(appSource.indexOf("function setAiResultActive"), appSource.indexOf("function aiCandidateFromProduct"));
+assert(aiResultActivation.includes("mobile-editor-open"), "手机点击 AI 识别商品必须打开编辑抽屉");
+assert(!aiResultActivation.includes("modalBody.scrollTo"), "手机点击 AI 识别商品不得滚动到页面下方编辑区");
+assert(mobileAiStyles.includes(".mobile-v2 .ai-master-detail.mobile-editor-open .ai-result-detail"), "最终生效的手机样式必须显示 AI 编辑抽屉");
+assert(mobileAiStyles.includes("width: min(90%, 430px)") && mobileAiStyles.includes("transform: translateX(100%)"), "手机 AI 编辑抽屉必须从右侧保留部分商品列表上下文");
+assert(indexSource.includes("app.js?v=20260817-1") && indexSource.includes("mobile-v2.css?v=20260817-1"), "AI 编辑抽屉更新必须使用新的静态资源版本，避免手机继续命中旧缓存");
 const mobileFilterSource = appSource.slice(appSource.indexOf("function renderMobileFilterSheet"), appSource.indexOf("function toggleMobileFilter"));
 assert(mobileFilterSource.includes('mobileFilterSelect("二级分类"'), "手机产品筛选必须提供二级分类选项");
 assert(mobileFilterSource.includes("productSubcategoriesFor(state.category)"), "手机产品二级分类必须跟随一级分类动态生成");
