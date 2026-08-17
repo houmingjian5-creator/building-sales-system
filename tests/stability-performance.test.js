@@ -84,6 +84,8 @@ Promise.all([firstWrite, secondWrite]).then(() => {
   assert.strictEqual(dashboard.trend[now.getDate() - 1].sales, 80, "趋势销售额必须沿用权限和实际付款口径");
 
 const appSource = fs.readFileSync(path.join(__dirname, "../public/app.js"), "utf8");
+assert(appSource.includes("const pageSize = state.orderQuery.trim() ? 200 : EDIT_PAGE_SIZES.orders;"), "Order searches must load up to 200 matching records before normal pagination");
+assert(appSource.includes("page: currentPage(\"orders\"), pageSize, q: state.orderQuery,"), "Order searches must use the expanded search result page size");
 const functionNames = Array.from(appSource.matchAll(/^(?:async\s+)?function\s+([\w$]+)\s*\(/gm)).map((match) => match[1]);
 const duplicateNames = Array.from(new Set(functionNames.filter((name, index) => functionNames.indexOf(name) !== index)));
 assert.deepStrictEqual(duplicateNames, [], "app.js 不得再保留会覆盖前方实现的同名函数");

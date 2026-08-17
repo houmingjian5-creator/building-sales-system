@@ -2977,8 +2977,9 @@ async function loadProductsForRoute(route = state.route) {
 }
 
 async function loadOrders() {
+  const pageSize = state.orderQuery.trim() ? 200 : EDIT_PAGE_SIZES.orders;
   const params = {
-    page: currentPage("orders"), pageSize: EDIT_PAGE_SIZES.orders, q: state.orderQuery,
+    page: currentPage("orders"), pageSize, q: state.orderQuery,
     status: state.orderStatus, payStatus: state.orderPayStatus,
     salesUserId: canChooseSalesperson() ? state.orderSalesFilter : ""
   };
