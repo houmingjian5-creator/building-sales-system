@@ -5,6 +5,7 @@ const {
   customerOrderMatchesCustomer,
   customerOrdersForUser,
   orderMatchesSearch,
+  publicOrder,
   customerStatsPayload,
 } = require("../server");
 
@@ -29,6 +30,7 @@ assert.strictEqual(customerOrderMatchesCustomer(db, db.orders[2], customer), fal
 assert.strictEqual(customerOrderMatchesCustomer(db, db.orders[3], customer), false, "deleted orders must stay hidden");
 assert.strictEqual(orderMatchesSearch(db, db.orders[1], customer.name), true, "order search must match the current linked customer name for legacy snapshots");
 assert.strictEqual(orderMatchesSearch(db, db.orders[2], customer.name), false, "order search must not associate an order with a different existing customer by phone");
+assert.strictEqual(publicOrder(db.orders[1], db).customerName, customer.name, "order responses must include the linked customer name when legacy order snapshots are missing");
 
 const salesOrders = customerOrdersForUser(db, customer, { id: "sales-a", role: "销售人员" });
 assert.deepStrictEqual(salesOrders.map((order) => order.id), ["exact", "legacy", "return", "pending", "cancelled"], "sales scope and recovered history must retain pending and cancelled orders");

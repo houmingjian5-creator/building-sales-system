@@ -1163,7 +1163,8 @@ function publicCostControlOrder(order, db) {
   });
 }
 
-function publicOrder(order) {
+function publicOrder(order, db) {
+  const customer = db && Array.isArray(db.customers) ? linkedCustomerForOrder(db, order) || {} : {};
   const isReturn = order.type === 'return' || String(order.no || '').startsWith('TH') || order.status === '已退货';
   const normalizedItems = isReturn ? normalizeReturnItems(order.items) : Array.isArray(order.items) ? order.items : [];
   const items = normalizedItems.map(publicOrderItem);
@@ -1174,9 +1175,9 @@ function publicOrder(order) {
     type: isReturn ? 'return' : order.type || 'sale',
     no: order.no || '',
     customerId: order.customerId || '',
-    customerName: order.customerName || '',
-    customerPhone: order.customerPhone || '',
-    customerAddress: order.customerAddress || '',
+    customerName: order.customerName || customer.name || customer.contact || '',
+    customerPhone: order.customerPhone || customer.phone || '',
+    customerAddress: order.customerAddress || customer.address || '',
     salesUserId: order.salesUserId || '',
     date: order.date || '',
     status: order.status || '',
@@ -3885,10 +3886,10 @@ async function handleApi(req, res) {
       const usePaging = url.searchParams.has("page") || url.searchParams.has("pageSize") || keyword || status || payStatus || salesUserId || startDate || endDate;
       if (usePaging) {
         const result = pagedResult(list, url, 20);
-        result.items = result.items.map(publicOrder);
+        result.items = result.items.map((order) => publicOrder(order, db));
         return sendJson(res, 200, result);
       }
-      return sendJson(res, 200, { orders: list.map(publicOrder) });
+      return sendJson(res, 200, { orders: list.map((order) => publicOrder(order, db)) });
     }
     if (method === "POST") {
       const payload = await readBody(req);
@@ -3932,7 +3933,7 @@ async function handleApi(req, res) {
         .filter((pair) => pair && orderProductIds.has(String(pair.productId || '')));
       const learnedAliases = recordAiLearning(db, orderLearningPairs, { user, orderId: order.id, orderType: order.type });
       writeDb(db);
-      return sendJson(res, 201, { order: publicOrder(order), learnedAliases });
+      return sendJson(res, 201, { order: publicOrder(order, db), learnedAliases });
     }
   }
 
@@ -4071,7 +4072,7 @@ async function handleApi(req, res) {
         }
       }
       writeDb(db);
-      return sendJson(res, 200, { order: publicOrder(order) });
+      return sendJson(res, 200, { order: publicOrder(order, db) });
     }
   }
 

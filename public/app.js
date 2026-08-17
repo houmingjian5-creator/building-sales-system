@@ -404,7 +404,7 @@ function orderCustomerForDisplay(order = {}) {
   return {
     ...customer,
     id: customer.id || order.customerId || "",
-    name: customer.name || order.customerName || "已删除客户",
+    name: customer.name || order.customerName || "客户信息缺失",
     phone: customer.phone || order.customerPhone || order.phone || "",
     address: customer.address || order.customerAddress || order.address || ""
   };
