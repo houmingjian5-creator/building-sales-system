@@ -404,6 +404,26 @@ function dateInRange(value, startDate, endDate) {
   return true;
 }
 
+function orderCreatedAtTime(order, index) {
+  const createdAt = Date.parse(String(order && order.createdAt || ""));
+  if (Number.isFinite(createdAt)) return createdAt;
+  const orderNoMatch = String(order && order.no || "").match(/^(?:ORD|TH)(\d{13})$/);
+  if (orderNoMatch) {
+    const orderNoTime = Number(orderNoMatch[1]);
+    const earliestTimestamp = Date.UTC(2000, 0, 1);
+    const latestTimestamp = Date.UTC(2100, 0, 1);
+    if (Number.isFinite(orderNoTime) && orderNoTime >= earliestTimestamp && orderNoTime < latestTimestamp) return orderNoTime;
+  }
+  return -Math.max(1, Number(index || 0) + 1);
+}
+
+function sortOrdersByCreatedAt(orders) {
+  return (Array.isArray(orders) ? orders : [])
+    .map((order, index) => ({ order, index, time: orderCreatedAtTime(order, index) }))
+    .sort((a, b) => b.time - a.time || a.index - b.index)
+    .map((entry) => entry.order);
+}
+
 function queryTextMatch(values, keyword) {
   const query = String(keyword || "").trim().toLowerCase();
   if (!query) return true;
@@ -580,7 +600,7 @@ function dashboardPayload(db, user, salesFilters) {
     },
     monthCustomers: customerRows(monthCustomerIds),
     newCustomers: customerRows(newCustomerIds),
-    recentOrders: scopedOrders.slice().sort((a, b) => String(b.date || b.createdAt || "").localeCompare(String(a.date || a.createdAt || ""))).slice(0, 4).map(publicOrder),
+    recentOrders: sortOrdersByCreatedAt(scopedOrders).slice(0, 4).map(publicOrder),
     trend,
     categoryCounts,
     generatedAt: now.toISOString(),
@@ -3389,7 +3409,7 @@ async function handleApi(req, res) {
       users: db.users.map(sanitizeUser),
       customers: db.customers.filter((customer) => user.role !== "销售人员" || customer.ownerId === user.id),
       products: db.products.map((product) => publicProduct(product, { includeCost: canViewProductCost(user) })),
-      orders: db.orders.filter((order) => !order.deletedAt && (user.role !== "销售人员" || order.salesUserId === user.id)).map(publicOrder),
+      orders: sortOrdersByCreatedAt(db.orders.filter((order) => !order.deletedAt && (user.role !== "销售人员" || order.salesUserId === user.id))).map(publicOrder),
     });
   }
 
@@ -3542,12 +3562,10 @@ async function handleApi(req, res) {
     const customer = db.customers.find((item) => item.id === id);
     if (!customer) return sendError(res, 404, "客户不存在");
     if (user.role === "销售人员" && customer.ownerId !== user.id) return sendError(res, 403, "无权查看该客户");
-    const history = customerOrdersForUser(db, customer, user)
-      .slice()
-      .sort((a, b) => String(b.date || b.createdAt || "").localeCompare(String(a.date || a.createdAt || "")));
+    const history = sortOrdersByCreatedAt(customerOrdersForUser(db, customer, user));
     return sendJson(res, 200, {
       customer: Object.assign({}, customer, { stats: customerStatsPayload(db, customer, user).stats }),
-      orders: history.map(publicOrder),
+      orders: history.map((order) => publicOrder(order, db)),
     });
   }
 
@@ -3810,7 +3828,7 @@ async function handleApi(req, res) {
       });
       return names;
     }, []))).sort((a, b) => a.localeCompare(b, "zh-CN"));
-    let orders = baseOrders
+    let orders = sortOrdersByCreatedAt(baseOrders
       .filter(function (order) {
         if (!dateInRange(order.date || order.createdAt, startDate, endDate)) return false;
         if (salesValues.length && salesValues.indexOf(String(order.salesUserId || "")) < 0) return false;
@@ -3827,10 +3845,7 @@ async function handleApi(req, res) {
         const salesperson = db.users.find((item) => item.id === order.salesUserId);
         if (keyword && !queryTextMatch([order.no, order.customerName, order.customerPhone, order.phone, order.address, order.salesUserId, salesperson && salesperson.name], keyword)) return false;
         return true;
-      })
-      .sort(function (a, b) {
-        return String(b.date || b.createdAt || "").localeCompare(String(a.date || a.createdAt || ""));
-      })
+      }))
       .map(function (order) {
         return publicCostControlOrder(order, db);
       });
@@ -3883,6 +3898,7 @@ async function handleApi(req, res) {
       if (salesUserId && user.role !== "销售人员") list = list.filter((order) => order.salesUserId === salesUserId);
       if (startDate || endDate) list = list.filter((order) => dateInRange(order.date || order.createdAt, startDate, endDate));
       if (keyword) list = list.filter((order) => orderMatchesSearch(db, order, keyword));
+      list = sortOrdersByCreatedAt(list);
       const usePaging = url.searchParams.has("page") || url.searchParams.has("pageSize") || keyword || status || payStatus || salesUserId || startDate || endDate;
       if (usePaging) {
         const result = pagedResult(list, url, 20);
@@ -3908,10 +3924,13 @@ async function handleApi(req, res) {
       if (invalidOrderPriceIndexes(payload.items, payload.type === "return").length) {
         return sendError(res, 400, "商品单价必须为有效金额，销售单不得为负数且最多保留两位小数");
       }
+      const orderCreatedAt = new Date().toISOString();
+      const orderTimestamp = Date.now();
       const order = {
         id: newId(),
         type: payload.type === "return" ? "return" : "sale",
-        no: `${payload.type === "return" ? "TH" : "ORD"}${Date.now()}`,
+        no: `${payload.type === "return" ? "TH" : "ORD"}${orderTimestamp}`,
+        createdAt: orderCreatedAt,
         customerId: payload.customerId,
         customerName: customer.name || customer.contact || "",
         customerPhone: customer.phone || "",
@@ -4222,6 +4241,8 @@ module.exports.normalizeCostControl = normalizeCostControl;
 module.exports.costControlTotals = costControlTotals;
 module.exports.publicCostControlOrder = publicCostControlOrder;
 module.exports.dateInRange = dateInRange;
+module.exports.orderCreatedAtTime = orderCreatedAtTime;
+module.exports.sortOrdersByCreatedAt = sortOrdersByCreatedAt;
 module.exports.dashboardPayload = dashboardPayload;
 module.exports.pagedResult = pagedResult;
 module.exports.customerOrderMatchesCustomer = customerOrderMatchesCustomer;
