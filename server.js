@@ -806,7 +806,8 @@ function normalizeMatchText(value) {
     .replace(/直顶/g, '直钉')
     .replace(/罗丝/g, '螺丝')
     .replace(/罗母|罗姆/g, '螺母')
-    .replace(/木龙骨|木条/g, '木方');
+    .replace(/木龙骨|木条/g, '木方')
+    .replace(/河沙/g, '黄沙');
 }
 
 function splitAliases(value) {
@@ -1608,6 +1609,7 @@ function matchProductCandidates(products, rawName, options = {}) {
   const brandTerms = explicitBrandTerms.length ? explicitBrandTerms : (isBrandSensitiveKind(kind) ? contextBrands : []);
   const queryTokens = textTokens(rawName);
   const specNumbers = requestedSpecNumbers(options.itemText || rawName);
+  const requestedUnit = normalizeAiUnit(options.requestedUnit || '');
   const scored = products
     .filter((product) => product.status !== '\u505c\u7528')
     .filter((product) => !options.cat1 || product.cat1 === options.cat1)
@@ -1625,6 +1627,13 @@ function matchProductCandidates(products, rawName, options = {}) {
       const pKind = productKind(product);
       const exactNameMatch = Boolean(name && name === requestedName);
       let score = 0;
+
+      if (requestedUnit) {
+        const unitInfo = productQuantityUnitInfo(product);
+        if (aiUnitsEquivalent(requestedUnit, unitInfo.billingUnit)) score += 90;
+        else if (unitInfo.lengthPerContainer && (requestedUnit === '米' || aiUnitsEquivalent(requestedUnit, unitInfo.containerUnit))) score += 35;
+        else score -= 50;
+      }
 
       if (kind && pKind === kind) score += 150;
       if (kind === 'woodBatten' && ['mainKeel', 'subKeel', 'edgeKeel', 'lightKeel'].includes(pKind)) score -= 220;
@@ -1689,7 +1698,7 @@ function matchProductCandidates(products, rawName, options = {}) {
     };
     Object.assign(item, stat, { recommendation: candidateRecommendation(stat) });
   });
-  const hasExplicitConstraints = explicitBrandTerms.length > 0 || specNumbers.length > 0;
+  const hasExplicitConstraints = explicitBrandTerms.length > 0 || specNumbers.length > 0 || Boolean(requestedUnit);
   scored.sort((a, b) => {
     if (a.exactNameMatch !== b.exactNameMatch) return a.exactNameMatch ? -1 : 1;
     if (hasExplicitConstraints && b.textScore !== a.textScore) return b.textScore - a.textScore;
@@ -2963,7 +2972,7 @@ function allowAssistantRequest(userId) {
   return true;
 }
 
-const AI_QUANTITY_UNITS = ['根', '个', '只', '套', '瓶', '包', '盒', '袋', '张', '卷', '圈', '米', '桶', '把', '支', '条', '块', '片', '件', '组', '捆', '箱'];
+const AI_QUANTITY_UNITS = ['根', '个', '只', '套', '瓶', '包', '盒', '袋', '张', '卷', '圈', '米', '桶', '把', '支', '条', '匹', '块', '片', '件', '组', '捆', '箱'];
 
 function chineseQuantityNumber(value) {
   const text = String(value || '').trim();
@@ -3014,7 +3023,22 @@ function parseAiSourcePart(value, sourceIndex) {
   const unitPattern = AI_QUANTITY_UNITS.join('|');
   const chinesePattern = '[零〇一二两三四五六七八九十百]+';
   const withUnit = new RegExp('^(.*?)(?:数量\\s*[:：]?\\s*)?(\\d+(?:[.]\\d+)?|' + chinesePattern + ')\\s*(' + unitPattern + '|m)\\s*$', 'i');
+  const leadingWithUnit = new RegExp('^(?:数量\\s*[:：]?\\s*)?(\\d+(?:[.]\\d+)?|' + chinesePattern + ')\\s*(' + unitPattern + '|m)\\s*(.+)$', 'i');
   const withoutUnit = new RegExp('^(.*?\\S)\\s+(?:数量\\s*[:：]?\\s*)?(\\d+(?:[.]\\d+)?|' + chinesePattern + ')\\s*$', 'i');
+  const leadingMatch = sourceText.match(leadingWithUnit);
+  if (leadingMatch && String(leadingMatch[3] || '').trim()) {
+    const leadingQuantity = chineseQuantityNumber(leadingMatch[1]);
+    const leadingUnit = normalizeAiUnit(leadingMatch[2]);
+    return {
+      sourceIndex: Number(sourceIndex || 0),
+      sourceText,
+      rawName: String(leadingMatch[3] || '').trim(),
+      requestedQuantity: Number.isFinite(leadingQuantity) && leadingQuantity > 0 ? leadingQuantity : null,
+      requestedUnit: leadingUnit,
+      quantity: Number.isFinite(leadingQuantity) && leadingQuantity > 0 ? leadingQuantity : null,
+      quantityUnit: leadingUnit,
+    };
+  }
   const match = sourceText.match(withUnit) || sourceText.match(withoutUnit);
   if (!match || !String(match[1] || '').trim()) {
     return { sourceIndex: Number(sourceIndex || 0), sourceText, rawName: sourceText, requestedQuantity: null, requestedUnit: '', quantity: null, quantityUnit: '' };
@@ -3120,7 +3144,7 @@ function productQuantityUnitInfo(product) {
   const unitText = String(product && product.unit || '').trim();
   const specText = String(product && product.spec || '').trim();
   const baseMatch = unitText.match(/^\s*(米|m|根|支|条|圈|卷|个|只|套|瓶|包|盒|袋|张|桶|把|块|片|件|组|捆|箱)/i);
-  const billingUnit = normalizeAiUnit(baseMatch ? baseMatch[1] : unitText);
+  const billingUnit = normalizeAiUnit(unitText.indexOf('匹') === 0 ? '匹' : (baseMatch ? baseMatch[1] : unitText));
   const combined = unitText + ' ' + specText;
   let conversionMatch = combined.match(/(\d+(?:[.]\d+)?)\s*(?:米|m)\s*[\/／每]\s*(根|支|条|圈|卷)/i);
   if (!conversionMatch && ['根', '支', '条'].indexOf(billingUnit) >= 0) {
@@ -3244,6 +3268,7 @@ function validateAiDraft(db, aiResult, content = '', scopes = [], customerId = '
       db,
       itemText: [rawName, specText].filter(Boolean).join(' '),
       specText,
+      requestedUnit,
       cat1: scope.cat1 || '',
       cat2: scope.cat2 || '',
       contextBrandTerms: lineContextBrands.length ? lineContextBrands : contextBrands,
@@ -3360,6 +3385,7 @@ async function parseAiOrderGroup(scope) {
           '\u5982\u679c\u5546\u54c1\u540d\u540e\u9762\u7d27\u8ddf\u6570\u5b57\u4e14\u6709\u5355\u4f4d\uff0c\u4f8b\u5982\u6469\u5229\u7f8e\u6d82\u77f3\u818f30\u888b\uff0c\u6570\u5b57\u662f\u6570\u91cf',
           '必须区分规格数字和数量数字，例如20管60米中20是规格，60是数量，米是数量单位',
           '例如4米/根是规格或换算信息，不是数量',
+          '数量和单位可能写在商品名前面，例如10袋西南325水泥、128匹24多孔砖，必须提取数量单位并从rawName中去掉前缀',
         ],
         category: scope.cat1,
         subcategory: scope.cat2,

@@ -1240,7 +1240,7 @@ function closeAiMobileEditor() {
   if (workspace) workspace.classList.remove("mobile-editor-open");
 }
 
-const AI_LENGTH_QUANTITY_UNITS = ["根", "个", "只", "套", "瓶", "包", "盒", "袋", "张", "卷", "圈", "米", "桶", "把", "支", "条", "块", "片", "件", "组", "捆", "箱"];
+const AI_LENGTH_QUANTITY_UNITS = ["根", "个", "只", "套", "瓶", "包", "盒", "袋", "张", "卷", "圈", "米", "桶", "把", "支", "条", "匹", "块", "片", "件", "组", "捆", "箱"];
 
 function aiNormalizeUnit(value) {
   const text = String(value || "").trim().toLowerCase();
@@ -1260,7 +1260,7 @@ function aiProductUnitInfo(product) {
   const unitText = String(product && product.unit || "").trim();
   const specText = String(product && product.spec || "").trim();
   const baseMatch = unitText.match(/^\s*(米|m|根|支|条|圈|卷|个|只|套|瓶|包|盒|袋|张|桶|把|块|片|件|组|捆|箱)/i);
-  const billingUnit = aiNormalizeUnit(baseMatch ? baseMatch[1] : unitText);
+  const billingUnit = aiNormalizeUnit(unitText.indexOf("匹") === 0 ? "匹" : baseMatch ? baseMatch[1] : unitText);
   const combined = unitText + " " + specText;
   let conversionMatch = combined.match(/(\d+(?:[.]\d+)?)\s*(?:米|m)\s*[\/／每]\s*(根|支|条|圈|卷)/i);
   if (!conversionMatch && ["根", "支", "条"].includes(billingUnit)) {

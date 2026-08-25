@@ -10,6 +10,28 @@ assert.deepStrictEqual(parsed.map((item) => [item.rawName, item.requestedQuantit
   ['阴阳角', 1, '把'],
 ]);
 
+const leadingParsed = server.fallbackParseOrderText('10袋西南325水泥，128匹24多孔砖，40袋河沙');
+assert.deepStrictEqual(leadingParsed.map((item) => [item.rawName, item.requestedQuantity, item.requestedUnit]), [
+  ['西南325水泥', 10, '袋'],
+  ['24多孔砖', 128, '匹'],
+  ['河沙', 40, '袋'],
+], '数量和单位写在商品名前面时也必须正确拆分');
+
+const catalogDb = JSON.parse(fs.readFileSync(path.join(__dirname, '..', 'data', 'db.json'), 'utf8'));
+const leadingText = '10袋西南325水泥，128匹24多孔砖，40袋河沙';
+const leadingItems = server.mergeAiParsedItems(leadingText, []).map((item) => Object.assign({}, item, { groupId: 'tile' }));
+const leadingDraft = server.validateAiDraft(catalogDb, { items: leadingItems }, leadingText, [
+  { id: 'tile', title: '瓦', cat1: '瓦', cat2: '' },
+]);
+assert.strictEqual(leadingDraft.matched.length, 3, '用户本次三条瓦工材料必须全部匹配');
+assert.deepStrictEqual(leadingDraft.matched.map((item) => [item.name, item.quantity, item.unit]), [
+  ['西南325水泥', 10, '袋'],
+  ['24多孔砖', 128, '匹'],
+  ['纯黄沙', 40, '袋'],
+]);
+assert.strictEqual(leadingDraft.uncertain.length, 0);
+assert.strictEqual(leadingDraft.unmatched.length, 0);
+
 const merged = server.mergeAiParsedItems('日丰20*2.8热水管60米，腻子2袋', [
   { sourceIndex: 0, rawName: '热水管', quantity: null, brand: '', specText: '' },
 ]);
