@@ -1346,14 +1346,27 @@ function candidateFor(product, ranking = {}) {
 }
 
 function isGenericBrandTerm(term) {
-  const genericTerms = ['龙骨', '主龙骨', '副龙骨', '边龙骨', '石膏板', '石膏', '木方', '木类小配件', '木工辅材', '油工辅材', '水电辅材', '辅助商品'];
-  return genericTerms.some((generic) => term === generic || term.includes(generic));
+  const genericTerms = ['水电', '木', '油', '瓦', '龙骨', '主龙骨', '副龙骨', '边龙骨', '石膏板', '石膏', '木方', '木类小配件', '木工辅材', '油工辅材', '水电辅材', '辅助商品'];
+  return genericTerms.some((generic) => term === generic || generic.length >= 2 && term.includes(generic));
+}
+
+function productBrandValues(product) {
+  const values = [product.brand, product.cat2];
+  const name = normalizeMatchText(product.name);
+  const category = normalizeMatchText(product.cat2);
+  let commonPrefix = '';
+  const maxLength = Math.min(name.length, category.length, 6);
+  for (let index = 0; index < maxLength && name.charAt(index) === category.charAt(index); index += 1) {
+    commonPrefix += name.charAt(index);
+  }
+  if (commonPrefix.length >= 2) values.push(commonPrefix);
+  return values;
 }
 
 function requestedBrandTerms(products, needle) {
   const terms = [];
   products.forEach((product) => {
-    [product.brand, product.cat2].forEach((value) => {
+    productBrandValues(product).forEach((value) => {
       const term = normalizeMatchText(value);
       if (term && term.length >= 2 && needle.includes(term) && !isGenericBrandTerm(term)) terms.push(term);
     });
@@ -1366,7 +1379,7 @@ function contextBrandTerms(products, content) {
   if (!/(全用|都用|全部用|统一用|用).*?(牌|品牌|的)/.test(text)) return [];
   const brands = [];
   products.forEach((product) => {
-    [product.brand, product.cat2].forEach((value) => {
+    productBrandValues(product).forEach((value) => {
       const term = normalizeMatchText(value);
       if (term && term.length >= 2 && text.includes(term) && !isGenericBrandTerm(term)) brands.push(term);
     });
@@ -2950,14 +2963,254 @@ function allowAssistantRequest(userId) {
   return true;
 }
 
+const AI_QUANTITY_UNITS = ['根', '个', '只', '套', '瓶', '包', '盒', '袋', '张', '卷', '圈', '米', '桶', '把', '支', '条', '块', '片', '件', '组', '捆', '箱'];
+
+function chineseQuantityNumber(value) {
+  const text = String(value || '').trim();
+  if (!text) return NaN;
+  if (/^\d+(?:[.]\d+)?$/.test(text)) return Number(text);
+  const digits = { '零': 0, '〇': 0, '一': 1, '二': 2, '两': 2, '三': 3, '四': 4, '五': 5, '六': 6, '七': 7, '八': 8, '九': 9 };
+  if (/^[一二两三四五六七八九]$/.test(text)) return digits[text];
+  if (/^[一二两三四五六七八九]?十[一二两三四五六七八九]?$/.test(text)) {
+    const parts = text.split('十');
+    return (parts[0] ? digits[parts[0]] : 1) * 10 + (parts[1] ? digits[parts[1]] : 0);
+  }
+  if (/^[一二两三四五六七八九]百(?:[一二两三四五六七八九]?十)?[一二两三四五六七八九]?$/.test(text)) {
+    const hundred = digits[text.charAt(0)] * 100;
+    const rest = text.slice(2);
+    if (!rest) return hundred;
+    if (rest.includes('十')) {
+      const parts = rest.split('十');
+      return hundred + (parts[0] ? digits[parts[0]] : 1) * 10 + (parts[1] ? digits[parts[1]] : 0);
+    }
+    return hundred + digits[rest];
+  }
+  return NaN;
+}
+
+function normalizeAiUnit(value) {
+  const text = String(value || '').trim().toLowerCase();
+  if (!text) return '';
+  if (text === 'm' || text === '米') return '米';
+  return AI_QUANTITY_UNITS.indexOf(text) >= 0 ? text : '';
+}
+
+function aiUnitsEquivalent(left, right) {
+  const a = normalizeAiUnit(left);
+  const b = normalizeAiUnit(right);
+  if (!a || !b) return false;
+  if (a === b) return true;
+  if (['根', '支', '条'].indexOf(a) >= 0 && ['根', '支', '条'].indexOf(b) >= 0) return true;
+  return false;
+}
+
+function stripAiQuantitySuffix(value) {
+  const parsed = parseAiSourcePart(value);
+  return parsed.requestedQuantity !== null ? parsed.rawName : String(value || '').trim();
+}
+
+function parseAiSourcePart(value, sourceIndex) {
+  const sourceText = String(value || '').replace(/^\s*(?:[-•·]|第?[0-9一-十]+[.、])\s*/, '').trim();
+  const unitPattern = AI_QUANTITY_UNITS.join('|');
+  const chinesePattern = '[零〇一二两三四五六七八九十百]+';
+  const withUnit = new RegExp('^(.*?)(?:数量\\s*[:：]?\\s*)?(\\d+(?:[.]\\d+)?|' + chinesePattern + ')\\s*(' + unitPattern + '|m)\\s*$', 'i');
+  const withoutUnit = new RegExp('^(.*?\\S)\\s+(?:数量\\s*[:：]?\\s*)?(\\d+(?:[.]\\d+)?|' + chinesePattern + ')\\s*$', 'i');
+  const match = sourceText.match(withUnit) || sourceText.match(withoutUnit);
+  if (!match || !String(match[1] || '').trim()) {
+    return { sourceIndex: Number(sourceIndex || 0), sourceText, rawName: sourceText, requestedQuantity: null, requestedUnit: '', quantity: null, quantityUnit: '' };
+  }
+  const quantity = chineseQuantityNumber(match[2]);
+  const requestedUnit = normalizeAiUnit(match[3] || '');
+  return {
+    sourceIndex: Number(sourceIndex || 0),
+    sourceText,
+    rawName: String(match[1] || '').trim().replace(/[各每]一?$/, ''),
+    requestedQuantity: Number.isFinite(quantity) && quantity > 0 ? quantity : null,
+    requestedUnit,
+    quantity: Number.isFinite(quantity) && quantity > 0 ? quantity : null,
+    quantityUnit: requestedUnit,
+  };
+}
+
+function fallbackParseOrderText(content) {
+  return String(content || '').split(/[\n，,；;、]+/).map(function (part) { return part.trim(); }).filter(Boolean).map(function (part, index) {
+    return parseAiSourcePart(part, index);
+  });
+}
+
+function likelyAiHeading(item) {
+  const text = String(item && item.sourceText || '').trim();
+  return item && item.requestedQuantity === null && (
+    /[:：]$/.test(text)
+    || /^(?:材料|清单|辅材|主材|其他)[：:]?$/.test(text)
+    || /^(?:全用|都用|全部用|统一用|品牌).+$/.test(text)
+  );
+}
+
+function aiEvidenceText(value) {
+  return normalizeMatchText(value).replace(/[xX]/g, '*');
+}
+
+function aiFieldSupportedBySource(source, field) {
+  const sourceText = aiEvidenceText(source);
+  const fieldText = aiEvidenceText(field);
+  return Boolean(fieldText && sourceText.includes(fieldText));
+}
+
+function mergeAiParsedItems(content, modelItems) {
+  const sourceItems = fallbackParseOrderText(content);
+  const parsedModelItems = Array.isArray(modelItems) ? modelItems : [];
+  const usedSources = new Set();
+  const merged = [];
+
+  parsedModelItems.forEach(function (modelItem, modelIndex) {
+    if (!modelItem) return;
+    const suppliedIndex = Number(modelItem.sourceIndex);
+    let source = Number.isInteger(suppliedIndex) && sourceItems[suppliedIndex] ? sourceItems[suppliedIndex] : null;
+    if (!source) {
+      const modelText = normalizeMatchText(modelItem.sourceText || modelItem.rawName || modelItem.name || '');
+      source = sourceItems.find(function (item, index) {
+        if (usedSources.has(index)) return false;
+        const sourceText = normalizeMatchText(item.sourceText);
+        return modelText && sourceText && (sourceText.includes(modelText) || modelText.includes(sourceText));
+      }) || sourceItems[modelIndex] || null;
+    }
+    const sourceIndex = source ? sourceItems.indexOf(source) : modelIndex;
+    if (sourceIndex >= 0) usedSources.add(sourceIndex);
+    const modelSource = parseAiSourcePart(modelItem.sourceText || modelItem.rawName || modelItem.name || '', sourceIndex);
+    const requestedQuantity = source && source.requestedQuantity !== null
+      ? source.requestedQuantity
+      : (modelSource.requestedQuantity !== null ? modelSource.requestedQuantity : Number(modelItem.requestedQuantity !== undefined ? modelItem.requestedQuantity : modelItem.quantity));
+    const requestedUnit = source && source.requestedUnit
+      ? source.requestedUnit
+      : normalizeAiUnit(modelItem.requestedUnit || modelItem.quantityUnit || modelSource.requestedUnit);
+    const rawName = source && source.rawName
+      ? source.rawName
+      : stripAiQuantitySuffix(modelItem.rawName || modelItem.name || modelSource.rawName);
+    if (!rawName) return;
+    const modelBrand = String(modelItem.brand || '').trim();
+    const modelSpecText = String(modelItem.specText || modelItem.spec || modelItem.model || '').trim();
+    const brand = aiFieldSupportedBySource(content, modelBrand) ? modelBrand : '';
+    const specText = aiFieldSupportedBySource(source ? source.sourceText : modelSource.sourceText, modelSpecText) ? modelSpecText : '';
+    const parseWarnings = [];
+    if (modelBrand && !brand) parseWarnings.push('AI提取的品牌在原文中没有依据，已忽略');
+    if (modelSpecText && !specText) parseWarnings.push('AI提取的规格在原文中没有依据，已忽略');
+    merged.push(Object.assign({}, modelItem, {
+      sourceIndex,
+      sourceText: source ? source.sourceText : (modelItem.sourceText || modelSource.sourceText || rawName),
+      rawName,
+      brand,
+      specText,
+      requestedQuantity: Number.isFinite(requestedQuantity) && requestedQuantity > 0 ? requestedQuantity : null,
+      requestedUnit,
+      quantity: Number.isFinite(requestedQuantity) && requestedQuantity > 0 ? requestedQuantity : null,
+      quantityUnit: requestedUnit,
+      parseWarnings,
+    }));
+  });
+
+  sourceItems.forEach(function (source, index) {
+    if (usedSources.has(index) || likelyAiHeading(source)) return;
+    merged.push(Object.assign({}, source, { brand: '', specText: '', parseWarnings: ['AI未返回该条，已根据原文补回'] }));
+  });
+  return merged.sort(function (a, b) { return Number(a.sourceIndex || 0) - Number(b.sourceIndex || 0); });
+}
+
+function productQuantityUnitInfo(product) {
+  const unitText = String(product && product.unit || '').trim();
+  const specText = String(product && product.spec || '').trim();
+  const baseMatch = unitText.match(/^\s*(米|m|根|支|条|圈|卷|个|只|套|瓶|包|盒|袋|张|桶|把|块|片|件|组|捆|箱)/i);
+  const billingUnit = normalizeAiUnit(baseMatch ? baseMatch[1] : unitText);
+  const combined = unitText + ' ' + specText;
+  let conversionMatch = combined.match(/(\d+(?:[.]\d+)?)\s*(?:米|m)\s*[\/／每]\s*(根|支|条|圈|卷)/i);
+  if (!conversionMatch && ['根', '支', '条'].indexOf(billingUnit) >= 0) {
+    conversionMatch = unitText.match(/[（(]\s*(\d+(?:[.]\d+)?)\s*(?:米|m)\s*[）)]/i);
+    if (conversionMatch) conversionMatch = [conversionMatch[0], conversionMatch[1], billingUnit];
+  }
+  return {
+    billingUnit,
+    displayUnit: unitText,
+    lengthPerContainer: conversionMatch ? Number(conversionMatch[1]) : null,
+    containerUnit: conversionMatch ? normalizeAiUnit(conversionMatch[2]) : '',
+  };
+}
+
+function quantityDisplayNumber(value) {
+  const number = Number(value);
+  return Number.isInteger(number) ? String(number) : String(Number(number.toFixed(3)));
+}
+
+function resolveAiQuantityForProduct(line, product) {
+  const requestedQuantity = Number(line && (line.requestedQuantity !== undefined && line.requestedQuantity !== null ? line.requestedQuantity : line.quantity));
+  const requestedUnit = normalizeAiUnit(line && (line.requestedUnit || line.quantityUnit));
+  const info = productQuantityUnitInfo(product);
+  const result = { requestedQuantity: Number.isFinite(requestedQuantity) && requestedQuantity > 0 ? requestedQuantity : null, requestedUnit, quantity: null, conversion: null, quantityError: '' };
+  if (!result.requestedQuantity) return result;
+  if (!requestedUnit) {
+    if (Number.isInteger(requestedQuantity)) result.quantity = requestedQuantity;
+    else result.quantityError = '商品数量必须为正整数';
+    return result;
+  }
+  if (!info.billingUnit) {
+    result.quantityError = '无法确定商品计价单位，请人工确认';
+    return result;
+  }
+  if (aiUnitsEquivalent(requestedUnit, info.billingUnit)) {
+    if (Number.isInteger(requestedQuantity)) result.quantity = requestedQuantity;
+    else result.quantityError = '商品数量必须为正整数';
+    result.conversion = {
+      fromQuantity: requestedQuantity,
+      fromUnit: requestedUnit,
+      toQuantity: result.quantity,
+      toUnit: info.billingUnit,
+      factor: 1,
+      rounded: false,
+      note: result.quantity ? '原文单位与商品计价单位一致' : result.quantityError,
+    };
+    return result;
+  }
+  if (!info.lengthPerContainer || !info.containerUnit) {
+    result.quantityError = '原文单位与商品单位不同，且商品库没有可靠的换算规格';
+    return result;
+  }
+  let exactQuantity = null;
+  let availableQuantity = null;
+  if (requestedUnit === '米' && aiUnitsEquivalent(info.billingUnit, info.containerUnit)) {
+    exactQuantity = requestedQuantity / info.lengthPerContainer;
+    result.quantity = Math.ceil(exactQuantity - 1e-9);
+    availableQuantity = result.quantity * info.lengthPerContainer;
+  } else if (aiUnitsEquivalent(requestedUnit, info.containerUnit) && info.billingUnit === '米') {
+    exactQuantity = requestedQuantity * info.lengthPerContainer;
+    result.quantity = Math.ceil(exactQuantity - 1e-9);
+    availableQuantity = result.quantity;
+  } else {
+    result.quantityError = '原文单位与商品换算规格不匹配，请人工确认';
+    return result;
+  }
+  const rounded = Math.abs(result.quantity - exactQuantity) > 1e-9;
+  result.conversion = {
+    fromQuantity: requestedQuantity,
+    fromUnit: requestedUnit,
+    toQuantity: result.quantity,
+    toUnit: info.billingUnit,
+    factor: info.lengthPerContainer,
+    factorUnit: '米/' + info.containerUnit,
+    rounded,
+    availableQuantity,
+    availableUnit: '米',
+    note: quantityDisplayNumber(requestedQuantity) + requestedUnit + '按' + quantityDisplayNumber(info.lengthPerContainer) + '米/' + info.containerUnit + '换算为' + quantityDisplayNumber(result.quantity) + info.billingUnit + (rounded ? '（向上取整，可供' + quantityDisplayNumber(availableQuantity) + '米）' : ''),
+  };
+  return result;
+}
+
 function expandAiLines(lines) {
   const expanded = [];
   lines.forEach((line) => {
     const rawName = String(line.rawName || line.name || '').trim();
     const normalized = normalizeMatchText(rawName);
     if (normalized.includes('阴阳角')) {
-      expanded.push({ ...line, rawName: rawName.replace(/阴阳角/g, '阴角'), quantity: 50 });
-      expanded.push({ ...line, rawName: rawName.replace(/阴阳角/g, '阳角'), quantity: 50 });
+      expanded.push({ ...line, rawName: rawName.replace(/阴阳角/g, '阴角') });
+      expanded.push({ ...line, rawName: rawName.replace(/阴阳角/g, '阳角') });
       return;
     }
     expanded.push(line);
@@ -2981,19 +3234,23 @@ function validateAiDraft(db, aiResult, content = '', scopes = [], customerId = '
       unmatched.push({ groupId: '', groupTitle: '无法确定分类窗口', rawName, note: 'AI未能确定该商品属于哪个输入窗口，请重新识别或手动添加' });
       return;
     }
-    const context = [line.brand, line.cat1, line.cat2, line.system, line.context].filter(Boolean).join(' ');
+    const specText = String(line.specText || line.spec || line.model || '').trim();
+    const context = [line.brand, specText, line.cat1, line.cat2, line.system, line.context].filter(Boolean).join(' ');
     const matchText = [context, rawName].filter(Boolean).join(' ');
-    const quantity = Number(line.quantity);
+    const requestedQuantity = Number(line.requestedQuantity !== undefined && line.requestedQuantity !== null ? line.requestedQuantity : line.quantity);
+    const requestedUnit = normalizeAiUnit(line.requestedUnit || line.quantityUnit);
     const lineContextBrands = requestedBrandTerms(db.products, normalizeMatchText(context));
     const matches = matchProductCandidates(db.products, matchText, {
       db,
-      itemText: rawName,
+      itemText: [rawName, specText].filter(Boolean).join(' '),
+      specText,
       cat1: scope.cat1 || '',
       cat2: scope.cat2 || '',
       contextBrandTerms: lineContextBrands.length ? lineContextBrands : contextBrands,
       recommendationContext,
     });
-    const uniqueHardMatch = matches.length === 1 && requestedKind(rawName) && requestedSpecNumbers(rawName).length;
+    const identityText = [rawName, specText].filter(Boolean).join(' ');
+    const uniqueHardMatch = matches.length === 1 && requestedKind(rawName) && requestedSpecNumbers(identityText).length;
     const exactNameMatch = matches[0] && matches[0].exactNameMatch;
     const highTextMatch = matches[0] && matches[0].textScore >= 260 && (!matches[1] || matches[0].textScore - matches[1].textScore >= 100);
     const stableHistoryMatch = requestedKind(rawName) && matches[0] && matches[0].stableHistory;
@@ -3007,11 +3264,18 @@ function validateAiDraft(db, aiResult, content = '', scopes = [], customerId = '
       orderIndex: lineIndex,
       cat1: scope.cat1 || '',
       cat2: scope.cat2 || '',
+      sourceText: String(line.sourceText || rawName),
+      sourceIndex: Number(line.sourceIndex !== undefined ? line.sourceIndex : lineIndex),
+      brand: String(line.brand || ''),
+      specText,
+      requestedQuantity: Number.isFinite(requestedQuantity) && requestedQuantity > 0 ? requestedQuantity : null,
+      requestedUnit,
+      parseWarnings: Array.isArray(line.parseWarnings) ? line.parseWarnings : [],
     };
 
     if (!product) {
       if (candidateProducts.length) {
-        uncertain.push({ ...groupMeta, rawName, quantity: Number.isFinite(quantity) && quantity > 0 ? quantity : null, candidates: candidateProducts });
+        uncertain.push({ ...groupMeta, rawName, quantity: Number.isFinite(requestedQuantity) && requestedQuantity > 0 ? requestedQuantity : null, candidates: candidateProducts });
         return;
       }
       unmatched.push({
@@ -3025,7 +3289,8 @@ function validateAiDraft(db, aiResult, content = '', scopes = [], customerId = '
       return;
     }
 
-    if (!Number.isInteger(quantity) || quantity <= 0) {
+    const quantityResult = resolveAiQuantityForProduct(line, product);
+    if (!Number.isInteger(quantityResult.quantity) || quantityResult.quantity <= 0) {
       needsQuantity.push({
         ...groupMeta,
         rawName,
@@ -3034,8 +3299,9 @@ function validateAiDraft(db, aiResult, content = '', scopes = [], customerId = '
         spec: product.spec,
         unit: product.unit,
         price: product.price,
-        quantity: Number.isFinite(quantity) && quantity > 0 ? quantity : null,
-        quantityError: Number.isFinite(quantity) && quantity > 0 ? '商品数量必须为正整数' : '',
+        quantity: quantityResult.quantityError === '商品数量必须为正整数' && Number.isFinite(requestedQuantity) && requestedQuantity > 0 ? requestedQuantity : null,
+        conversion: quantityResult.conversion,
+        quantityError: quantityResult.quantityError,
         matchSource: selectedMatch && selectedMatch.stableHistory && !uniqueHardMatch && !highTextMatch ? 'customer-history' : 'text',
         recommendation: selectedMatch ? selectedMatch.recommendation : '',
       });
@@ -3050,7 +3316,8 @@ function validateAiDraft(db, aiResult, content = '', scopes = [], customerId = '
       spec: product.spec,
       unit: product.unit,
       price: product.price,
-      quantity,
+      quantity: quantityResult.quantity,
+      conversion: quantityResult.conversion,
       matchSource: selectedMatch && selectedMatch.stableHistory && !uniqueHardMatch && !highTextMatch ? 'customer-history' : 'text',
       recommendation: selectedMatch ? selectedMatch.recommendation : '',
     });
@@ -3059,19 +3326,11 @@ function validateAiDraft(db, aiResult, content = '', scopes = [], customerId = '
   return { matched, needsQuantity, uncertain, unmatched };
 }
 
-function fallbackParseOrderText(content) {
-  return String(content || '').split(/[\n，,；;、]+/).map((part) => part.trim()).filter(Boolean).map((part) => {
-    const match = part.match(/^(.*?)(\d+(?:[.]\d+)?)\s*(根|个|只|套|瓶|包|盒|袋|张|卷|圈|米|桶|把)?\s*$/);
-    if (!match || !match[1].trim()) return { rawName: part, quantity: null };
-    return { rawName: match[1].trim(), quantity: Number(match[2]) };
-  });
-}
-
 async function parseAiOrderGroup(scope) {
   const messages = [
     {
       role: 'system',
-      content: '\u4f60\u662f\u5efa\u6750\u9500\u552e\u7cfb\u7edf\u7684\u5f00\u5355\u6587\u672c\u89e3\u6790\u52a9\u624b\u3002\u4f60\u53ea\u8d1f\u8d23\u4ece\u4e00\u4e2a\u5206\u7c7b\u7a97\u53e3\u7684\u9500\u552e\u539f\u6587\u4e2d\u62c6\u51fa\u6bcf\u4e2a\u5546\u54c1\u53eb\u6cd5\u548c\u6570\u91cf\uff0c\u4e0d\u8981\u5339\u914d\u6216\u521b\u9020\u5546\u54c1\uff0c\u4e0d\u8981\u751f\u6210\u5546\u54c1\u540d\u3001\u89c4\u683c\u3001\u5355\u4f4d\u3001\u4ef7\u683c\u6216\u5546\u54c1ID\u3002\u6570\u91cf\u4e0d\u660e\u786e\u65f6 quantity=null\u3002\u53ea\u8fd4\u56de JSON\u3002',
+      content: '你是建材销售系统的开单原文解析助手。你只负责拆分原文并原样提取商品叫法、品牌、型号规格、数量和数量单位。不要匹配或创造商品，不要生成价格或商品ID。rawName不得包含末尾的数量和数量单位；规格数字必须保留在rawName或specText中。数量不明确时 quantity=null。只返回 JSON。',
     },
     {
       role: 'user',
@@ -3080,9 +3339,13 @@ async function parseAiOrderGroup(scope) {
         outputSchema: {
           items: [
             {
+              sourceIndex: '原文分段序号，从0开始',
+              sourceText: '该商品对应的原文，不得改写',
               rawName: '\u9500\u552e\u539f\u6587\u4e2d\u7684\u5546\u54c1\u53eb\u6cd5',
               quantity: '\u6570\u5b57\uff0c\u65e0\u6cd5\u786e\u5b9a\u5219 null',
+              quantityUnit: '原文数量后的单位，例如米、根、袋，没有则为空字符串',
               brand: '\u6bb5\u843d\u660e\u786e\u6307\u5b9a\u7684\u54c1\u724c\uff0c\u6ca1\u6709\u5219\u7a7a\u5b57\u7b26\u4e32',
+              specText: '原文明示的型号和规格，没有则为空字符串',
               system: '\u6bb5\u843d\u6807\u9898\u6216\u4e0a\u4e0b\u6587\uff0c\u4f8b\u5982\u767d\u8272PPR\u3001PVC\u6392\u6c34\u3001PVC\u7ebf\u7ba1',
               note: '\u53ef\u9009',
             },
@@ -3095,16 +3358,21 @@ async function parseAiOrderGroup(scope) {
           '\u5168\u7528\u67d0\u54c1\u724c\u3001\u90fd\u7528\u67d0\u54c1\u724c\u662f\u4e0a\u4e0b\u6587\u54c1\u724c\uff0c\u4e0d\u8981\u5f53\u4f5c\u5546\u54c1\u884c',
           '\u9634\u9633\u89d2\u5404\u4e00\u628a\u9700\u8981\u4fdd\u7559\u4e3a\u9634\u9633\u89d2\uff0c\u4e0d\u8981\u4e22\u5931',
           '\u5982\u679c\u5546\u54c1\u540d\u540e\u9762\u7d27\u8ddf\u6570\u5b57\u4e14\u6709\u5355\u4f4d\uff0c\u4f8b\u5982\u6469\u5229\u7f8e\u6d82\u77f3\u818f30\u888b\uff0c\u6570\u5b57\u662f\u6570\u91cf',
+          '必须区分规格数字和数量数字，例如20管60米中20是规格，60是数量，米是数量单位',
+          '例如4米/根是规格或换算信息，不是数量',
         ],
         category: scope.cat1,
         subcategory: scope.cat2,
+        sourceSegments: fallbackParseOrderText(scope.content).map(function (item) {
+          return { sourceIndex: item.sourceIndex, sourceText: item.sourceText };
+        }),
         orderText: scope.content,
       }),
     },
   ];
   const text = await callDeepSeek(messages);
   const result = parseJsonFromText(text);
-  const parsedItems = Array.isArray(result.items) && result.items.length ? result.items : fallbackParseOrderText(scope.content);
+  const parsedItems = mergeAiParsedItems(scope.content, result.items);
   return parsedItems.map((item) => ({ ...item, groupId: scope.id, system: item.system || scope.cat2 || scope.cat1 }));
 }
 
@@ -3132,14 +3400,15 @@ function recordAiLearning(db, pairs, options = {}) {
   const canLearnAliases = options.orderType === 'sale' && options.user && ['超级管理员', '管理员'].includes(options.user.role);
   const learnedAliases = [];
   validPairs.forEach((pair) => {
-    const key = normalizeMatchText(pair.rawName || '');
+    const cleanedRawName = stripAiQuantitySuffix(pair.rawName || '');
+    const key = normalizeMatchText(cleanedRawName);
     const productId = String(pair.productId || '');
     const product = db.products.find((item) => item.id === productId);
     if (!key || !productId || !product) return;
     if (!db.aiLearning.productChoices[key]) db.aiLearning.productChoices[key] = {};
     db.aiLearning.productChoices[key][productId] = Number(db.aiLearning.productChoices[key][productId] || 0) + 1;
     if (!canLearnAliases || !pair.learnAlias) return;
-    const rawName = String(pair.rawName || '').trim().slice(0, 60);
+    const rawName = String(cleanedRawName || '').trim().slice(0, 60);
     if (rawName.length < 2 || !/[\u4e00-\u9fa5a-z0-9]/i.test(rawName)) return;
     const existingTerms = [product.name, product.spec, product.brand, ...splitAliases(product.aliases)]
       .map((term) => normalizeMatchText(term))
@@ -4186,6 +4455,10 @@ if (require.main === module) {
 module.exports = server;
 module.exports.matchProductCandidates = matchProductCandidates;
 module.exports.fallbackParseOrderText = fallbackParseOrderText;
+module.exports.parseAiSourcePart = parseAiSourcePart;
+module.exports.mergeAiParsedItems = mergeAiParsedItems;
+module.exports.productQuantityUnitInfo = productQuantityUnitInfo;
+module.exports.resolveAiQuantityForProduct = resolveAiQuantityForProduct;
 module.exports.buildAiRecommendationContext = buildAiRecommendationContext;
 module.exports.validateAiDraft = validateAiDraft;
 module.exports.recordAiLearning = recordAiLearning;

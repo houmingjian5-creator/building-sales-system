@@ -982,6 +982,37 @@ button {
   height: 40px;
 }
 
+.ai-conversion-note,
+.ai-recognized-fields,
+.ai-parse-warning {
+  flex: none;
+  margin: 10px 17px 0;
+  padding: 8px 10px;
+  border: 1px solid #cfe0ff;
+  border-radius: 8px;
+  background: #f3f7ff;
+  color: #315ea8;
+  font-size: 12px;
+  line-height: 1.55;
+  overflow-wrap: anywhere;
+}
+
+.ai-conversion-note.has-error,
+.ai-parse-warning {
+  border-color: #f3d19e;
+  background: #fff8eb;
+  color: #9a5b00;
+}
+
+.ai-recognized-fields {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 16px;
+  border-color: var(--line);
+  background: #fff;
+  color: var(--muted);
+}
+
 .ai-detail-scroll {
   min-height: 0;
   padding: 15px 17px 20px;
@@ -1177,6 +1208,14 @@ button {
 
   .ai-detail-scroll {
     padding: 12px;
+  }
+
+  .ai-conversion-note,
+  .ai-recognized-fields,
+  .ai-parse-warning {
+    margin: 8px 12px 0;
+    padding: 7px 9px;
+    font-size: 11px;
   }
 
   .ai-detail-head .ai-mobile-editor-close {

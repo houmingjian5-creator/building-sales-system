@@ -1050,6 +1050,8 @@ function updateAiDraftQuantity(key, value) {
   const entry = findAiDraftEntry(key);
   if (!entry) return;
   entry.item.quantity = value;
+  entry.item.quantityManualOverride = true;
+  entry.item.quantityError = isPositiveInteger(Number(value)) ? "" : "商品数量必须为正整数";
   markAiDraftModified();
 }
 
@@ -1067,6 +1069,11 @@ function persistAiDraftProductSelection(key, productId) {
   entry.item.cat2 = product.cat2;
   entry.item.imageUrl = product.imageUrl || "";
   entry.item.recommendation = "销售已人工选择";
+  const quantityResult = aiQuantityForProduct(entry.item, product);
+  entry.item.quantity = quantityResult.quantity;
+  entry.item.conversion = quantityResult.conversion;
+  entry.item.quantityError = quantityResult.quantityError;
+  entry.item.quantityManualOverride = false;
   markAiDraftModified();
   return entry.item;
 }
@@ -1109,7 +1116,7 @@ function renderAiAliasConsent(key, rawName, productId = "") {var _entry$item, _e
 
 function selectAiCandidateChoice(input) {var _input$closest;
   const key = input.dataset.aiCandidateGroup || "";
-  persistAiDraftProductSelection(key, input.value);
+  const selectedItem = persistAiDraftProductSelection(key, input.value);
   const wrap = [...document.querySelectorAll("[data-ai-alias-wrap]")].
   find((element) => element.dataset.aiAliasWrap === key);
   const checkbox = aiAliasCheckbox(key);
@@ -1133,12 +1140,23 @@ function selectAiCandidateChoice(input) {var _input$closest;
   if (navItem) {
     const panel = input.closest("[data-ai-detail-key]");
     const quantityInput = panel === null || panel === void 0 ? void 0 : panel.querySelector("[data-ai-matched-quantity], [data-ai-candidate-quantity]");
+    if (quantityInput && selectedItem) {
+      quantityInput.value = selectedItem.quantity || "";
+      setQuantityInputValidity(quantityInput);
+    }
+    const conversion = panel === null || panel === void 0 ? void 0 : panel.querySelector("[data-ai-conversion-note]");
+    if (conversion && selectedItem) {
+      conversion.textContent = aiConversionText(selectedItem);
+      conversion.classList.toggle("has-error", Boolean(selectedItem.quantityError));
+    }
     updateAiNavStatus(navItem, isPositiveInteger(Number(quantityInput === null || quantityInput === void 0 ? void 0 : quantityInput.value)) ? "confirmed" : "pending");
     const match = navItem.querySelector("[data-ai-nav-match]");
     if (match) {
       match.textContent = input.dataset.aiProductName || "已选择商品";
       match.classList.remove("is-empty");
     }
+    const quantity = navItem.querySelector("[data-ai-nav-quantity-value]");
+    if (quantity && selectedItem) quantity.textContent = selectedItem.quantity || "待补";
     refreshAiStatusCounts();
   }
 }
@@ -1181,6 +1199,12 @@ function updateAiNavQuantity(input) {
   const quantity = navItem === null || navItem === void 0 ? void 0 : navItem.querySelector("[data-ai-nav-quantity-value]");
   if (quantity) quantity.textContent = input.value || "待补";
   const panel = input.closest("[data-ai-detail-key]");
+  const entry = findAiDraftEntry(key);
+  const conversion = panel === null || panel === void 0 ? void 0 : panel.querySelector("[data-ai-conversion-note]");
+  if (conversion && entry) {
+    conversion.textContent = aiConversionText(entry.item);
+    conversion.classList.toggle("has-error", Boolean(entry.item.quantityError));
+  }
   const selectedProduct = panel === null || panel === void 0 ? void 0 : panel.querySelector("[data-ai-candidate-product]:checked");
   if (input.matches("[data-ai-matched-quantity]") || selectedProduct) {
     updateAiNavStatus(navItem, isPositiveInteger(Number(input.value)) ? "confirmed" : "pending");
@@ -1214,6 +1238,122 @@ function closeAiMobileEditor() {
   state.aiMobileEditorOpen = false;
   const workspace = document.querySelector(".ai-master-detail");
   if (workspace) workspace.classList.remove("mobile-editor-open");
+}
+
+const AI_LENGTH_QUANTITY_UNITS = ["根", "个", "只", "套", "瓶", "包", "盒", "袋", "张", "卷", "圈", "米", "桶", "把", "支", "条", "块", "片", "件", "组", "捆", "箱"];
+
+function aiNormalizeUnit(value) {
+  const text = String(value || "").trim().toLowerCase();
+  if (text === "m" || text === "米") return "米";
+  return AI_LENGTH_QUANTITY_UNITS.includes(text) ? text : "";
+}
+
+function aiUnitsEquivalent(left, right) {
+  const a = aiNormalizeUnit(left);
+  const b = aiNormalizeUnit(right);
+  if (!a || !b) return false;
+  if (a === b) return true;
+  return ["根", "支", "条"].includes(a) && ["根", "支", "条"].includes(b);
+}
+
+function aiProductUnitInfo(product) {
+  const unitText = String(product && product.unit || "").trim();
+  const specText = String(product && product.spec || "").trim();
+  const baseMatch = unitText.match(/^\s*(米|m|根|支|条|圈|卷|个|只|套|瓶|包|盒|袋|张|桶|把|块|片|件|组|捆|箱)/i);
+  const billingUnit = aiNormalizeUnit(baseMatch ? baseMatch[1] : unitText);
+  const combined = unitText + " " + specText;
+  let conversionMatch = combined.match(/(\d+(?:[.]\d+)?)\s*(?:米|m)\s*[\/／每]\s*(根|支|条|圈|卷)/i);
+  if (!conversionMatch && ["根", "支", "条"].includes(billingUnit)) {
+    conversionMatch = unitText.match(/[（(]\s*(\d+(?:[.]\d+)?)\s*(?:米|m)\s*[）)]/i);
+    if (conversionMatch) conversionMatch = [conversionMatch[0], conversionMatch[1], billingUnit];
+  }
+  return {
+    billingUnit,
+    lengthPerContainer: conversionMatch ? Number(conversionMatch[1]) : null,
+    containerUnit: conversionMatch ? aiNormalizeUnit(conversionMatch[2]) : ""
+  };
+}
+
+function aiQuantityNumber(value) {
+  const number = Number(value);
+  return Number.isInteger(number) ? String(number) : String(Number(number.toFixed(3)));
+}
+
+function aiQuantityForProduct(item, product) {
+  const requestedQuantity = Number(item && item.requestedQuantity !== undefined && item.requestedQuantity !== null ? item.requestedQuantity : item && item.quantity);
+  const requestedUnit = aiNormalizeUnit(item && (item.requestedUnit || item.quantityUnit));
+  const info = aiProductUnitInfo(product);
+  const result = { quantity: null, conversion: null, quantityError: "" };
+  if (!Number.isFinite(requestedQuantity) || requestedQuantity <= 0) return result;
+  if (!requestedUnit) {
+    if (isPositiveInteger(requestedQuantity)) result.quantity = requestedQuantity;else
+    result.quantityError = "商品数量必须为正整数";
+    return result;
+  }
+  if (!info.billingUnit) {
+    result.quantityError = "无法确定商品计价单位，请人工确认";
+    return result;
+  }
+  if (aiUnitsEquivalent(requestedUnit, info.billingUnit)) {
+    if (isPositiveInteger(requestedQuantity)) result.quantity = requestedQuantity;else
+    result.quantityError = "商品数量必须为正整数";
+    result.conversion = {
+      fromQuantity: requestedQuantity,
+      fromUnit: requestedUnit,
+      toQuantity: result.quantity,
+      toUnit: info.billingUnit,
+      factor: 1,
+      rounded: false,
+      note: result.quantity ? "原文单位与商品计价单位一致" : result.quantityError
+    };
+    return result;
+  }
+  if (!info.lengthPerContainer || !info.containerUnit) {
+    result.quantityError = "原文单位与商品单位不同，且商品库没有可靠的换算规格";
+    return result;
+  }
+  let exactQuantity = null;
+  let availableQuantity = null;
+  if (requestedUnit === "米" && aiUnitsEquivalent(info.billingUnit, info.containerUnit)) {
+    exactQuantity = requestedQuantity / info.lengthPerContainer;
+    result.quantity = Math.ceil(exactQuantity - 1e-9);
+    availableQuantity = result.quantity * info.lengthPerContainer;
+  } else if (aiUnitsEquivalent(requestedUnit, info.containerUnit) && info.billingUnit === "米") {
+    exactQuantity = requestedQuantity * info.lengthPerContainer;
+    result.quantity = Math.ceil(exactQuantity - 1e-9);
+    availableQuantity = result.quantity;
+  } else {
+    result.quantityError = "原文单位与商品换算规格不匹配，请人工确认";
+    return result;
+  }
+  const rounded = Math.abs(result.quantity - exactQuantity) > 1e-9;
+  result.conversion = {
+    fromQuantity: requestedQuantity,
+    fromUnit: requestedUnit,
+    toQuantity: result.quantity,
+    toUnit: info.billingUnit,
+    factor: info.lengthPerContainer,
+    factorUnit: "米/" + info.containerUnit,
+    rounded,
+    availableQuantity,
+    availableUnit: "米",
+    note: aiQuantityNumber(requestedQuantity) + requestedUnit + "按" + aiQuantityNumber(info.lengthPerContainer) + "米/" + info.containerUnit + "换算为" + aiQuantityNumber(result.quantity) + info.billingUnit + (rounded ? "（向上取整，可供" + aiQuantityNumber(availableQuantity) + "米）" : "")
+  };
+  return result;
+}
+
+function aiRequestedQuantityText(item) {
+  const quantity = item && item.requestedQuantity !== undefined && item.requestedQuantity !== null ? item.requestedQuantity : "";
+  const unit = item && (item.requestedUnit || item.quantityUnit) || "";
+  return quantity !== "" ? aiQuantityNumber(quantity) + unit : "原文未明确数量";
+}
+
+function aiConversionText(item) {
+  if (!item) return "";
+  if (item.quantityManualOverride) return "原文：" + aiRequestedQuantityText(item) + " · 开单数量已人工修改为 " + (item.quantity || "待补") + (item.unit || "");
+  if (item.conversion && item.conversion.note) return "原文：" + aiRequestedQuantityText(item) + " → " + item.conversion.note + " → 开单：" + (item.quantity || "待补") + (item.unit || "");
+  if (item.quantityError) return "原文：" + aiRequestedQuantityText(item) + " · " + item.quantityError;
+  return "原文：" + aiRequestedQuantityText(item) + " → 开单：" + (item.quantity || "待补") + (item.unit || "");
 }
 
 function aiCandidateFromProduct(product) {
@@ -1583,9 +1723,9 @@ function renderAiNavItem(item, index) {
       <span class="ai-nav-index">${index + 1}</span>
       <span class="ai-nav-content">
         <span class="ai-nav-title"><strong>${html(item.rawName || item.name || "未命名商品")}</strong><em class="ai-status-badge is-${item.status}" data-ai-nav-status>${aiStatusLabel(item.status)}</em></span>
-        <span class="ai-nav-original">原文：${html(item.rawName || "-")}</span>
+        <span class="ai-nav-original">原文：${html(item.sourceText || item.rawName || "-")}</span>
         <span class="ai-nav-match ${empty ? "is-empty" : ""}" data-ai-nav-match>${html(matchText)}</span>
-        <span class="ai-nav-meta">${html(item.groupTitle || "识别结果")}</span>
+        <span class="ai-nav-meta">${html(item.groupTitle || "识别结果")}${item.requestedQuantity !== undefined && item.requestedQuantity !== null ? " · 原数量 " + html(aiRequestedQuantityText(item)) : ""}</span>
       </span>
       <span class="ai-nav-quantity">数量 <b data-ai-nav-quantity-value>${html(item.quantity || "待补")}</b></span>
     </button>`;
@@ -1658,10 +1798,13 @@ function renderAiDetailPanel(item) {
     <div class="ai-detail-panel ${active ? "active" : ""}" data-ai-detail-key="${html(item.key)}"${matchedAttributes}>
       <div class="ai-detail-head">
         <div><span>正在处理</span><h4>${html(item.rawName || item.name || "未命名商品")}</h4><small>${html(item.groupTitle || "识别结果")} · ${aiStatusLabel(item.status)}</small></div>
-        <label><span>数量</span>${aiDetailQuantity(item)}</label>
+        <label><span>开单数量</span>${aiDetailQuantity(item)}</label>
         ${item.aiType === "matched" ? `<button type="button" class="icon-btn danger ai-matched-delete" title="删除该商品" aria-label="删除该商品" onclick="removeAiMatchedLine(this)">${svgIcon("delete")}</button>` : ""}
         <button type="button" class="icon-btn ai-mobile-editor-close" onclick="closeAiMobileEditor()" aria-label="关闭商品编辑">×</button>
       </div>
+      <div class="ai-conversion-note ${item.quantityError ? "has-error" : ""}" data-ai-conversion-note>${html(aiConversionText(item))}</div>
+      ${item.brand || item.specText ? `<div class="ai-recognized-fields">${item.brand ? `<span>识别品牌：${html(item.brand)}</span>` : ""}${item.specText ? `<span>识别规格：${html(item.specText)}</span>` : ""}</div>` : ""}
+      ${Array.isArray(item.parseWarnings) && item.parseWarnings.length ? `<div class="ai-parse-warning">${item.parseWarnings.map((warning) => html(warning)).join("；")}</div>` : ""}
       <div class="ai-detail-scroll">${aiCandidateWorkspace(item)}</div>
     </div>`;
 }

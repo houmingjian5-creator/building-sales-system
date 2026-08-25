@@ -51,9 +51,10 @@ assert(orangePipeMatches.every((item) => /管/.test(item.product.name)));
 assert(orangePipeMatches.every((item) => !/过滤器|阀|弯|三通|直接|管帽/.test(item.product.name)));
 assert(orangePipeMatches.every((item) => /(^|[^0-9.])20([^0-9.]|$)/.test(`${item.product.name} ${item.product.spec}`)));
 
-assert.deepStrictEqual(server.fallbackParseOrderText('25管6根，20弯头14个'), [
-  { rawName: '25管', quantity: 6 },
-  { rawName: '20弯头', quantity: 14 },
+const fallbackLines = server.fallbackParseOrderText('25管6根，20弯头14个');
+assert.deepStrictEqual(fallbackLines.map((item) => ({ rawName: item.rawName, quantity: item.quantity, unit: item.requestedUnit })), [
+  { rawName: '25管', quantity: 6, unit: '根' },
+  { rawName: '20弯头', quantity: 14, unit: '个' },
 ]);
 
 const historyProducts = [
