@@ -3277,39 +3277,6 @@ function splitAiOrderSegments(content) {
   return segments;
 }
 
-function splitAiConcatenatedSegment(segment, options) {
-  const text = String(segment && segment.text || '').trim();
-  if (!text) return [];
-  const allowedUnits = catalogAiQuantityUnits(options && options.products);
-  const unitPattern = allowedUnits.map(regexEscape).join('|');
-  const quantityPattern = new RegExp('(\\d+(?:[.]\\d+)?|[零〇一二两三四五六七八九十百]+)\\s*(?:' + unitPattern + '|m)', 'gi');
-  const leadingQuantityPattern = new RegExp('^\\s*(?:\\d+(?:[.]\\d+)?|[零〇一二两三四五六七八九十百]+)\\s*(?:' + unitPattern + '|m)', 'i');
-  if (leadingQuantityPattern.test(text)) return [segment];
-  const parts = [];
-  let start = 0;
-  let match;
-  while ((match = quantityPattern.exec(text))) {
-    const end = quantityPattern.lastIndex;
-    if (match.index <= start || end >= text.length) continue;
-    const remainingText = text.slice(end).trim();
-    const remainingColor = aiColorSequenceAtEnd(remainingText);
-    if (/^\d/.test(remainingText)) continue;
-    if (remainingColor && !remainingColor.base) continue;
-    if (AI_VARIANT_TERMS.indexOf(normalizeMatchText(remainingText)) >= 0) continue;
-    const candidateText = text.slice(start, end).trim();
-    const candidate = parseAiSourcePart(candidateText, parts.length, options);
-    if (candidate.requestedQuantity === null || !candidate.requestedUnit || !candidate.rawName) continue;
-    if (candidate.requestedUnit === '平方') continue;
-    if (!candidateText.endsWith(match[0])) continue;
-    parts.push({ text: candidateText, joinsPrevious: parts.length ? true : Boolean(segment.joinsPrevious) });
-    start = end;
-  }
-  if (!parts.length) return [segment];
-  const tail = text.slice(start).trim();
-  if (tail) parts.push({ text: tail, joinsPrevious: true });
-  return parts;
-}
-
 function aiColorSequenceAtEnd(value) {
   const text = String(value || '').trim().replace(/色$/, '');
   let cursor = text.length;
@@ -3373,9 +3340,7 @@ function expandAiSharedContextItems(items) {
 }
 
 function fallbackParseOrderText(content, options) {
-  const segments = splitAiOrderSegments(content).reduce(function (all, segment) {
-    return all.concat(splitAiConcatenatedSegment(segment, options));
-  }, []);
+  const segments = splitAiOrderSegments(content);
   const parsed = segments.filter(function (segment) {
     return !/^(?:不要|取消|去掉|删除)/.test(segment.text);
   }).map(function (segment, index) {

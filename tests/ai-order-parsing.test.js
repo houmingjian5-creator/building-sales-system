@@ -70,11 +70,22 @@ assert.deepStrictEqual(eachColorParsed.map((item) => [item.rawName, item.request
 ], '颜色枚举加“各”必须展开为三条完整商品请求');
 
 const compactParsed = server.fallbackParseOrderText('河沙4方炭渣13袋西南325水泥20包');
-assert.deepStrictEqual(compactParsed.map((item) => [item.rawName, item.requestedQuantity, item.requestedUnit]), [
-  ['河沙', 4, '方'],
-  ['炭渣', 13, '袋'],
-  ['西南325水泥', 20, '包'],
-], '没有标点但商品均以明确数量单位结束时应保守拆分');
+assert.strictEqual(compactParsed.length, 1, '没有明确标点时不得仅凭数字加单位强行拆分商品');
+
+const subKeelParsed = server.fallbackParseOrderText('50*0.5付龙骨100根');
+assert.deepStrictEqual(subKeelParsed.map((item) => [item.rawName, item.requestedQuantity, item.requestedUnit]), [
+  ['50*0.5付龙骨', 100, '根'],
+], '付龙骨中的“付”属于商品名称，不能把一个商品误拆成两条');
+
+const woodListParsed = server.fallbackParseOrderText('付挂80个\n龙强石膏板20张\n50*0.5付龙骨100根，\n3米丝杆40根，\n50*0.8主龙骨10根\n石膏板检修口5个');
+assert.deepStrictEqual(woodListParsed.map((item) => [item.rawName, item.requestedQuantity, item.requestedUnit]), [
+  ['付挂', 80, '个'],
+  ['龙强石膏板', 20, '张'],
+  ['50*0.5付龙骨', 100, '根'],
+  ['3米丝杆', 40, '根'],
+  ['50*0.8主龙骨', 10, '根'],
+  ['石膏板检修口', 5, '个'],
+], '截图中的六条木工材料必须保持六条，不能把付龙骨额外拆开');
 
 const trailingAttributeParsed = server.fallbackParseOrderText('塔牌2.5平方电线2圈红色');
 assert.strictEqual(trailingAttributeParsed.length, 1, '数量后面的颜色属性不能被误拆成新商品');
