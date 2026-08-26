@@ -1412,10 +1412,23 @@ function textTokens(value) {
 
 const AI_VARIANT_TERMS = ['普通', '好', '加厚', '小', '大', '粗', '细', '单色', '双色'];
 const AI_DEFAULTABLE_VARIANT_TERMS = ['好', '加厚'];
+const AI_COLOR_TERMS = ['红', '蓝', '黄', '绿', '白', '黑', '灰', '橙', '紫'];
 
 function aiRequestedVariantTerms(value) {
   const text = normalizeMatchText(value);
   return AI_VARIANT_TERMS.filter((term) => text.includes(term));
+}
+
+function aiRequestedColorTerms(value) {
+  const text = normalizeMatchText(value);
+  if (!/(?:电线|铜芯线|软线|硬线|线缆|颜色|色)/.test(text)) return [];
+  return AI_COLOR_TERMS.filter(function (term) { return text.includes(term); });
+}
+
+function aiProductHasColorTerms(product, terms) {
+  if (!terms.length) return true;
+  const text = normalizeMatchText([product.name, product.spec, product.brand, product.cat2, ...(product.aliases || [])].join(' '));
+  return terms.every(function (term) { return text.includes(term); });
 }
 
 function aiProductVariantTerms(product) {
@@ -1628,12 +1641,14 @@ function manualCandidateSuggestions(products, scope, rawName, recommendationCont
   const needle = normalizeMatchText(rawName);
   const explicitBrandTerms = requestedBrandTerms(products, needle);
   const variantTerms = aiRequestedVariantTerms(rawName);
+  const colorTerms = aiRequestedColorTerms(rawName);
   return products
     .filter((product) => product.status !== '停用')
     .filter((product) => !scope.cat1 || product.cat1 === scope.cat1)
     .filter((product) => !scope.cat2 || product.cat2 === scope.cat2)
     .filter((product) => !explicitBrandTerms.length || productHasBrandTerm(product, explicitBrandTerms))
     .filter((product) => aiProductHasVariantTerms(product, variantTerms))
+    .filter((product) => aiProductHasColorTerms(product, colorTerms))
     .filter((product) => productKind(product) === kind)
     .map((product) => {
       const stat = recommendationContext.productStats.get(product.id) || {};
@@ -1673,6 +1688,7 @@ function matchProductCandidates(products, rawName, options = {}) {
   const brandNumbers = new Set(explicitBrandTerms.reduce((numbers, term) => numbers.concat(requestedSpecNumbers(term)), []));
   const specNumbers = requestedSpecNumbers(options.itemText || rawName).filter((token) => !brandNumbers.has(token));
   const requestedVariantTerms = aiRequestedVariantTerms(options.itemText || rawName);
+  const requestedColorTerms = aiRequestedColorTerms(options.itemText || rawName);
   const requestedUnit = normalizeAiUnit(options.requestedUnit || '');
   const scored = products
     .filter((product) => product.status !== '\u505c\u7528')
@@ -1680,6 +1696,7 @@ function matchProductCandidates(products, rawName, options = {}) {
     .filter((product) => !options.cat2 || product.cat2 === options.cat2)
     .filter((product) => !explicitBrandTerms.length || productHasBrandTerm(product, explicitBrandTerms))
     .filter((product) => aiProductHasVariantTerms(product, requestedVariantTerms))
+    .filter((product) => aiProductHasColorTerms(product, requestedColorTerms))
     .filter((product) => !kind || productKind(product) === kind)
     .filter((product) => !specNumbers.length || specNumbers.every((token) => hasStandaloneNumber(product, token)))
     .map((product) => {
@@ -3130,7 +3147,8 @@ function aiQuantityCandidateScore(candidate, sourceText, options) {
   let score = 0;
   const before = sourceText.slice(0, candidate.start);
   const after = sourceText.slice(candidate.end);
-  if (!before.trim() || !after.trim()) score += 55;
+  if (!before.trim()) score += 35;
+  if (!after.trim()) score += 75;
   if (/数量\s*[:：]?\s*$/.test(before)) score += 90;
   if (Number.isInteger(candidate.quantity)) score += 12;
   if (candidate.unit === '平方') score -= 25;
@@ -3157,7 +3175,7 @@ function aiQuantityCandidateScore(candidate, sourceText, options) {
 
 function parseAiSourcePart(value, sourceIndex, options) {
   options = options || {};
-  const sourceText = String(value || '').replace(/^\s*(?:[-•·]|第?[0-9一-十]+[.、])\s*/, '').trim();
+  const sourceText = String(value || '').replace(/^\s*(?:[-•·]|第?[0-9一-十]+[.、](?!\d))\s*/, '').trim();
   const allowedUnits = catalogAiQuantityUnits(options.products);
   const unitPattern = allowedUnits.map(regexEscape).join('|');
   const chinesePattern = '[零〇一二两三四五六七八九十百]+';
@@ -3222,10 +3240,151 @@ function parseAiSourcePart(value, sourceIndex, options) {
   };
 }
 
-function fallbackParseOrderText(content, options) {
-  return String(content || '').split(/[\n，,；;、]+/).map(function (part) { return part.trim(); }).filter(Boolean).map(function (part, index) {
-    return parseAiSourcePart(part, index, options);
+function cleanAiOrderInput(content) {
+  return String(content || '')
+    .replace(/([^，,。.;；\n\r]+?)不要[^，,。.;；\n\r]*[，,]?\s*(?:要|换成?|改成|改要)([^，,。.;；\n\r]+)/g, '$1$2')
+    .replace(/不要[^，,。.;；\n\r]*?(?=(?:要|换成?|改成|改要))/g, '')
+    .replace(/(^|[，,。.;；\n\r])\s*(?:取消|去掉|删除)[^，,。.;；\n\r]*/g, '$1');
+}
+
+function splitAiOrderSegments(content) {
+  const text = cleanAiOrderInput(content);
+  const segments = [];
+  let buffer = '';
+  let joinsPrevious = false;
+
+  function pushSegment() {
+    const value = buffer.trim();
+    if (value) segments.push({ text: value, joinsPrevious: joinsPrevious });
+    buffer = '';
+  }
+
+  for (let index = 0; index < text.length; index += 1) {
+    const character = text.charAt(index);
+    const previous = index > 0 ? text.charAt(index - 1) : '';
+    const next = index + 1 < text.length ? text.charAt(index + 1) : '';
+    const decimalPoint = character === '.' && /\d/.test(previous) && /\d/.test(next);
+    const weakSeparator = /[，,、]/.test(character);
+    const strongSeparator = /[\n\r；;。！？!?]/.test(character) || (character === '.' && !decimalPoint);
+    if (!weakSeparator && !strongSeparator) {
+      buffer += character;
+      continue;
+    }
+    pushSegment();
+    joinsPrevious = weakSeparator;
+  }
+  pushSegment();
+  return segments;
+}
+
+function splitAiConcatenatedSegment(segment, options) {
+  const text = String(segment && segment.text || '').trim();
+  if (!text) return [];
+  const allowedUnits = catalogAiQuantityUnits(options && options.products);
+  const unitPattern = allowedUnits.map(regexEscape).join('|');
+  const quantityPattern = new RegExp('(\\d+(?:[.]\\d+)?|[零〇一二两三四五六七八九十百]+)\\s*(?:' + unitPattern + '|m)', 'gi');
+  const leadingQuantityPattern = new RegExp('^\\s*(?:\\d+(?:[.]\\d+)?|[零〇一二两三四五六七八九十百]+)\\s*(?:' + unitPattern + '|m)', 'i');
+  if (leadingQuantityPattern.test(text)) return [segment];
+  const parts = [];
+  let start = 0;
+  let match;
+  while ((match = quantityPattern.exec(text))) {
+    const end = quantityPattern.lastIndex;
+    if (match.index <= start || end >= text.length) continue;
+    const remainingText = text.slice(end).trim();
+    const remainingColor = aiColorSequenceAtEnd(remainingText);
+    if (/^\d/.test(remainingText)) continue;
+    if (remainingColor && !remainingColor.base) continue;
+    if (AI_VARIANT_TERMS.indexOf(normalizeMatchText(remainingText)) >= 0) continue;
+    const candidateText = text.slice(start, end).trim();
+    const candidate = parseAiSourcePart(candidateText, parts.length, options);
+    if (candidate.requestedQuantity === null || !candidate.requestedUnit || !candidate.rawName) continue;
+    if (candidate.requestedUnit === '平方') continue;
+    if (!candidateText.endsWith(match[0])) continue;
+    parts.push({ text: candidateText, joinsPrevious: parts.length ? true : Boolean(segment.joinsPrevious) });
+    start = end;
+  }
+  if (!parts.length) return [segment];
+  const tail = text.slice(start).trim();
+  if (tail) parts.push({ text: tail, joinsPrevious: true });
+  return parts;
+}
+
+function aiColorSequenceAtEnd(value) {
+  const text = String(value || '').trim().replace(/色$/, '');
+  let cursor = text.length;
+  const colors = [];
+  while (cursor > 0) {
+    const color = AI_COLOR_TERMS.find(function (term) {
+      return text.slice(0, cursor).endsWith(term);
+    });
+    if (!color) break;
+    colors.unshift(color);
+    cursor -= color.length;
+  }
+  return colors.length ? { base: text.slice(0, cursor), colors: colors } : null;
+}
+
+function expandAiSharedContextItems(items) {
+  const expanded = [];
+  let sharedColorBase = '';
+  items.forEach(function (entry) {
+    const item = entry.item;
+    const rawName = String(item.rawName || '').trim();
+    const aggregateQuantity = /(?:一共|总共|合计)/.test(String(item.sourceText || rawName));
+    const colorSequence = aiColorSequenceAtEnd(rawName.replace(/(?:一共|总共|合计)$/, ''));
+    const onlyColor = colorSequence && !colorSequence.base && colorSequence.colors.length === 1;
+    if (entry.joinsPrevious && sharedColorBase && onlyColor) {
+      expanded.push(Object.assign({}, item, { rawName: sharedColorBase + colorSequence.colors[0], inheritedContext: sharedColorBase }));
+      return;
+    }
+    if (entry.joinsPrevious && sharedColorBase && colorSequence && colorSequence.colors.length === 1 && /^\d+(?:[.]\d+)?平方$/.test(colorSequence.base)) {
+      const inheritedBase = sharedColorBase.replace(/\d+(?:[.]\d+)?平方/g, '');
+      const nextBase = colorSequence.base + inheritedBase;
+      expanded.push(Object.assign({}, item, { rawName: nextBase + colorSequence.colors[0], inheritedContext: nextBase }));
+      sharedColorBase = nextBase;
+      return;
+    }
+    if (aggregateQuantity && colorSequence && colorSequence.base && colorSequence.colors.length > 1) {
+      expanded.push(Object.assign({}, item, {
+        rawName: colorSequence.base + colorSequence.colors.join(''),
+        requestedQuantity: null,
+        requestedUnit: '',
+        quantity: null,
+        quantityUnit: '',
+        parseWarnings: (Array.isArray(item.parseWarnings) ? item.parseWarnings : []).concat(['多个颜色只填写了合计数量，需分别确认数量']),
+      }));
+      sharedColorBase = '';
+      return;
+    }
+    if (colorSequence && colorSequence.base && colorSequence.colors.length > 1) {
+      sharedColorBase = colorSequence.base;
+      colorSequence.colors.forEach(function (color) {
+        expanded.push(Object.assign({}, item, { rawName: sharedColorBase + color, inheritedContext: sharedColorBase }));
+      });
+      return;
+    }
+    expanded.push(item);
+    sharedColorBase = colorSequence && colorSequence.base && colorSequence.colors.length === 1 ? colorSequence.base : '';
   });
+  return expanded.map(function (item, index) {
+    return Object.assign({}, item, { sourceIndex: index });
+  });
+}
+
+function fallbackParseOrderText(content, options) {
+  const segments = splitAiOrderSegments(content).reduce(function (all, segment) {
+    return all.concat(splitAiConcatenatedSegment(segment, options));
+  }, []);
+  const parsed = segments.filter(function (segment) {
+    return !/^(?:不要|取消|去掉|删除)/.test(segment.text);
+  }).map(function (segment, index) {
+    return {
+      item: parseAiSourcePart(segment.text.replace(/^(?:要|换成?|改成|改要|再要|另要|还有)\s*/, ''), index, options),
+      joinsPrevious: segment.joinsPrevious,
+    };
+  });
+  return expandAiSharedContextItems(parsed);
 }
 
 function likelyAiHeading(item) {
@@ -3256,14 +3415,16 @@ function mergeAiParsedItems(content, modelItems, options) {
   parsedModelItems.forEach(function (modelItem, modelIndex) {
     if (!modelItem) return;
     const suppliedIndex = Number(modelItem.sourceIndex);
-    let source = Number.isInteger(suppliedIndex) && sourceItems[suppliedIndex] ? sourceItems[suppliedIndex] : null;
+    let source = Number.isInteger(suppliedIndex) && sourceItems[suppliedIndex] && !usedSources.has(suppliedIndex)
+      ? sourceItems[suppliedIndex]
+      : null;
     if (!source) {
       const modelText = normalizeMatchText(modelItem.sourceText || modelItem.rawName || modelItem.name || '');
       source = sourceItems.find(function (item, index) {
         if (usedSources.has(index)) return false;
         const sourceText = normalizeMatchText(item.sourceText);
         return modelText && sourceText && (sourceText.includes(modelText) || modelText.includes(sourceText));
-      }) || sourceItems[modelIndex] || null;
+      }) || (!usedSources.has(modelIndex) ? sourceItems[modelIndex] : null) || null;
     }
     const sourceIndex = source ? sourceItems.indexOf(source) : modelIndex;
     if (sourceIndex >= 0) usedSources.add(sourceIndex);
@@ -3558,6 +3719,11 @@ async function parseAiOrderGroup(scope, products) {
           '例如4米/根是规格或换算信息，不是数量',
           '品牌、型号规格、商品名称、数量和单位可以按任意顺序出现；必须按含义提取，不能依赖固定前后顺序',
           '例如塔牌2.5平方电线2圈、2圈2.5平方塔牌电线、2圈塔牌2.5平方电线含义完全相同：品牌塔牌、规格2.5平方、商品电线、数量2、单位圈',
+          '中文句号、英文句号、逗号、分号和换行都可能分隔商品；2.5、1.2、3.8等数字之间的点是小数点，不能拆开',
+          '同一商品的颜色或款式枚举必须继承公共品牌、名称和规格，例如2.5平方塔牌电线红一圈、蓝一圈、黄一圈要返回三条完整商品',
+          '红蓝黄各一圈表示每个颜色各1圈；红蓝一共3圈无法确定每种颜色数量，quantity必须为null',
+          '不要、取消、去掉、删除后面的商品或属性是否定内容，不得加入items；换成、改成、要后面的内容才是目标',
+          '如果后续子项明确写了新规格，新规格只覆盖该子项，例如2.5平方红一圈、4平方蓝两圈',
         ],
         category: scope.cat1,
         subcategory: scope.cat2,

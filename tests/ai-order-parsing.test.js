@@ -17,6 +17,114 @@ assert.deepStrictEqual(leadingParsed.map((item) => [item.rawName, item.requested
   ['河沙', 40, '袋'],
 ], '数量和单位写在商品名前面时也必须正确拆分');
 
+const sentenceText = '60个100*200*600加气砖。1.2米过梁两根。河沙4方。炭渣13袋。西南325水泥20包。小金条红砖100个。';
+const sentenceParsed = server.fallbackParseOrderText(sentenceText);
+assert.deepStrictEqual(sentenceParsed.map((item) => [item.rawName, item.requestedQuantity, item.requestedUnit]), [
+  ['100*200*600加气砖', 60, '个'],
+  ['1.2米过梁', 2, '根'],
+  ['河沙', 4, '方'],
+  ['炭渣', 13, '袋'],
+  ['西南325水泥', 20, '包'],
+  ['小金条红砖', 100, '个'],
+], '中文句号必须拆分商品，同时保留1.2米小数规格');
+
+const dotSentenceParsed = server.fallbackParseOrderText('60个100*200*600加气砖.1.2米过梁两根.4方河沙.炭渣13袋.325西南水泥20包.24红砖100个');
+assert.deepStrictEqual(dotSentenceParsed.map((item) => [item.rawName, item.requestedQuantity, item.requestedUnit]), [
+  ['100*200*600加气砖', 60, '个'],
+  ['1.2米过梁', 2, '根'],
+  ['河沙', 4, '方'],
+  ['炭渣', 13, '袋'],
+  ['325西南水泥', 20, '包'],
+  ['24红砖', 100, '个'],
+], '英文句号必须拆分商品，但数字两侧的小数点不得拆分');
+
+const duplicateSourceMerge = server.mergeAiParsedItems(sentenceText, [
+  { sourceIndex: 0, sourceText: '60个100*200*600加气砖', rawName: '100*200*600加气砖', quantity: 60, quantityUnit: '个' },
+  { sourceIndex: 0, sourceText: '1.2米过梁两根', rawName: '1.2米过梁', quantity: 2, quantityUnit: '根' },
+  { sourceIndex: 0, sourceText: '河沙4方', rawName: '河沙', quantity: 4, quantityUnit: '方' },
+  { sourceIndex: 0, sourceText: '炭渣13袋', rawName: '炭渣', quantity: 13, quantityUnit: '袋' },
+  { sourceIndex: 0, sourceText: '西南325水泥20包', rawName: '西南325水泥', quantity: 20, quantityUnit: '包' },
+  { sourceIndex: 0, sourceText: '小金条红砖100个', rawName: '小金条红砖', quantity: 100, quantityUnit: '个' },
+]);
+assert.deepStrictEqual(duplicateSourceMerge.map((item) => [item.rawName, item.requestedQuantity]), [
+  ['100*200*600加气砖', 60],
+  ['1.2米过梁', 2],
+  ['河沙', 4],
+  ['炭渣', 13],
+  ['西南325水泥', 20],
+  ['小金条红砖', 100],
+], '模型重复返回sourceIndex时不得把第一段原文复制到全部商品');
+
+const sharedColorParsed = server.fallbackParseOrderText('2.5平方塔牌电线红一圈、蓝一圈、黄一圈');
+assert.deepStrictEqual(sharedColorParsed.map((item) => [item.rawName, item.requestedQuantity, item.requestedUnit]), [
+  ['2.5平方塔牌电线红', 1, '圈'],
+  ['2.5平方塔牌电线蓝', 1, '圈'],
+  ['2.5平方塔牌电线黄', 1, '圈'],
+], '同组后续颜色必须继承品牌、商品名称和2.5平方规格');
+
+const eachColorParsed = server.fallbackParseOrderText('2.5平方塔牌电线红蓝黄各一圈');
+assert.deepStrictEqual(eachColorParsed.map((item) => [item.rawName, item.requestedQuantity, item.requestedUnit]), [
+  ['2.5平方塔牌电线红', 1, '圈'],
+  ['2.5平方塔牌电线蓝', 1, '圈'],
+  ['2.5平方塔牌电线黄', 1, '圈'],
+], '颜色枚举加“各”必须展开为三条完整商品请求');
+
+const compactParsed = server.fallbackParseOrderText('河沙4方炭渣13袋西南325水泥20包');
+assert.deepStrictEqual(compactParsed.map((item) => [item.rawName, item.requestedQuantity, item.requestedUnit]), [
+  ['河沙', 4, '方'],
+  ['炭渣', 13, '袋'],
+  ['西南325水泥', 20, '包'],
+], '没有标点但商品均以明确数量单位结束时应保守拆分');
+
+const trailingAttributeParsed = server.fallbackParseOrderText('塔牌2.5平方电线2圈红色');
+assert.strictEqual(trailingAttributeParsed.length, 1, '数量后面的颜色属性不能被误拆成新商品');
+assert(trailingAttributeParsed[0].rawName.includes('红色'));
+
+const negatedParsed = server.fallbackParseOrderText('不要红色，要蓝色两圈');
+assert.deepStrictEqual(negatedParsed.map((item) => [item.rawName, item.requestedQuantity, item.requestedUnit]), [
+  ['蓝色', 2, '圈'],
+], '否定项不能被加入开单结果');
+
+const replacementParsed = server.fallbackParseOrderText('水泥不要西南的，要拉法基20包');
+assert.deepStrictEqual(replacementParsed.map((item) => [item.rawName, item.requestedQuantity, item.requestedUnit]), [
+  ['水泥拉法基', 20, '包'],
+], '品牌替换语句只能保留目标品牌，不能把被否定品牌加入开单');
+
+const overriddenSpecColors = server.fallbackParseOrderText('2.5平方塔牌电线红一圈、4平方蓝两圈');
+assert.deepStrictEqual(overriddenSpecColors.map((item) => [item.rawName, item.requestedQuantity]), [
+  ['2.5平方塔牌电线红', 1],
+  ['4平方塔牌电线蓝', 2],
+], '同组子项明确写新规格时应覆盖旧规格，同时继承品牌和商品名称');
+
+const aggregateColors = server.fallbackParseOrderText('2.5平方塔牌电线红蓝一共3圈');
+assert.strictEqual(aggregateColors.length, 1, '颜色合计数量不能擅自平均或复制成多条');
+assert.strictEqual(aggregateColors[0].requestedQuantity, null);
+assert(aggregateColors[0].parseWarnings.some((warning) => warning.includes('合计数量')));
+
+const colorProducts = ['红', '蓝', '黄'].map((color) => ({
+  id: `tapa-wire-${color}`,
+  name: `塔牌2.5平方电线${color}`,
+  brand: '塔牌',
+  spec: `2.5平方 ${color}`,
+  unit: '圈',
+  price: 100,
+  cat1: '水电',
+  cat2: '电线',
+  status: '在售',
+  aliases: [],
+}));
+const colorDraft = server.validateAiDraft(
+  { products: colorProducts, orders: [], aiLearning: {} },
+  { items: eachColorParsed.map((item) => Object.assign({}, item, { groupId: 'wire-colors' })) },
+  '2.5平方塔牌电线红蓝黄各一圈',
+  [{ id: 'wire-colors', title: '电线', cat1: '水电', cat2: '电线' }]
+);
+assert.deepStrictEqual(colorDraft.matched.map((item) => [item.name, item.quantity]), [
+  ['塔牌2.5平方电线红', 1],
+  ['塔牌2.5平方电线蓝', 1],
+  ['塔牌2.5平方电线黄', 1],
+], '颜色展开后的每一条都必须匹配相同品牌和规格的对应颜色商品');
+
 const wireProducts = [{
   id: 'tapa-wire-2.5',
   name: '塔牌电线',
