@@ -17,6 +17,70 @@ assert.deepStrictEqual(leadingParsed.map((item) => [item.rawName, item.requested
   ['河沙', 40, '袋'],
 ], '数量和单位写在商品名前面时也必须正确拆分');
 
+const wireProducts = [{
+  id: 'tapa-wire-2.5',
+  name: '塔牌电线',
+  brand: '塔牌',
+  spec: '2.5平方',
+  unit: '圈',
+  price: 100,
+  cat1: '水电',
+  cat2: '电线',
+  status: '在售',
+  aliases: [],
+}];
+const wireVariants = [
+  '塔牌2.5平方电线2圈',
+  '2圈2.5平方塔牌电线',
+  '2圈塔牌2.5平方电线',
+  '塔牌电线2圈2.5平方',
+];
+const wireParseOptions = { products: wireProducts, cat1: '水电', cat2: '电线' };
+wireVariants.forEach((text) => {
+  const item = server.fallbackParseOrderText(text, wireParseOptions)[0];
+  assert.strictEqual(item.requestedQuantity, 2, `${text} 应识别数量2`);
+  assert.strictEqual(item.requestedUnit, '圈', `${text} 应识别数量单位圈`);
+  assert(item.rawName.includes('塔牌') && item.rawName.includes('2.5') && item.rawName.includes('电线'), `${text} 删除数量后必须保留品牌、规格和名称`);
+  const result = server.validateAiDraft(
+    { products: wireProducts, orders: [], aiLearning: {} },
+    { items: [Object.assign({}, item, { groupId: 'wire' })] },
+    text,
+    [{ id: 'wire', title: '电线', cat1: '水电', cat2: '电线' }]
+  );
+  assert.strictEqual(result.matched.length, 1, `${text} 应匹配同一个真实商品`);
+  assert.strictEqual(result.matched[0].productId, 'tapa-wire-2.5');
+  assert.strictEqual(result.matched[0].quantity, 2);
+});
+
+const wireWithoutQuantity = server.mergeAiParsedItems('塔牌2.5平方电线', [{
+  sourceIndex: 0,
+  sourceText: '塔牌2.5平方电线',
+  rawName: '塔牌电线',
+  quantity: 2.5,
+  quantityUnit: '平方',
+  specText: '2.5平方',
+}], wireParseOptions)[0];
+assert.strictEqual(wireWithoutQuantity.requestedQuantity, null, '明确的商品规格不能被模型误报为下单数量');
+assert.strictEqual(wireWithoutQuantity.requestedUnit, '');
+assert(wireWithoutQuantity.rawName.includes('2.5平方'), '没有填写数量时必须保留完整规格用于商品匹配');
+assert(wireWithoutQuantity.parseWarnings.some((warning) => warning.includes('商品规格')));
+
+const conversionSpecParsed = server.fallbackParseOrderText('10根塔牌电线4米/根', {
+  products: [{ id: 'meter-wire', name: '塔牌电线', brand: '塔牌', spec: '4米/根', unit: '米（4米/根）', cat1: '水电', cat2: '电线', status: '在售', aliases: [] }],
+  cat1: '水电',
+  cat2: '电线',
+})[0];
+assert.strictEqual(conversionSpecParsed.requestedQuantity, 10, '复合规格中的4米/根不能被误当作下单数量');
+assert.strictEqual(conversionSpecParsed.requestedUnit, '根');
+assert(conversionSpecParsed.rawName.includes('4米/根'), '换算规格必须保留在商品描述中');
+
+const dynamicUnitParsed = server.fallbackParseOrderText('运费3趟', {
+  products: [{ id: 'delivery', name: '运费', spec: '', unit: '趟', cat1: '其他', cat2: '', status: '在售', aliases: [] }],
+  cat1: '其他',
+})[0];
+assert.strictEqual(dynamicUnitParsed.requestedQuantity, 3, '商品库中的非传统单位也必须识别');
+assert.strictEqual(dynamicUnitParsed.requestedUnit, '趟');
+
 const catalogDb = JSON.parse(fs.readFileSync(path.join(__dirname, '..', 'data', 'db.json'), 'utf8'));
 const leadingText = '10袋西南325水泥，128匹24多孔砖，40袋河沙';
 const leadingItems = server.mergeAiParsedItems(leadingText, []).map((item) => Object.assign({}, item, { groupId: 'tile' }));

@@ -1361,6 +1361,14 @@ function productBrandValues(product) {
     commonPrefix += name.charAt(index);
   }
   if (commonPrefix.length >= 2) values.push(commonPrefix);
+  let commonPart = '';
+  for (let start = 0; start < name.length; start += 1) {
+    for (let end = start + 2; end <= Math.min(name.length, start + 6); end += 1) {
+      const part = name.slice(start, end);
+      if (category.includes(part) && part.length > commonPart.length) commonPart = part;
+    }
+  }
+  if (commonPart.length >= 2) values.push(commonPart);
   return values;
 }
 
@@ -1399,6 +1407,32 @@ function textTokens(value) {
   return (String(value || '').toLowerCase().match(/[\u4e00-\u9fa5]+|[a-z0-9.]+/g) || [])
     .map((token) => normalizeMatchText(token))
     .filter((token) => token && token.length >= 2 && !genericTerms.includes(token));
+}
+
+function aiCharacterNgrams(value, size) {
+  const text = normalizeMatchText(value).replace(/[0-9.]+/g, '');
+  const width = Number(size || 2);
+  const grams = [];
+  for (let index = 0; index <= text.length - width; index += 1) {
+    const gram = text.slice(index, index + width);
+    if (/^[\u4e00-\u9fa5a-z]+$/i.test(gram)) grams.push(gram);
+  }
+  return [...new Set(grams)];
+}
+
+function aiOrderIndependentNameScore(product, query) {
+  const queryGrams = new Set(aiCharacterNgrams(query, 2));
+  if (!queryGrams.size) return 0;
+  const productGrams = aiCharacterNgrams([product.name, product.brand, ...(product.aliases || [])].join(' '), 2);
+  if (!productGrams.length) return 0;
+  const overlap = productGrams.filter((gram) => queryGrams.has(gram)).length;
+  return Math.round(100 * overlap / productGrams.length);
+}
+
+function aiOrderIndependentLearningKey(value) {
+  const normalized = normalizeMatchText(value);
+  const parts = normalized.match(/\d+(?:[.]\d+)?|[a-z]+|[\u4e00-\u9fa5]/gi) || [];
+  return parts.length ? '@unordered:' + parts.sort().join('|') : '';
 }
 
 function productKind(product) {
@@ -1478,9 +1512,12 @@ function isBrandSensitiveKind(kind) {
 
 function learningScore(db, rawName, productId) {
   const key = normalizeMatchText(rawName);
+  const unorderedKey = aiOrderIndependentLearningKey(rawName);
   const learning = db && db.aiLearning && db.aiLearning.productChoices;
-  if (!key || !learning || !learning[key] || !learning[key][productId]) return 0;
-  return Math.min(90, Number(learning[key][productId] || 0) * 18);
+  if (!key || !learning) return 0;
+  const exactCount = learning[key] && learning[key][productId];
+  const unorderedCount = learning[unorderedKey] && learning[unorderedKey][productId];
+  return Math.min(90, Number(exactCount || unorderedCount || 0) * 18);
 }
 
 const AI_HISTORY_STATUSES = new Set(['已确认', '已发货', '已完成']);
@@ -1672,6 +1709,7 @@ function matchProductCandidates(products, rawName, options = {}) {
         else score += 30;
       });
       if (searchable.includes(needle)) score += 50;
+      score += aiOrderIndependentNameScore(product, needle);
       if (needle.includes('摩利美涂') && needle.includes('石膏') && name.includes('摩利美涂') && name.includes('找平石膏')) score += 120;
       if (needle.includes('摩利美涂') && needle.includes('石膏') && name.includes('轻质石膏')) score += 40;
       if (needle.includes('红色') && name.includes('保护膜') && !name.includes('绿色')) score += 30;
@@ -2972,7 +3010,22 @@ function allowAssistantRequest(userId) {
   return true;
 }
 
-const AI_QUANTITY_UNITS = ['根', '个', '只', '套', '瓶', '包', '盒', '袋', '张', '卷', '圈', '米', '桶', '把', '支', '条', '匹', '块', '片', '件', '组', '捆', '箱'];
+const AI_QUANTITY_UNITS = ['根', '个', '只', '套', '瓶', '包', '盒', '袋', '张', '卷', '圈', '米', '桶', '把', '支', '条', '匹', '块', '片', '件', '组', '捆', '箱', '方', '付', '颗', '斤', '平方', '趟', '份', '次', '单', '元'];
+
+function regexEscape(value) {
+  return String(value || '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+function catalogAiQuantityUnits(products) {
+  const units = new Set(AI_QUANTITY_UNITS);
+  (Array.isArray(products) ? products : []).forEach(function (product) {
+    const value = String(product && product.unit || '').trim();
+    const match = value.match(/^([\u4e00-\u9fa5]{1,3}|m)(?=\s|[（(\/／]|$)/i);
+    if (!match || /^(?:null|无|未知)$/i.test(match[1])) return;
+    units.add(match[1].toLowerCase() === 'm' ? '米' : match[1]);
+  });
+  return [...units].sort(function (left, right) { return right.length - left.length; });
+}
 
 function chineseQuantityNumber(value) {
   const text = String(value || '').trim();
@@ -2997,11 +3050,12 @@ function chineseQuantityNumber(value) {
   return NaN;
 }
 
-function normalizeAiUnit(value) {
+function normalizeAiUnit(value, allowedUnits) {
   const text = String(value || '').trim().toLowerCase();
   if (!text) return '';
   if (text === 'm' || text === '米') return '米';
-  return AI_QUANTITY_UNITS.indexOf(text) >= 0 ? text : '';
+  const units = Array.isArray(allowedUnits) && allowedUnits.length ? allowedUnits : AI_QUANTITY_UNITS;
+  return units.indexOf(text) >= 0 ? text : '';
 }
 
 function aiUnitsEquivalent(left, right) {
@@ -3018,33 +3072,113 @@ function stripAiQuantitySuffix(value) {
   return parsed.requestedQuantity !== null ? parsed.rawName : String(value || '').trim();
 }
 
-function parseAiSourcePart(value, sourceIndex) {
+function aiQuantitySpanIsConversion(sourceText, start, end, unitPattern) {
+  const before = sourceText.slice(0, start);
+  const after = sourceText.slice(end);
+  if (new RegExp('^\\s*[/／每]\\s*(?:' + unitPattern + '|m)', 'i').test(after)) return true;
+  if (/[\/／每]\s*$/.test(before)) return true;
+  return false;
+}
+
+function aiQuantitySpanCatalogEvidence(products, spanText) {
+  const needle = normalizeMatchText(spanText);
+  if (!needle) return false;
+  return (Array.isArray(products) ? products : []).some(function (product) {
+    const searchable = normalizeMatchText([product.name, product.spec, product.brand, ...(product.aliases || [])].join(' '));
+    return searchable.includes(needle);
+  });
+}
+
+function aiQuantityCandidateScore(candidate, sourceText, options) {
+  const products = (Array.isArray(options.products) ? options.products : []).filter(function (product) {
+    return product.status !== '停用'
+      && (!options.cat1 || product.cat1 === options.cat1)
+      && (!options.cat2 || product.cat2 === options.cat2);
+  });
+  let score = 0;
+  const before = sourceText.slice(0, candidate.start);
+  const after = sourceText.slice(candidate.end);
+  if (!before.trim() || !after.trim()) score += 55;
+  if (/数量\s*[:：]?\s*$/.test(before)) score += 90;
+  if (Number.isInteger(candidate.quantity)) score += 12;
+  if (candidate.unit === '平方') score -= 25;
+  candidate.catalogEvidence = aiQuantitySpanCatalogEvidence(products, candidate.text);
+  candidate.unitCompatible = false;
+  if (candidate.catalogEvidence) score -= 180;
+  if (products.length && candidate.rawName) {
+    const matches = matchProductCandidates(products, candidate.rawName, {
+      itemText: candidate.rawName,
+      requestedUnit: candidate.unit,
+      cat1: options.cat1 || '',
+      cat2: options.cat2 || '',
+    });
+    if (matches[0]) {
+      const unitInfo = productQuantityUnitInfo(matches[0].product);
+      candidate.unitCompatible = aiUnitsEquivalent(candidate.unit, unitInfo.billingUnit)
+        || Boolean(unitInfo.lengthPerContainer && (candidate.unit === '米' || aiUnitsEquivalent(candidate.unit, unitInfo.containerUnit)));
+      score += Math.min(220, Math.max(0, Number(matches[0].textScore || 0)) / 2);
+      if (matches[0].exactNameMatch) score += 70;
+    }
+  }
+  return score;
+}
+
+function parseAiSourcePart(value, sourceIndex, options) {
+  options = options || {};
   const sourceText = String(value || '').replace(/^\s*(?:[-•·]|第?[0-9一-十]+[.、])\s*/, '').trim();
-  const unitPattern = AI_QUANTITY_UNITS.join('|');
+  const allowedUnits = catalogAiQuantityUnits(options.products);
+  const unitPattern = allowedUnits.map(regexEscape).join('|');
   const chinesePattern = '[零〇一二两三四五六七八九十百]+';
-  const withUnit = new RegExp('^(.*?)(?:数量\\s*[:：]?\\s*)?(\\d+(?:[.]\\d+)?|' + chinesePattern + ')\\s*(' + unitPattern + '|m)\\s*$', 'i');
-  const leadingWithUnit = new RegExp('^(?:数量\\s*[:：]?\\s*)?(\\d+(?:[.]\\d+)?|' + chinesePattern + ')\\s*(' + unitPattern + '|m)\\s*(.+)$', 'i');
+  const anywhereWithUnit = new RegExp('(数量\\s*[:：]?\\s*)?(\\d+(?:[.]\\d+)?|' + chinesePattern + ')\\s*(' + unitPattern + '|m)', 'gi');
   const withoutUnit = new RegExp('^(.*?\\S)\\s+(?:数量\\s*[:：]?\\s*)?(\\d+(?:[.]\\d+)?|' + chinesePattern + ')\\s*$', 'i');
-  const leadingMatch = sourceText.match(leadingWithUnit);
-  if (leadingMatch && String(leadingMatch[3] || '').trim()) {
-    const leadingQuantity = chineseQuantityNumber(leadingMatch[1]);
-    const leadingUnit = normalizeAiUnit(leadingMatch[2]);
+  const candidates = [];
+  let quantityMatch;
+  while ((quantityMatch = anywhereWithUnit.exec(sourceText))) {
+    const quantity = chineseQuantityNumber(quantityMatch[2]);
+    const unit = normalizeAiUnit(quantityMatch[3], allowedUnits);
+    const start = quantityMatch.index;
+    const end = anywhereWithUnit.lastIndex;
+    if (!Number.isFinite(quantity) || quantity <= 0 || !unit || aiQuantitySpanIsConversion(sourceText, start, end, unitPattern)) continue;
+    const rawName = (sourceText.slice(0, start) + ' ' + sourceText.slice(end))
+      .replace(/数量\s*[:：]?/g, ' ')
+      .replace(/^[\s,，、;；]+|[\s,，、;；]+$/g, '')
+      .replace(/\s{2,}/g, ' ')
+      .trim();
+    if (!rawName) continue;
+    const candidate = { start, end, text: quantityMatch[0].replace(/^数量\s*[:：]?\s*/, ''), rawName, quantity, unit };
+    candidate.score = aiQuantityCandidateScore(candidate, sourceText, options);
+    candidates.push(candidate);
+  }
+  candidates.sort(function (left, right) {
+    return right.score - left.score || right.start - left.start;
+  });
+  if (candidates[0]) {
+    const selected = candidates[0];
+    const ambiguous = candidates[1] && Math.abs(selected.score - candidates[1].score) < 15;
+    const specificationOnly = selected.catalogEvidence && !selected.unitCompatible;
     return {
       sourceIndex: Number(sourceIndex || 0),
       sourceText,
-      rawName: String(leadingMatch[3] || '').trim(),
-      requestedQuantity: Number.isFinite(leadingQuantity) && leadingQuantity > 0 ? leadingQuantity : null,
-      requestedUnit: leadingUnit,
-      quantity: Number.isFinite(leadingQuantity) && leadingQuantity > 0 ? leadingQuantity : null,
-      quantityUnit: leadingUnit,
+      rawName: specificationOnly ? sourceText : selected.rawName.replace(/[各每]一?$/, ''),
+      requestedQuantity: ambiguous || specificationOnly ? null : selected.quantity,
+      requestedUnit: ambiguous || specificationOnly ? '' : selected.unit,
+      quantity: ambiguous || specificationOnly ? null : selected.quantity,
+      quantityUnit: ambiguous || specificationOnly ? '' : selected.unit,
+      quantitySuppressed: Boolean(specificationOnly),
+      parseWarnings: ambiguous
+        ? ['原文中存在多个可能的数量，需人工确认']
+        : (specificationOnly ? ['数字和单位属于商品规格，未将其作为下单数量'] : []),
+      quantityCandidates: candidates.map(function (candidate) {
+        return { text: candidate.text, quantity: candidate.quantity, unit: candidate.unit, score: candidate.score };
+      }),
     };
   }
-  const match = sourceText.match(withUnit) || sourceText.match(withoutUnit);
+  const match = sourceText.match(withoutUnit);
   if (!match || !String(match[1] || '').trim()) {
     return { sourceIndex: Number(sourceIndex || 0), sourceText, rawName: sourceText, requestedQuantity: null, requestedUnit: '', quantity: null, quantityUnit: '' };
   }
   const quantity = chineseQuantityNumber(match[2]);
-  const requestedUnit = normalizeAiUnit(match[3] || '');
+  const requestedUnit = '';
   return {
     sourceIndex: Number(sourceIndex || 0),
     sourceText,
@@ -3056,9 +3190,9 @@ function parseAiSourcePart(value, sourceIndex) {
   };
 }
 
-function fallbackParseOrderText(content) {
+function fallbackParseOrderText(content, options) {
   return String(content || '').split(/[\n，,；;、]+/).map(function (part) { return part.trim(); }).filter(Boolean).map(function (part, index) {
-    return parseAiSourcePart(part, index);
+    return parseAiSourcePart(part, index, options);
   });
 }
 
@@ -3081,8 +3215,8 @@ function aiFieldSupportedBySource(source, field) {
   return Boolean(fieldText && sourceText.includes(fieldText));
 }
 
-function mergeAiParsedItems(content, modelItems) {
-  const sourceItems = fallbackParseOrderText(content);
+function mergeAiParsedItems(content, modelItems, options) {
+  const sourceItems = fallbackParseOrderText(content, options);
   const parsedModelItems = Array.isArray(modelItems) ? modelItems : [];
   const usedSources = new Set();
   const merged = [];
@@ -3101,13 +3235,17 @@ function mergeAiParsedItems(content, modelItems) {
     }
     const sourceIndex = source ? sourceItems.indexOf(source) : modelIndex;
     if (sourceIndex >= 0) usedSources.add(sourceIndex);
-    const modelSource = parseAiSourcePart(modelItem.sourceText || modelItem.rawName || modelItem.name || '', sourceIndex);
-    const requestedQuantity = source && source.requestedQuantity !== null
-      ? source.requestedQuantity
-      : (modelSource.requestedQuantity !== null ? modelSource.requestedQuantity : Number(modelItem.requestedQuantity !== undefined ? modelItem.requestedQuantity : modelItem.quantity));
-    const requestedUnit = source && source.requestedUnit
-      ? source.requestedUnit
-      : normalizeAiUnit(modelItem.requestedUnit || modelItem.quantityUnit || modelSource.requestedUnit);
+    const modelSource = parseAiSourcePart(modelItem.sourceText || modelItem.rawName || modelItem.name || '', sourceIndex, options);
+    const requestedQuantity = source && source.quantitySuppressed
+      ? null
+      : (source && source.requestedQuantity !== null
+        ? source.requestedQuantity
+        : (modelSource.requestedQuantity !== null ? modelSource.requestedQuantity : Number(modelItem.requestedQuantity !== undefined ? modelItem.requestedQuantity : modelItem.quantity)));
+    const requestedUnit = source && source.quantitySuppressed
+      ? ''
+      : (source && source.requestedUnit
+        ? source.requestedUnit
+        : normalizeAiUnit(modelItem.requestedUnit || modelItem.quantityUnit || modelSource.requestedUnit));
     const rawName = source && source.rawName
       ? source.rawName
       : stripAiQuantitySuffix(modelItem.rawName || modelItem.name || modelSource.rawName);
@@ -3116,7 +3254,7 @@ function mergeAiParsedItems(content, modelItems) {
     const modelSpecText = String(modelItem.specText || modelItem.spec || modelItem.model || '').trim();
     const brand = aiFieldSupportedBySource(content, modelBrand) ? modelBrand : '';
     const specText = aiFieldSupportedBySource(source ? source.sourceText : modelSource.sourceText, modelSpecText) ? modelSpecText : '';
-    const parseWarnings = [];
+    const parseWarnings = source && Array.isArray(source.parseWarnings) ? source.parseWarnings.slice() : [];
     if (modelBrand && !brand) parseWarnings.push('AI提取的品牌在原文中没有依据，已忽略');
     if (modelSpecText && !specText) parseWarnings.push('AI提取的规格在原文中没有依据，已忽略');
     merged.push(Object.assign({}, modelItem, {
@@ -3351,7 +3489,8 @@ function validateAiDraft(db, aiResult, content = '', scopes = [], customerId = '
   return { matched, needsQuantity, uncertain, unmatched };
 }
 
-async function parseAiOrderGroup(scope) {
+async function parseAiOrderGroup(scope, products) {
+  const parseOptions = { products: products, cat1: scope.cat1, cat2: scope.cat2 };
   const messages = [
     {
       role: 'system',
@@ -3385,11 +3524,12 @@ async function parseAiOrderGroup(scope) {
           '\u5982\u679c\u5546\u54c1\u540d\u540e\u9762\u7d27\u8ddf\u6570\u5b57\u4e14\u6709\u5355\u4f4d\uff0c\u4f8b\u5982\u6469\u5229\u7f8e\u6d82\u77f3\u818f30\u888b\uff0c\u6570\u5b57\u662f\u6570\u91cf',
           '必须区分规格数字和数量数字，例如20管60米中20是规格，60是数量，米是数量单位',
           '例如4米/根是规格或换算信息，不是数量',
-          '数量和单位可能写在商品名前面，例如10袋西南325水泥、128匹24多孔砖，必须提取数量单位并从rawName中去掉前缀',
+          '品牌、型号规格、商品名称、数量和单位可以按任意顺序出现；必须按含义提取，不能依赖固定前后顺序',
+          '例如塔牌2.5平方电线2圈、2圈2.5平方塔牌电线、2圈塔牌2.5平方电线含义完全相同：品牌塔牌、规格2.5平方、商品电线、数量2、单位圈',
         ],
         category: scope.cat1,
         subcategory: scope.cat2,
-        sourceSegments: fallbackParseOrderText(scope.content).map(function (item) {
+        sourceSegments: fallbackParseOrderText(scope.content, parseOptions).map(function (item) {
           return { sourceIndex: item.sourceIndex, sourceText: item.sourceText };
         }),
         orderText: scope.content,
@@ -3398,7 +3538,7 @@ async function parseAiOrderGroup(scope) {
   ];
   const text = await callDeepSeek(messages);
   const result = parseJsonFromText(text);
-  const parsedItems = mergeAiParsedItems(scope.content, result.items);
+  const parsedItems = mergeAiParsedItems(scope.content, result.items, parseOptions);
   return parsedItems.map((item) => ({ ...item, groupId: scope.id, system: item.system || scope.cat2 || scope.cat1 }));
 }
 
@@ -3410,7 +3550,7 @@ async function buildAiOrderDraft(db, groups, customerId = '') {
     cat2: String(group.cat2 || ''),
     content: String(group.content || '').slice(0, 1600),
   })).filter((group) => group.cat1 && group.content.trim());
-  const parsedGroups = await Promise.all(scopes.map((scope) => parseAiOrderGroup(scope)));
+  const parsedGroups = await Promise.all(scopes.map((scope) => parseAiOrderGroup(scope, db.products)));
   const items = parsedGroups.reduce((all, groupItems) => all.concat(groupItems), []);
   if (!items.length) throw new Error('\u672a\u80fd\u4ece\u6750\u6599\u6587\u672c\u4e2d\u89e3\u6790\u51fa\u5546\u54c1\uff0c\u8bf7\u68c0\u67e5\u8f93\u5165\u5185\u5bb9');
   const content = scopes.map((scope) => scope.content).join('\n');
@@ -3426,11 +3566,18 @@ function recordAiLearning(db, pairs, options = {}) {
   const canLearnAliases = options.orderType === 'sale' && options.user && ['超级管理员', '管理员'].includes(options.user.role);
   const learnedAliases = [];
   validPairs.forEach((pair) => {
-    const cleanedRawName = stripAiQuantitySuffix(pair.rawName || '');
-    const key = normalizeMatchText(cleanedRawName);
     const productId = String(pair.productId || '');
     const product = db.products.find((item) => item.id === productId);
-    if (!key || !productId || !product) return;
+    if (!productId || !product) return;
+    const parsedName = parseAiSourcePart(pair.rawName || '', 0, {
+      products: [product],
+      cat1: product.cat1 || '',
+      cat2: product.cat2 || '',
+    });
+    const cleanedRawName = parsedName.requestedQuantity !== null ? parsedName.rawName : String(pair.rawName || '').trim();
+    const normalizedRawName = normalizeMatchText(cleanedRawName);
+    const key = aiOrderIndependentLearningKey(cleanedRawName);
+    if (!key) return;
     if (!db.aiLearning.productChoices[key]) db.aiLearning.productChoices[key] = {};
     db.aiLearning.productChoices[key][productId] = Number(db.aiLearning.productChoices[key][productId] || 0) + 1;
     if (!canLearnAliases || !pair.learnAlias) return;
@@ -3439,7 +3586,7 @@ function recordAiLearning(db, pairs, options = {}) {
     const existingTerms = [product.name, product.spec, product.brand, ...splitAliases(product.aliases)]
       .map((term) => normalizeMatchText(term))
       .filter(Boolean);
-    if (existingTerms.includes(key)) return;
+    if (existingTerms.includes(normalizedRawName)) return;
     product.aliases = [...splitAliases(product.aliases), rawName];
     const history = {
       id: newId(),
