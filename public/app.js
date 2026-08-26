@@ -1049,9 +1049,18 @@ function markAiDraftModified() {
 function updateAiDraftQuantity(key, value) {
   const entry = findAiDraftEntry(key);
   if (!entry) return;
-  entry.item.quantity = value;
-  entry.item.quantityManualOverride = true;
-  entry.item.quantityError = isPositiveInteger(Number(value)) ? "" : "商品数量必须为正整数";
+  const number = Number(value);
+  const hasSelectedProduct = Boolean(entry.item.productId || entry.item.selectedProductId);
+  if (!hasSelectedProduct) {
+    entry.item.requestedQuantity = Number.isFinite(number) && number > 0 ? number : null;
+    entry.item.quantity = null;
+    entry.item.conversion = null;
+    entry.item.quantityManualOverride = false;
+  } else {
+    entry.item.quantity = value;
+    entry.item.quantityManualOverride = true;
+  }
+  entry.item.quantityError = isPositiveInteger(number) ? "" : "商品数量必须为正整数";
   markAiDraftModified();
 }
 
@@ -1348,8 +1357,17 @@ function aiRequestedQuantityText(item) {
   return quantity !== "" ? aiQuantityNumber(quantity) + unit : "原文未明确数量";
 }
 
+function aiDraftDisplayQuantity(item) {
+  if (item && item.quantity !== undefined && item.quantity !== null && item.quantity !== "") return item.quantity;
+  if (item && item.requestedQuantity !== undefined && item.requestedQuantity !== null && item.requestedQuantity !== "") return item.requestedQuantity;
+  return "";
+}
+
 function aiConversionText(item) {
   if (!item) return "";
+  if (!item.productId && !item.selectedProductId && item.requestedQuantity !== undefined && item.requestedQuantity !== null) {
+    return "原文：" + aiRequestedQuantityText(item) + " → 选择商品后确定开单数量";
+  }
   if (item.quantityManualOverride) return "原文：" + aiRequestedQuantityText(item) + " · 开单数量已人工修改为 " + (item.quantity || "待补") + (item.unit || "");
   if (item.conversion && item.conversion.note) return "原文：" + aiRequestedQuantityText(item) + " → " + item.conversion.note + " → 开单：" + (item.quantity || "待补") + (item.unit || "");
   if (item.quantityError) return "原文：" + aiRequestedQuantityText(item) + " · " + item.quantityError;
@@ -1727,7 +1745,7 @@ function renderAiNavItem(item, index) {
         <span class="ai-nav-match ${empty ? "is-empty" : ""}" data-ai-nav-match>${html(matchText)}</span>
         <span class="ai-nav-meta">${html(item.groupTitle || "识别结果")}${item.requestedQuantity !== undefined && item.requestedQuantity !== null ? " · 原数量 " + html(aiRequestedQuantityText(item)) : ""}</span>
       </span>
-      <span class="ai-nav-quantity">数量 <b data-ai-nav-quantity-value>${html(item.quantity || "待补")}</b></span>
+      <span class="ai-nav-quantity">数量 <b data-ai-nav-quantity-value>${html(aiDraftDisplayQuantity(item) || "待补")}</b></span>
     </button>`;
 }
 
@@ -1757,7 +1775,8 @@ function aiCurrentProductCard(item) {
 }
 
 function aiDetailQuantity(item) {
-  const common = `class="input ai-detail-quantity${item.quantity && !isPositiveInteger(item.quantity) ? " quantity-input-invalid" : ""}" type="number" min="1" step="1" inputmode="numeric" value="${html(item.quantity || "")}" placeholder="整数" data-ai-nav-quantity="${html(item.key)}"`;
+  const displayQuantity = aiDraftDisplayQuantity(item);
+  const common = `class="input ai-detail-quantity${displayQuantity && !isPositiveInteger(displayQuantity) ? " quantity-input-invalid" : ""}" type="number" min="1" step="1" inputmode="numeric" value="${html(displayQuantity)}" placeholder="整数" data-ai-nav-quantity="${html(item.key)}"`;
   if (item.aiType === "matched" || item.aiType === "needsQuantity") {
     return `<input ${common} data-ai-matched-quantity data-ai-line-key="${html(item.key)}" oninput="updateAiNavQuantity(this)" />`;
   }

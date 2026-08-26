@@ -29,6 +29,18 @@ assert(selectionSource.includes("persistAiDraftProductSelection"), "人工选择
 const quantitySource = functionSource("updateAiNavQuantity", "setAiResultActive");
 assert(quantitySource.includes("updateAiDraftQuantity"), "修改数量必须立即写入 AI 草稿");
 
+const quantityUpdateSource = functionSource("updateAiDraftQuantity", "persistAiDraftProductSelection");
+assert(quantityUpdateSource.includes("requestedQuantity"), "未选择商品前修改数量必须更新原始请求数量");
+assert(quantityUpdateSource.includes("hasSelectedProduct"), "数量修改必须区分商品选择前和选择后");
+assert(quantityUpdateSource.includes("quantityManualOverride = false"), "未选择商品时不得把原数量误标成最终人工数量");
+
+const displayQuantitySource = functionSource("aiDraftDisplayQuantity", "aiConversionText");
+assert(displayQuantitySource.includes("item.quantity") && displayQuantitySource.includes("item.requestedQuantity"), "最终数量为空时必须回填显示原始识别数量");
+const detailQuantitySource = functionSource("aiDetailQuantity", "aiCandidateWorkspace");
+assert(detailQuantitySource.includes("aiDraftDisplayQuantity(item)"), "AI 详情数量框必须显示最终数量或原始数量");
+const navItemSource = functionSource("renderAiNavItem", "aiDraftProduct");
+assert(navItemSource.includes("aiDraftDisplayQuantity(item)"), "AI 左侧商品卡必须同步显示最终数量或原始数量");
+
 const deleteSource = functionSource("removeAiMatchedLine", "renderAiNeedsQuantity");
 assert(deleteSource.includes("entry.item.userDeleted = true"), "删除商品必须写入 AI 草稿");
 assert(deleteSource.includes("render()"), "删除后必须从草稿重新渲染");

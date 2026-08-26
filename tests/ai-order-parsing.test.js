@@ -81,6 +81,54 @@ const dynamicUnitParsed = server.fallbackParseOrderText('运费3趟', {
 assert.strictEqual(dynamicUnitParsed.requestedQuantity, 3, '商品库中的非传统单位也必须识别');
 assert.strictEqual(dynamicUnitParsed.requestedUnit, '趟');
 
+const numericBrandProducts = [
+  { id: '303-level', name: '山林山找平石膏', brand: '油', spec: '15KG', unit: '袋', price: 14, cat1: '油', cat2: '303', status: '在售', aliases: [] },
+  { id: '303-light', name: '山林山轻质石膏', brand: '油', spec: '20KG', unit: '袋', price: 21, cat1: '油', cat2: '303', status: '在售', aliases: [] },
+  { id: '303-putty', name: '山林山腻子膏', brand: '油', spec: '25KG', unit: '件', price: 25, cat1: '油', cat2: '303', status: '在售', aliases: [] },
+  { id: '303-primer', name: '山林山界面剂', brand: '油', spec: '18L', unit: '桶', price: 85, cat1: '油', cat2: '303', status: '在售', aliases: ['303界面剂一桶'] },
+  { id: '303-primer-small', name: '山林山界面剂（小）', brand: '油', spec: '', unit: '桶', price: 35, cat1: '油', cat2: '303', status: '在售', aliases: [] },
+  { id: 'mesh-normal', name: '网格布 10cm', brand: '油', spec: '10cm', unit: '圈', price: 5, cat1: '油', cat2: '油工辅材', status: '在售', aliases: [] },
+  { id: 'mesh-thick', name: '网格布 10cm（加厚）', brand: '油', spec: '10cm', unit: '圈', price: 8, cat1: '油', cat2: '油工辅材', status: '在售', aliases: [] },
+  { id: 'roller-normal', name: '滚筒（普通）', brand: '油', spec: '', unit: '个', price: 3, cat1: '油', cat2: '油工辅材', status: '在售', aliases: [] },
+  { id: 'roller-good', name: '滚筒（好）', brand: '油', spec: '', unit: '个', price: 6, cat1: '油', cat2: '油工辅材', status: '在售', aliases: [] },
+];
+const numericBrandDb = { products: numericBrandProducts, orders: [], aiLearning: {} };
+const oilScope = [{ id: 'oil', title: '油', cat1: '油', cat2: '' }];
+
+function numericBrandDraft(text) {
+  const options = { products: numericBrandProducts, cat1: '油', cat2: '' };
+  const item = Object.assign({}, server.fallbackParseOrderText(text, options)[0], { groupId: 'oil' });
+  return server.validateAiDraft(numericBrandDb, { items: [item] }, text, oilScope);
+}
+
+let screenshotDraft = numericBrandDraft('303石膏20袋');
+assert.strictEqual(screenshotDraft.matched.length, 0, '未写明石膏款式时不能随意自动确认');
+assert.strictEqual(screenshotDraft.uncertain.length, 1);
+assert.strictEqual(screenshotDraft.uncertain[0].quantity, 20, '待确定商品必须保留原文数量');
+assert(screenshotDraft.uncertain[0].candidates.length >= 2);
+assert(screenshotDraft.uncertain[0].candidates.every((candidate) => candidate.cat2 === '303'), '数字品牌必须限制候选系列');
+
+screenshotDraft = numericBrandDraft('303腻子膏15件');
+assert.strictEqual(screenshotDraft.matched.length, 1);
+assert.strictEqual(screenshotDraft.matched[0].productId, '303-putty');
+assert.strictEqual(screenshotDraft.matched[0].quantity, 15);
+
+screenshotDraft = numericBrandDraft('303界面剂一桶');
+assert.strictEqual(screenshotDraft.matched.length, 0, '大小款式未写明时必须保留候选确认');
+assert.strictEqual(screenshotDraft.uncertain.length, 1);
+assert.strictEqual(screenshotDraft.uncertain[0].quantity, 1, '旧别名中的一桶不能导致原数量被清空');
+assert.strictEqual(screenshotDraft.uncertain[0].requestedUnit, '桶');
+
+screenshotDraft = numericBrandDraft('10cm网格袋一圈');
+assert.strictEqual(screenshotDraft.matched.length, 1, '网格袋口语应匹配普通网格布');
+assert.strictEqual(screenshotDraft.matched[0].productId, 'mesh-normal');
+assert.strictEqual(screenshotDraft.matched[0].quantity, 1);
+
+screenshotDraft = numericBrandDraft('普通滚筒一个');
+assert.strictEqual(screenshotDraft.matched.length, 1, '明确普通款不能被热销好款覆盖');
+assert.strictEqual(screenshotDraft.matched[0].productId, 'roller-normal');
+assert.strictEqual(screenshotDraft.matched[0].quantity, 1);
+
 const catalogDb = JSON.parse(fs.readFileSync(path.join(__dirname, '..', 'data', 'db.json'), 'utf8'));
 const leadingText = '10袋西南325水泥，128匹24多孔砖，40袋河沙';
 const leadingItems = server.mergeAiParsedItems(leadingText, []).map((item) => Object.assign({}, item, { groupId: 'tile' }));

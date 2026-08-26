@@ -807,6 +807,7 @@ function normalizeMatchText(value) {
     .replace(/罗丝/g, '螺丝')
     .replace(/罗母|罗姆/g, '螺母')
     .replace(/木龙骨|木条/g, '木方')
+    .replace(/网格袋/g, '网格布')
     .replace(/河沙/g, '黄沙');
 }
 
@@ -1403,10 +1404,29 @@ function productHasBrandTerm(product, brandTerms) {
 }
 
 function textTokens(value) {
-  const genericTerms = ['\u666e\u901a', '\u5e38\u89c4', '\u9ed8\u8ba4'];
+  const genericTerms = ['\u5e38\u89c4', '\u9ed8\u8ba4'];
   return (String(value || '').toLowerCase().match(/[\u4e00-\u9fa5]+|[a-z0-9.]+/g) || [])
     .map((token) => normalizeMatchText(token))
     .filter((token) => token && token.length >= 2 && !genericTerms.includes(token));
+}
+
+const AI_VARIANT_TERMS = ['普通', '好', '加厚', '小', '大', '粗', '细', '单色', '双色'];
+const AI_DEFAULTABLE_VARIANT_TERMS = ['好', '加厚'];
+
+function aiRequestedVariantTerms(value) {
+  const text = normalizeMatchText(value);
+  return AI_VARIANT_TERMS.filter((term) => text.includes(term));
+}
+
+function aiProductVariantTerms(product) {
+  const text = normalizeMatchText([product.name, product.spec, ...(product.aliases || [])].join(' '));
+  return AI_VARIANT_TERMS.filter((term) => text.includes(term));
+}
+
+function aiProductHasVariantTerms(product, terms) {
+  if (!terms.length) return true;
+  const productTerms = aiProductVariantTerms(product);
+  return terms.every((term) => productTerms.includes(term));
 }
 
 function aiCharacterNgrams(value, size) {
@@ -1605,10 +1625,15 @@ function candidateRecommendation(stat) {
 function manualCandidateSuggestions(products, scope, rawName, recommendationContext) {
   const kind = requestedKind(rawName);
   if (!kind) return [];
+  const needle = normalizeMatchText(rawName);
+  const explicitBrandTerms = requestedBrandTerms(products, needle);
+  const variantTerms = aiRequestedVariantTerms(rawName);
   return products
     .filter((product) => product.status !== '停用')
     .filter((product) => !scope.cat1 || product.cat1 === scope.cat1)
     .filter((product) => !scope.cat2 || product.cat2 === scope.cat2)
+    .filter((product) => !explicitBrandTerms.length || productHasBrandTerm(product, explicitBrandTerms))
+    .filter((product) => aiProductHasVariantTerms(product, variantTerms))
     .filter((product) => productKind(product) === kind)
     .map((product) => {
       const stat = recommendationContext.productStats.get(product.id) || {};
@@ -1645,13 +1670,16 @@ function matchProductCandidates(products, rawName, options = {}) {
   const kind = requestedKind(options.itemText || rawName);
   const brandTerms = explicitBrandTerms.length ? explicitBrandTerms : (isBrandSensitiveKind(kind) ? contextBrands : []);
   const queryTokens = textTokens(rawName);
-  const specNumbers = requestedSpecNumbers(options.itemText || rawName);
+  const brandNumbers = new Set(explicitBrandTerms.reduce((numbers, term) => numbers.concat(requestedSpecNumbers(term)), []));
+  const specNumbers = requestedSpecNumbers(options.itemText || rawName).filter((token) => !brandNumbers.has(token));
+  const requestedVariantTerms = aiRequestedVariantTerms(options.itemText || rawName);
   const requestedUnit = normalizeAiUnit(options.requestedUnit || '');
   const scored = products
     .filter((product) => product.status !== '\u505c\u7528')
     .filter((product) => !options.cat1 || product.cat1 === options.cat1)
     .filter((product) => !options.cat2 || product.cat2 === options.cat2)
     .filter((product) => !explicitBrandTerms.length || productHasBrandTerm(product, explicitBrandTerms))
+    .filter((product) => aiProductHasVariantTerms(product, requestedVariantTerms))
     .filter((product) => !kind || productKind(product) === kind)
     .filter((product) => !specNumbers.length || specNumbers.every((token) => hasStandaloneNumber(product, token)))
     .map((product) => {
@@ -1662,7 +1690,10 @@ function matchProductCandidates(products, rawName, options = {}) {
       const cat2 = normalizeMatchText(product.cat2);
       const searchable = normalizeMatchText([product.name, product.spec, product.brand, product.cat1, product.cat2, ...aliases].join(' '));
       const pKind = productKind(product);
-      const exactNameMatch = Boolean(name && name === requestedName);
+      const exactNameMatch = Boolean(name && (
+        name === requestedName
+        || aiOrderIndependentLearningKey(name) === aiOrderIndependentLearningKey(requestedName)
+      ));
       let score = 0;
 
       if (requestedUnit) {
@@ -1686,6 +1717,7 @@ function matchProductCandidates(products, rawName, options = {}) {
       else if (name && name.includes(needle)) score += 150;
       else if (name && needle.includes(name)) score += 150;
       if (spec && needle.includes(spec)) score += 45;
+      if (!requestedVariantTerms.length && aiProductVariantTerms(product).some((term) => AI_DEFAULTABLE_VARIANT_TERMS.includes(term))) score -= 85;
       if (
         needle.includes('\u77f3\u818f\u677f') &&
         name.includes('\u666e\u901a') &&
@@ -3084,7 +3116,7 @@ function aiQuantitySpanCatalogEvidence(products, spanText) {
   const needle = normalizeMatchText(spanText);
   if (!needle) return false;
   return (Array.isArray(products) ? products : []).some(function (product) {
-    const searchable = normalizeMatchText([product.name, product.spec, product.brand, ...(product.aliases || [])].join(' '));
+    const searchable = normalizeMatchText([product.name, product.spec].join(' '));
     return searchable.includes(needle);
   });
 }
