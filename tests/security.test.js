@@ -58,6 +58,13 @@ async function run() {
   assert.strictEqual(server.customerPhoneExists(companyCustomers, "13800000001", "customer-a"), false, "编辑客户自身时应排除自身记录");
   assert.strictEqual(server.customerPhoneExists(companyCustomers, "13900000001"), false);
 
+  const formattedPhoneCustomer = { name: "东哥", contact: "", phone: "182 8458 7520", address: "" };
+  assert.strictEqual(server.customerMatchesSearch(formattedPhoneCustomer, "18284587520"), true, "客户电话搜索应忽略空格");
+  assert.strictEqual(server.customerMatchesSearch(formattedPhoneCustomer, "+86 182-8458-7520"), true, "客户电话搜索应兼容国家码和分隔符");
+  assert.strictEqual(server.customerMatchesSearch(formattedPhoneCustomer, "84587520"), true, "客户电话搜索应支持连续数字片段");
+  assert.strictEqual(server.customerMatchesSearch(formattedPhoneCustomer, "东哥"), true, "客户名称搜索应保持不变");
+  assert.strictEqual(server.customerMatchesSearch(formattedPhoneCustomer, "18284587521"), false);
+
   const order = {
     id: "o1",
     no: "ORD1",

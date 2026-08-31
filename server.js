@@ -1294,6 +1294,15 @@ function customerPhoneExists(customers, phone, excludeId) {
   });
 }
 
+function customerMatchesSearch(customer, keyword) {
+  if (queryTextMatch([customer.name, customer.contact, customer.phone, customer.address], keyword)) return true;
+  const query = String(keyword || "").trim();
+  if (!/\d/.test(query)) return false;
+  const normalizedQuery = normalizeCustomerPhone(query);
+  const normalizedPhone = normalizeCustomerPhone(customer && customer.phone);
+  return Boolean(normalizedQuery && normalizedPhone && normalizedPhone.indexOf(normalizedQuery) >= 0);
+}
+
 function customerOrderReferenceCount(db, customerId) {
   return (db.orders || []).filter(function (order) {
     return order.customerId === customerId;
@@ -4122,7 +4131,7 @@ async function handleApi(req, res) {
       let list = db.customers.filter((customer) => user.role !== "销售人员" || customer.ownerId === user.id);
       if (ids.length) list = list.filter((customer) => ids.indexOf(String(customer.id)) >= 0);
       if (ownerId && user.role !== "销售人员") list = list.filter((customer) => customer.ownerId === ownerId);
-      if (keyword) list = list.filter((customer) => queryTextMatch([customer.name, customer.contact, customer.phone, customer.address], keyword));
+      if (keyword) list = list.filter((customer) => customerMatchesSearch(customer, keyword));
       list = list.map((customer) => {
         const summary = customerStatsPayload(db, customer, user);
         const customerOrders = summary.orders;
@@ -4804,6 +4813,7 @@ module.exports.invalidOrderProductIds = invalidOrderProductIds;
 module.exports.customerBelongsToSalesperson = customerBelongsToSalesperson;
 module.exports.normalizeCustomerPhone = normalizeCustomerPhone;
 module.exports.customerPhoneExists = customerPhoneExists;
+module.exports.customerMatchesSearch = customerMatchesSearch;
 module.exports.customerOrderReferenceCount = customerOrderReferenceCount;
 module.exports.preserveCustomerOrderSnapshots = preserveCustomerOrderSnapshots;
 module.exports.buildProductWorkbook = buildProductWorkbook;
