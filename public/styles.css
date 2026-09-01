@@ -5667,10 +5667,7 @@ tbody tr:hover {
     width: 52px;
   }
 
-  .order-status-dropdown,
-  .order-more-dropdown,
-  .order-status-menu .order-status-dropdown,
-  .order-payment-menu .order-status-dropdown {
+  .order-more-dropdown {
     position: fixed;
     z-index: 120;
     top: auto;
@@ -5681,6 +5678,20 @@ tbody tr:hover {
     padding: 9px;
     border-radius: 15px;
     transform-origin: bottom center;
+  }
+
+  .order-status-menu .order-status-dropdown,
+  .order-payment-menu .order-status-dropdown {
+    position: absolute;
+    z-index: 120;
+    top: calc(100% + 6px);
+    right: auto;
+    bottom: auto;
+    left: calc(50% - 90px);
+    width: 180px;
+    padding: 8px;
+    border-radius: 13px;
+    transform-origin: top center;
   }
 
   .order-status-option,

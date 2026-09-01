@@ -123,7 +123,7 @@ assert(aiResultActivation.includes("mobile-editor-open"), "手机点击 AI 识�
 assert(!aiResultActivation.includes("modalBody.scrollTo"), "手机点击 AI 识别商品不得滚动到页面下方编辑区");
 assert(mobileAiStyles.includes(".mobile-v2 .ai-master-detail.mobile-editor-open .ai-result-detail"), "最终生效的手机样式必须显示 AI 编辑抽屉");
 assert(mobileAiStyles.includes("width: min(90%, 430px)") && mobileAiStyles.includes("transform: translateX(100%)"), "手机 AI 编辑抽屉必须从右侧保留部分商品列表上下文");
-assert(indexSource.includes("app.js?v=20260826-ai-quantity-303-1") && indexSource.includes("styles.css?v=20260825-ai-prefix-2") && indexSource.includes("mobile-v2.css?v=20260817-1"), "手机 AI 数量回填更新必须使用新的静态资源版本，避免手机继续命中旧缓存");
+assert(indexSource.includes("app.js?v=20260826-ai-quantity-303-1") && indexSource.includes("styles.css?v=20260901-order-popover") && indexSource.includes("mobile-v2.css?v=20260817-1"), "手机端更新必须使用新的静态资源版本，避免继续命中旧缓存");
 assert(appSource.includes('class="edit-order-mobile-summary"'), "手机订单编辑必须提供紧凑商品清单行");
 assert(appSource.includes("function toggleEditOrderLine"), "手机订单编辑必须支持点击单项展开或收起");
 assert(appSource.includes("editOrderMobileMeta${index}"), "手机订单编辑修改数量或单价后必须同步更新紧凑清单摘要");
@@ -148,6 +148,10 @@ assert(mobileV2Source.includes("grid-template-columns: 27px 28px 27px"), "开单
 assert(appSource.includes('class="order-mobile-heading"'), "手机订单卡必须提供订单编号与双状态同排的独立头部");
 assert(appSource.includes('class="order-mobile-summary"'), "手机订单卡金额必须移到客户和日期摘要行");
 assert(mobileV2Source.includes("grid-template-columns: repeat(4, 38px) minmax(38px,1fr)"), "手机订单卡必须直接展示查看、编辑、订单状态、回款状态和更多五项操作");
+const mobileOrderPopoverStart = stylesSource.lastIndexOf("  .order-status-menu .order-status-dropdown,\n  .order-payment-menu .order-status-dropdown {");
+const mobileOrderPopoverSource = stylesSource.slice(mobileOrderPopoverStart, mobileOrderPopoverStart + 520);
+assert(mobileOrderPopoverSource.includes(".order-status-menu .order-status-dropdown") && mobileOrderPopoverSource.includes("position: absolute"), "手机订单和付款状态菜单必须锚定在对应图标下方");
+assert(mobileOrderPopoverSource.includes("top: calc(100% + 6px)") && mobileOrderPopoverSource.includes("bottom: auto"), "手机状态菜单不得固定在屏幕底部");
 const orderMoreSource = appSource.slice(appSource.indexOf("function orderMoreMenu"), appSource.indexOf("function orderStatusMenu"));
 assert(!orderMoreSource.includes("mobile-only-order-action"), "订单编辑已直接展示后不得在更多菜单中重复出现");
 
