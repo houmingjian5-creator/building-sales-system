@@ -585,7 +585,7 @@ function dashboardPayload(db, user, salesFilters) {
       date: `${now.getFullYear()}-${month}-${dateDay}`,
       label: `${now.getMonth() + 1}/${day}`,
       sales: dayOrders.reduce((sum, order) => sum + dashboardPerformanceAmount(order), 0),
-      orders: dayOrders.length,
+      orders: dayOrders.filter((order) => !dashboardIsReturn(order)).length,
     });
   }
   return {
@@ -593,10 +593,10 @@ function dashboardPayload(db, user, salesFilters) {
       monthSales: monthPerformance.reduce((sum, order) => sum + dashboardPerformanceAmount(order), 0),
       monthCustomerCount: monthCustomerIds.length,
       monthNewCustomerCount: newCustomerIds.length,
-      monthOrderCount: monthPerformance.length,
+      monthOrderCount: monthOrders.length,
       todaySales: todayPerformance.reduce((sum, order) => sum + dashboardPerformanceAmount(order), 0),
       todayCustomerCount: todayCustomerIds.length,
-      todayOrderCount: todayPerformance.length,
+      todayOrderCount: todayOrders.length,
     },
     monthCustomers: customerRows(monthCustomerIds),
     newCustomers: customerRows(newCustomerIds),
@@ -604,6 +604,344 @@ function dashboardPayload(db, user, salesFilters) {
     trend,
     categoryCounts,
     generatedAt: now.toISOString(),
+  };
+}
+
+function analyticsDateKey(value) {
+  const match = String(value || "").match(/(\d{4})[\/-](\d{1,2})[\/-](\d{1,2})/);
+  if (!match) return "";
+  return `${match[1]}-${String(match[2]).padStart(2, "0")}-${String(match[3]).padStart(2, "0")}`;
+}
+
+function analyticsDateTime(value) {
+  const key = analyticsDateKey(value);
+  const match = key.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  return match ? Date.UTC(Number(match[1]), Number(match[2]) - 1, Number(match[3])) : NaN;
+}
+
+function analyticsDateFromTime(time) {
+  const date = new Date(time);
+  return `${date.getUTCFullYear()}-${String(date.getUTCMonth() + 1).padStart(2, "0")}-${String(date.getUTCDate()).padStart(2, "0")}`;
+}
+
+function analyticsChinaToday() {
+  const china = new Date(Date.now() + 8 * 60 * 60 * 1000);
+  return `${china.getUTCFullYear()}-${String(china.getUTCMonth() + 1).padStart(2, "0")}-${String(china.getUTCDate()).padStart(2, "0")}`;
+}
+
+function analyticsRange(dateFrom, dateTo) {
+  const today = analyticsChinaToday();
+  const todayMatch = today.match(/^(\d{4})-(\d{2})-/);
+  let from = analyticsDateKey(dateFrom) || `${todayMatch[1]}-${todayMatch[2]}-01`;
+  let to = analyticsDateKey(dateTo) || today;
+  if (analyticsDateTime(to) > analyticsDateTime(today)) to = today;
+  if (analyticsDateTime(from) > analyticsDateTime(to)) from = to;
+  const days = Math.max(1, Math.floor((analyticsDateTime(to) - analyticsDateTime(from)) / 86400000) + 1);
+  const previousTo = analyticsDateFromTime(analyticsDateTime(from) - 86400000);
+  const previousFrom = analyticsDateFromTime(analyticsDateTime(previousTo) - (days - 1) * 86400000);
+  return { from, to, days, previousFrom, previousTo };
+}
+
+function analyticsOrderInRange(order, from, to) {
+  const key = analyticsDateKey(order && order.date);
+  return Boolean(key && key >= from && key <= to);
+}
+
+function analyticsScopedOrders(db, user, salesFilters) {
+  const visible = (db.orders || []).filter(function (order) {
+    return !order.deletedAt && (user.role !== "销售人员" || order.salesUserId === user.id);
+  });
+  if (user.role === "销售人员" || !salesFilters.length) return visible;
+  return visible.filter(function (order) { return salesFilters.indexOf(order.salesUserId) >= 0; });
+}
+
+function analyticsSummaryForRange(orders, from, to) {
+  const periodOrders = orders.filter(function (order) {
+    return dashboardIsPerformanceOrder(order) && analyticsOrderInRange(order, from, to);
+  });
+  const salesOrders = periodOrders.filter(function (order) { return !dashboardIsReturn(order); });
+  const returns = periodOrders.filter(dashboardIsReturn);
+  const salesAmount = salesOrders.reduce(function (sum, order) { return sum + effectiveOrderAmount(order); }, 0);
+  const returnImpact = returns.reduce(function (sum, order) { return sum + dashboardPerformanceAmount(order); }, 0);
+  const netSales = salesAmount + returnImpact;
+  const days = Math.max(1, Math.floor((analyticsDateTime(to) - analyticsDateTime(from)) / 86400000) + 1);
+  return {
+    netSales: Math.round(netSales * 100) / 100,
+    grossSales: Math.round(salesAmount * 100) / 100,
+    orderCount: salesOrders.length,
+    averageOrderAmount: salesOrders.length ? Math.round(netSales / salesOrders.length * 100) / 100 : 0,
+    dailyAverage: Math.round(netSales / days * 100) / 100,
+    returnAmount: Math.round(Math.abs(returnImpact) * 100) / 100,
+    returnCount: returns.length,
+  };
+}
+
+function analyticsComparison(current, previous) {
+  const result = {};
+  ["netSales", "orderCount", "averageOrderAmount", "dailyAverage", "returnAmount", "returnCount"].forEach(function (key) {
+    const value = Number(current[key] || 0);
+    const before = Number(previous[key] || 0);
+    result[key] = {
+      value,
+      previous: before,
+      delta: Math.round((value - before) * 100) / 100,
+      rate: before ? Math.round((value - before) / Math.abs(before) * 1000) / 10 : null,
+      isNew: !before && value > 0,
+    };
+  });
+  return result;
+}
+
+function analyticsGroupMode(days) {
+  if (days > 180) return "month";
+  if (days > 62) return "week";
+  return "day";
+}
+
+function analyticsGroupKey(dateKey, mode) {
+  if (mode === "month") return dateKey.slice(0, 7);
+  if (mode !== "week") return dateKey;
+  const time = analyticsDateTime(dateKey);
+  const date = new Date(time);
+  const offset = (date.getUTCDay() + 6) % 7;
+  return analyticsDateFromTime(time - offset * 86400000);
+}
+
+function analyticsGroupLabel(key, mode) {
+  const parts = String(key || "").split("-");
+  if (mode === "month") return `${Number(parts[1])}月`;
+  return `${Number(parts[1])}/${Number(parts[2])}`;
+}
+
+function analyticsTrend(orders, from, to) {
+  const days = Math.max(1, Math.floor((analyticsDateTime(to) - analyticsDateTime(from)) / 86400000) + 1);
+  const mode = analyticsGroupMode(days);
+  const buckets = [];
+  const seen = new Set();
+  for (let time = analyticsDateTime(from); time <= analyticsDateTime(to); time += 86400000) {
+    const key = analyticsGroupKey(analyticsDateFromTime(time), mode);
+    if (!seen.has(key)) {
+      seen.add(key);
+      buckets.push({ key, label: analyticsGroupLabel(key, mode), sales: 0, orders: 0 });
+    }
+  }
+  const map = new Map(buckets.map(function (item) { return [item.key, item]; }));
+  orders.filter(function (order) {
+    return dashboardIsPerformanceOrder(order) && analyticsOrderInRange(order, from, to);
+  }).forEach(function (order) {
+    const key = analyticsGroupKey(analyticsDateKey(order.date), mode);
+    const bucket = map.get(key);
+    if (!bucket) return;
+    bucket.sales += dashboardPerformanceAmount(order);
+    if (!dashboardIsReturn(order)) bucket.orders += 1;
+  });
+  return {
+    mode,
+    points: buckets.map(function (item, index) {
+      const previous = index ? buckets[index - 1].sales : 0;
+      return {
+        key: item.key,
+        label: item.label,
+        sales: Math.round(item.sales * 100) / 100,
+        orders: item.orders,
+        dayChangeRate: previous ? Math.round((item.sales - previous) / Math.abs(previous) * 1000) / 10 : null,
+      };
+    }),
+  };
+}
+
+function analyticsMonthStart(todayKey, offset) {
+  const match = todayKey.match(/^(\d{4})-(\d{2})-/);
+  const date = new Date(Date.UTC(Number(match[1]), Number(match[2]) - 1 + offset, 1));
+  return `${date.getUTCFullYear()}-${String(date.getUTCMonth() + 1).padStart(2, "0")}`;
+}
+
+function analyticsMonthlyTrend(orders, monthCount) {
+  const today = analyticsChinaToday();
+  const count = monthCount === 12 ? 12 : 6;
+  const months = [];
+  for (let offset = -(count - 1); offset <= 0; offset += 1) {
+    const key = analyticsMonthStart(today, offset);
+    months.push({ key, label: `${Number(key.slice(5, 7))}月`, sales: 0, orders: 0 });
+  }
+  const map = new Map(months.map(function (item) { return [item.key, item]; }));
+  orders.filter(dashboardIsPerformanceOrder).forEach(function (order) {
+    const key = analyticsDateKey(order.date).slice(0, 7);
+    const bucket = map.get(key);
+    if (!bucket) return;
+    bucket.sales += dashboardPerformanceAmount(order);
+    if (!dashboardIsReturn(order)) bucket.orders += 1;
+  });
+  return months.map(function (item, index) {
+    const previous = index ? months[index - 1].sales : 0;
+    return {
+      key: item.key,
+      label: item.label,
+      sales: Math.round(item.sales * 100) / 100,
+      orders: item.orders,
+      changeRate: previous ? Math.round((item.sales - previous) / Math.abs(previous) * 1000) / 10 : null,
+      current: item.key === today.slice(0, 7),
+    };
+  });
+}
+
+function analyticsCustomerLabel(db, customerId, orders) {
+  const customer = (db.customers || []).find(function (item) { return item.id === customerId; }) || {};
+  const snapshot = (orders || []).find(function (order) { return order.customerId === customerId; }) || {};
+  const salesperson = (db.users || []).find(function (item) { return item.id === (customer.ownerId || snapshot.salesUserId); }) || {};
+  return {
+    id: customerId,
+    name: customer.name || snapshot.customerName || "未知客户",
+    phone: customer.phone || snapshot.customerPhone || snapshot.phone || "",
+    salesperson: salesperson.name || "-",
+  };
+}
+
+function analyticsCustomerData(db, user, orders, salesFilters, range, inactiveDays) {
+  const saleOrders = orders.filter(function (order) { return dashboardIsPerformanceOrder(order) && !dashboardIsReturn(order); });
+  const currentOrders = saleOrders.filter(function (order) { return analyticsOrderInRange(order, range.from, range.to); });
+  const previousOrders = saleOrders.filter(function (order) { return analyticsOrderInRange(order, range.previousFrom, range.previousTo); });
+  const currentByCustomer = new Map();
+  const previousByCustomer = new Map();
+  const firstDates = new Map();
+  const lastDates = new Map();
+  saleOrders.forEach(function (order) {
+    if (!order.customerId) return;
+    const key = analyticsDateKey(order.date);
+    if (!key) return;
+    if (!firstDates.has(order.customerId) || key < firstDates.get(order.customerId)) firstDates.set(order.customerId, key);
+    if (!lastDates.has(order.customerId) || key > lastDates.get(order.customerId)) lastDates.set(order.customerId, key);
+  });
+  function collect(list, target) {
+    list.forEach(function (order) {
+      if (!order.customerId) return;
+      if (!target.has(order.customerId)) target.set(order.customerId, []);
+      target.get(order.customerId).push(order);
+    });
+  }
+  collect(currentOrders, currentByCustomer);
+  collect(previousOrders, previousByCustomer);
+  function rowsFromMap(map, type, from, to) {
+    return Array.from(map.keys()).filter(function (customerId) {
+      const list = map.get(customerId) || [];
+      if (type === "repeat") return list.length >= 2;
+      if (type === "new") {
+        const first = firstDates.get(customerId) || "";
+        return first && first >= from && first <= to;
+      }
+      return true;
+    }).map(function (customerId) {
+      const list = map.get(customerId) || [];
+      const base = analyticsCustomerLabel(db, customerId, list);
+      const dates = list.map(function (order) { return analyticsDateKey(order.date); }).filter(Boolean).sort();
+      return Object.assign(base, {
+        orderCount: list.length,
+        amount: Math.round(list.reduce(function (sum, order) { return sum + effectiveOrderAmount(order); }, 0) * 100) / 100,
+        firstOrderDate: firstDates.get(customerId) || "",
+        lastOrderDate: dates[dates.length - 1] || lastDates.get(customerId) || "",
+      });
+    }).sort(function (a, b) { return b.amount - a.amount || b.orderCount - a.orderCount; });
+  }
+  const ordering = rowsFromMap(currentByCustomer, "ordering", range.from, range.to);
+  const newRows = rowsFromMap(currentByCustomer, "new", range.from, range.to);
+  const repeatRows = rowsFromMap(currentByCustomer, "repeat", range.from, range.to);
+  const previousOrdering = rowsFromMap(previousByCustomer, "ordering", range.previousFrom, range.previousTo);
+  const previousNew = rowsFromMap(previousByCustomer, "new", range.previousFrom, range.previousTo);
+  const previousRepeat = rowsFromMap(previousByCustomer, "repeat", range.previousFrom, range.previousTo);
+  let scopedCustomers = (db.customers || []).filter(function (customer) {
+    if (user.role === "销售人员") return customer.ownerId === user.id;
+    if (!salesFilters.length) return true;
+    return salesFilters.indexOf(customer.ownerId) >= 0;
+  });
+  const todayTime = analyticsDateTime(analyticsChinaToday());
+  const inactive = scopedCustomers.map(function (customer) {
+    const base = analyticsCustomerLabel(db, customer.id, []);
+    const last = lastDates.get(customer.id) || "";
+    const elapsed = last ? Math.max(0, Math.floor((todayTime - analyticsDateTime(last)) / 86400000)) : null;
+    return Object.assign(base, {
+      orderCount: 0,
+      amount: 0,
+      firstOrderDate: firstDates.get(customer.id) || "",
+      lastOrderDate: last,
+      daysSinceLastOrder: elapsed,
+      neverOrdered: !last,
+    });
+  }).filter(function (row) {
+    return row.neverOrdered || row.daysSinceLastOrder >= inactiveDays;
+  }).sort(function (a, b) {
+    if (a.neverOrdered !== b.neverOrdered) return a.neverOrdered ? -1 : 1;
+    return Number(b.daysSinceLastOrder || 0) - Number(a.daysSinceLastOrder || 0) || a.name.localeCompare(b.name, "zh-CN");
+  });
+  return {
+    counts: {
+      ordering: ordering.length,
+      new: newRows.length,
+      repeat: repeatRows.length,
+      inactive: inactive.length,
+      neverOrdered: inactive.filter(function (row) { return row.neverOrdered; }).length,
+    },
+    previousCounts: { ordering: previousOrdering.length, new: previousNew.length, repeat: previousRepeat.length },
+    rows: { ordering, new: newRows, repeat: repeatRows, inactive },
+  };
+}
+
+function analyticsPayload(db, user, options) {
+  const input = options || {};
+  const allowedSalesIds = (db.users || []).filter(function (item) {
+    return item.role === "销售人员" && item.status !== "停用";
+  }).map(function (item) { return item.id; });
+  const requested = Array.isArray(input.salesFilters) ? input.salesFilters : [];
+  const salesFilters = user.role === "销售人员" ? [user.id] : requested.filter(function (id) { return allowedSalesIds.indexOf(id) >= 0; });
+  const range = analyticsRange(input.dateFrom, input.dateTo);
+  const inactiveDays = [30, 60, 90].indexOf(Number(input.inactiveDays)) >= 0 ? Number(input.inactiveDays) : 30;
+  const monthCount = Number(input.monthCount) === 12 ? 12 : 6;
+  const orders = analyticsScopedOrders(db, user, salesFilters);
+  const current = analyticsSummaryForRange(orders, range.from, range.to);
+  const previous = analyticsSummaryForRange(orders, range.previousFrom, range.previousTo);
+  const customerData = analyticsCustomerData(db, user, orders, salesFilters, range, inactiveDays);
+  const currentTrend = analyticsTrend(orders, range.from, range.to);
+  const previousTrend = analyticsTrend(orders, range.previousFrom, range.previousTo);
+  return {
+    range,
+    inactiveDays,
+    monthCount,
+    salesFilters,
+    summary: analyticsComparison(current, previous),
+    returns: { amount: current.returnAmount, count: current.returnCount },
+    trend: { mode: currentTrend.mode, current: currentTrend.points, previous: previousTrend.points },
+    monthly: analyticsMonthlyTrend(orders, monthCount),
+    customers: {
+      counts: customerData.counts,
+      previousCounts: customerData.previousCounts,
+      previews: {
+        ordering: customerData.rows.ordering.slice(0, 6),
+        new: customerData.rows.new.slice(0, 6),
+        repeat: customerData.rows.repeat.slice(0, 6),
+        inactive: customerData.rows.inactive.slice(0, 6),
+      },
+    },
+    generatedAt: new Date().toISOString(),
+  };
+}
+
+function analyticsCustomerDetailsPayload(db, user, options) {
+  const input = options || {};
+  const type = ["ordering", "new", "repeat", "inactive"].indexOf(input.type) >= 0 ? input.type : "inactive";
+  const page = Math.max(1, Number(input.page || 1));
+  const pageSize = Math.max(1, Math.min(50, Number(input.pageSize || 20)));
+  const base = analyticsPayload(db, user, input);
+  const orders = analyticsScopedOrders(db, user, base.salesFilters);
+  const customerData = analyticsCustomerData(db, user, orders, base.salesFilters, base.range, base.inactiveDays);
+  const rows = customerData.rows[type] || [];
+  const totalPages = Math.max(1, Math.ceil(rows.length / pageSize));
+  const safePage = Math.min(page, totalPages);
+  return {
+    type,
+    page: safePage,
+    pageSize,
+    total: rows.length,
+    totalPages,
+    items: rows.slice((safePage - 1) * pageSize, safePage * pageSize),
   };
 }
 
@@ -4036,6 +4374,33 @@ async function handleApi(req, res) {
     return sendJson(res, 200, dashboardPayload(readDb(), user, salesFilters));
   }
 
+  if (method === "GET" && url.pathname === "/api/analytics") {
+    const user = requireUser(req, res);
+    if (!user) return;
+    return sendJson(res, 200, analyticsPayload(readDb(), user, {
+      dateFrom: url.searchParams.get("dateFrom") || "",
+      dateTo: url.searchParams.get("dateTo") || "",
+      salesFilters: String(url.searchParams.get("salesUserIds") || "").split(",").filter(Boolean),
+      inactiveDays: url.searchParams.get("inactiveDays"),
+      monthCount: url.searchParams.get("monthCount"),
+    }));
+  }
+
+  if (method === "GET" && url.pathname === "/api/analytics/customers") {
+    const user = requireUser(req, res);
+    if (!user) return;
+    return sendJson(res, 200, analyticsCustomerDetailsPayload(readDb(), user, {
+      type: url.searchParams.get("type") || "inactive",
+      page: url.searchParams.get("page"),
+      pageSize: url.searchParams.get("pageSize"),
+      dateFrom: url.searchParams.get("dateFrom") || "",
+      dateTo: url.searchParams.get("dateTo") || "",
+      salesFilters: String(url.searchParams.get("salesUserIds") || "").split(",").filter(Boolean),
+      inactiveDays: url.searchParams.get("inactiveDays"),
+      monthCount: url.searchParams.get("monthCount"),
+    }));
+  }
+
   if (method === "GET" && url.pathname === "/api/audit-logs") {
     if (!requireAdmin(req, res)) return;
     const records = readAuditLogs({
@@ -4863,6 +5228,9 @@ module.exports.dateInRange = dateInRange;
 module.exports.orderCreatedAtTime = orderCreatedAtTime;
 module.exports.sortOrdersByCreatedAt = sortOrdersByCreatedAt;
 module.exports.dashboardPayload = dashboardPayload;
+module.exports.analyticsRange = analyticsRange;
+module.exports.analyticsPayload = analyticsPayload;
+module.exports.analyticsCustomerDetailsPayload = analyticsCustomerDetailsPayload;
 module.exports.pagedResult = pagedResult;
 module.exports.customerOrderMatchesCustomer = customerOrderMatchesCustomer;
 module.exports.customerOrdersForUser = customerOrdersForUser;

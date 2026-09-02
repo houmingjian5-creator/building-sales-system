@@ -1,4 +1,5 @@
 const initialCostDateRange = costDatePresetRange("month");
+const initialAnalyticsDateRange = analyticsDatePresetRange("month");
 
 const state = {
   route: "dashboard",
@@ -78,8 +79,22 @@ const state = {
   dashboardTrendMetric: "sales",
   dashboardData: null,
   dashboardLoading: false,
+  analyticsData: null,
+  analyticsLoading: false,
+  analyticsError: "",
+  analyticsPreset: "month",
+  analyticsDateFrom: initialAnalyticsDateRange.from,
+  analyticsDateTo: initialAnalyticsDateRange.to,
+  analyticsSalesFilters: [],
+  analyticsSalesMenuOpen: false,
+  analyticsInactiveDays: 30,
+  analyticsMonthCount: 6,
+  analyticsTrendMetric: "sales",
+  analyticsMonthlyMetric: "sales",
+  analyticsCustomerType: "inactive",
+  analyticsCustomerDetails: null,
   productCategories: {},
-  dataLoaded: { customers: false, products: false, createProducts: false, orders: false, dashboard: false },
+  dataLoaded: { customers: false, products: false, createProducts: false, orders: false, dashboard: false, analytics: false },
   remotePages: {},
   customerOrderDetails: {},
   auditItems: [],
@@ -174,7 +189,7 @@ const app = document.getElementById("app");
 
 const money = (value) => `¥${Number(value || 0).toLocaleString("zh-CN", { maximumFractionDigits: 2 })}`;
 const byId = (list, id) => list.find((item) => item.id === id);
-const icon = (name) => ({ dashboard: "概", customers: "客", products: "品", create: "开", orders: "单", returns: "退", users: "员", costs: "本", audit: "记" })[name] || "•";
+const icon = (name) => ({ dashboard: "概", analytics: "析", customers: "客", products: "品", create: "开", orders: "单", returns: "退", users: "员", costs: "本", audit: "记" })[name] || "•";
 const isAdmin = () => state.user && ["超级管理员", "管理员"].includes(state.user.role);
 
 function cartStorageKey(type = state.orderType) {var _state$user;
@@ -518,6 +533,7 @@ function render() {
         <div class="side-brand"><div class="brand-mark">建</div><strong>建材订单管理</strong></div>
         <nav class="nav">
           ${navButton("dashboard", "销售概览")}
+          ${navButton("analytics", "数据分析")}
           ${navButton("customers", "客户管理")}
           ${navButton("products", "产品管理")}
           ${navButton("create", "销售开单")}
@@ -605,10 +621,13 @@ async function logout() {
     state.costExpandedOrderId = "";
     state.dashboardData = null;
     state.dashboardError = "";
+    state.analyticsData = null;
+    state.analyticsError = "";
+    state.analyticsCustomerDetails = null;
     state.productCategories = {};
     state.remotePages = {};
     state.customerOrderDetails = {};
-    state.dataLoaded = { customers: false, products: false, createProducts: false, orders: false, dashboard: false };
+    state.dataLoaded = { customers: false, products: false, createProducts: false, orders: false, dashboard: false, analytics: false };
     state.auditItems = [];
     state.auditError = "";
     state.mobileMoreOpen = false;
@@ -633,7 +652,7 @@ function mobilePrimaryRouteButton(route, label) {
 }
 
 function renderMobileNavigation() {
-  const moreActive = ["products", "returns", "users", "costs", "audit"].includes(state.route) || state.mobileMoreOpen;
+  const moreActive = ["analytics", "products", "returns", "users", "costs", "audit"].includes(state.route) || state.mobileMoreOpen;
   return `
     <nav class="mobile-bottom-nav" aria-label="手机端主导航">
       ${mobilePrimaryRouteButton("dashboard", "概览")}
@@ -659,6 +678,7 @@ function renderMobileMoreSheet() {var _state$user2, _state$user3;
         <div class="mobile-sheet-head"><div><strong>更多功能</strong><span>${html(((_state$user2 = state.user) === null || _state$user2 === void 0 ? void 0 : _state$user2.name) || "")} · ${html(((_state$user3 = state.user) === null || _state$user3 === void 0 ? void 0 : _state$user3.role) || "")}</span></div><button type="button" class="icon-btn" onclick="closeMobileMore()" aria-label="关闭">×</button></div>
         <div class="mobile-more-grid">
           <button type="button" class="mobile-assistant-entry" onclick="openXiaocai()"><span class="nav-icon"><img src="./assets/xiaocai.png" alt="" /></span><span>小材 AI 助手</span></button>
+          ${mobileMoreRouteButton("analytics", "数据分析")}
           ${mobileMoreRouteButton("products", "产品管理")}
           ${mobileMoreRouteButton("returns", "退货开单")}
           ${isAdmin() ? mobileMoreRouteButton("users", "人员管理") : ""}
@@ -708,6 +728,9 @@ function renderMobileFilterSheet() {
     const secondaryCategories = state.category === "全部" ? ["全部"] : ["全部"].concat(productSubcategoriesFor(state.category));
     fields = mobileFilterSelect("一级分类", state.category, primaryCategories, "setProductCategory(this.value)") +
       mobileFilterSelect("二级分类", state.productSubcategory || "全部", secondaryCategories, "setProductSubcategory(this.value === '全部' ? '' : this.value)", state.category === "全部");
+  } else if (state.mobileFilterOpen === "analytics") {
+    const selectedSalesperson = state.analyticsSalesFilters.length === 1 ? state.analyticsSalesFilters[0] : "";
+    fields = `<label class="mobile-filter-field"><span>开始日期</span><input class="input" type="date" value="${html(state.analyticsDateFrom)}" onchange="setAnalyticsCustomDate('from',this.value)" /></label><label class="mobile-filter-field"><span>结束日期</span><input class="input" type="date" value="${html(state.analyticsDateTo)}" onchange="setAnalyticsCustomDate('to',this.value)" /></label>${canChooseAnalyticsSalesperson() ? `<label class="mobile-filter-field"><span>销售人员</span><select class="select" onchange="setAnalyticsMobileSalesperson(this.value)"><option value="">全部销售人员</option>${analyticsSalesUsers().map((user) => `<option value="${html(user.id)}" ${selectedSalesperson === user.id ? "selected" : ""}>${html(user.name)}</option>`).join("")}</select></label>` : `<div class="hint">销售人员仅查看自己的数据。</div>`}<label class="mobile-filter-field"><span>待跟进标准</span><select class="select" onchange="setAnalyticsInactiveDays(this.value)"><option value="30" ${state.analyticsInactiveDays === 30 ? "selected" : ""}>30天未下单</option><option value="60" ${state.analyticsInactiveDays === 60 ? "selected" : ""}>60天未下单</option><option value="90" ${state.analyticsInactiveDays === 90 ? "selected" : ""}>90天未下单</option></select></label>`;
   } else if (state.mobileFilterOpen === "audit") {
     fields = `<label class="mobile-filter-field"><span>开始日期</span><input class="input" type="date" value="${html(state.auditFilters.startDate)}" onchange="updateAuditFilter('startDate',this.value)" /></label><label class="mobile-filter-field"><span>结束日期</span><input class="input" type="date" value="${html(state.auditFilters.endDate)}" onchange="updateAuditFilter('endDate',this.value)" /></label><label class="mobile-filter-field"><span>操作人员</span><select class="select" onchange="updateAuditFilter('actorId',this.value)"><option value="">全部操作人员</option>${salesUsers.map((user) => `<option value="${html(user.id)}" ${state.auditFilters.actorId === user.id ? "selected" : ""}>${html(user.name)}</option>`).join("")}</select></label>${mobileFilterSelect("业务类型", state.auditFilters.entityType, ["", "账号", "客户", "商品", "订单", "成本", "人员", "操作日志", "批量数据"], "updateAuditFilter('entityType',this.value)")}${mobileFilterSelect("操作结果", state.auditFilters.result, ["", "成功", "失败"], "updateAuditFilter('result',this.value)")}`;
   }
@@ -799,15 +822,16 @@ function desktopCartButton() {
 }
 
 function titleForRoute() {
-  return { dashboard: "销售概览", customers: "客户管理", products: "产品管理", create: "销售开单", orders: "订单管理", returns: "退货单", users: "人员管理", costs: "成本控制", audit: "操作日志" }[state.route];
+  return { dashboard: "销售概览", analytics: "数据分析", customers: "客户管理", products: "产品管理", create: "销售开单", orders: "订单管理", returns: "退货单", users: "人员管理", costs: "成本控制", audit: "操作日志" }[state.route];
 }
 
 function subtitleForRoute() {
-  return { dashboard: "查看本月与今日销售、客户和订单数据", customers: "管理客户信息和成交记录", products: "管理建材商品信息与价格", create: "选择客户和商品生成销售单", orders: "管理订单状态、打印和导出", returns: "从销售流程中创建退货单", users: "添加登录人员，维护手机号、密码和角色定位", costs: "核算订单材料成本、运输成本与实际盈利", audit: "查询关键业务操作与错误请求编号" }[state.route];
+  return { dashboard: "查看本月与今日销售、客户和订单数据", analytics: "查看业绩趋势、客户增长与复购情况", customers: "管理客户信息和成交记录", products: "管理建材商品信息与价格", create: "选择客户和商品生成销售单", orders: "管理订单状态、打印和导出", returns: "从销售流程中创建退货单", users: "添加登录人员，维护手机号、密码和角色定位", costs: "核算订单材料成本、运输成本与实际盈利", audit: "查询关键业务操作与错误请求编号" }[state.route];
 }
 
 function renderPage() {
   if (state.route === "dashboard") return renderDashboardRemote();
+  if (state.route === "analytics") return renderAnalytics();
   if (state.route === "customers") return renderCustomers();
   if (state.route === "products") return renderProducts();
   if (state.route === "create" || state.route === "returns") return renderCreateOrder();
@@ -3026,12 +3050,15 @@ async function loadBootstrap() {var _state$user9, _activeSalesUsers$2;
   orders = [];
   state.productCategories = data.categories || {};
   state.bootstrapCounts = data.counts || {};
-  state.dataLoaded = { customers: false, products: false, createProducts: false, orders: false, dashboard: false };
+  state.dataLoaded = { customers: false, products: false, createProducts: false, orders: false, dashboard: false, analytics: false };
   state.remotePages = {};
   state.salesUserId = isSalesRole() ? state.user.id : ((_state$user9 = state.user) === null || _state$user9 === void 0 ? void 0 : _state$user9.id) || ((_activeSalesUsers$2 = activeSalesUsers()[0]) === null || _activeSalesUsers$2 === void 0 ? void 0 : _activeSalesUsers$2.id) || "";
   state.dashboardSalesFilters = [];
   state.dashboardSalesMenuOpen = false;
   state.dashboardCustomerDetail = "";
+  state.analyticsSalesFilters = [];
+  state.analyticsSalesMenuOpen = false;
+  state.analyticsCustomerDetails = null;
   ensureSalesScope();
   await loadRouteData(state.route, true);
 }
@@ -3105,6 +3132,51 @@ async function loadDashboard(force = false) {
   }
 }
 
+function analyticsQuery(extra = {}) {
+  return queryString(Object.assign({
+    dateFrom: state.analyticsDateFrom,
+    dateTo: state.analyticsDateTo,
+    salesUserIds: state.analyticsSalesFilters.join(","),
+    inactiveDays: state.analyticsInactiveDays,
+    monthCount: state.analyticsMonthCount,
+  }, extra));
+}
+
+async function loadAnalytics(force = false) {
+  if (state.analyticsLoading && !force || state.dataLoaded.analytics && !force) return;
+  state.analyticsLoading = true;
+  state.analyticsError = "";
+  try {
+    const response = await latestApiFetch("analytics", `/api/analytics${analyticsQuery()}`);
+    if (!response) return;
+    const data = await response.json();
+    if (!response.ok) throw new Error(data.error || "数据分析加载失败");
+    state.analyticsData = data;
+    state.dataLoaded.analytics = true;
+    state.analyticsCustomerDetails = null;
+  } catch (error) {
+    state.analyticsError = error.message;
+  } finally {
+    state.analyticsLoading = false;
+    if (state.route === "analytics") render();
+  }
+}
+
+async function loadAnalyticsCustomerDetails(type = state.analyticsCustomerType, page = 1) {
+  state.analyticsCustomerType = ["ordering", "new", "repeat", "inactive"].includes(type) ? type : "inactive";
+  try {
+    const response = await latestApiFetch("analytics-customers", `/api/analytics/customers${analyticsQuery({ type: state.analyticsCustomerType, page, pageSize: 20 })}`);
+    if (!response) return;
+    const data = await response.json();
+    if (!response.ok) throw new Error(data.error || "客户分析明细加载失败");
+    state.analyticsCustomerDetails = data;
+    if (state.route === "analytics") render();
+  } catch (error) {
+    state.analyticsError = error.message;
+    if (state.route === "analytics") render();
+  }
+}
+
 async function loadCustomers(options = {}) {
   const forCreate = Boolean(options.forCreate);
   const page = forCreate ? 1 : currentPage("customers");
@@ -3156,6 +3228,7 @@ async function loadOrders() {
 async function loadRouteData(route, force = false) {
   try {
     if (route === "dashboard") return await loadDashboard(force);
+    if (route === "analytics") return await loadAnalytics(force);
     if (route === "customers") await loadCustomers();
     if (route === "products") await loadProductsForRoute("products");
     if (route === "orders") await loadOrders();
@@ -3199,14 +3272,14 @@ function renderDashboard() {
         ${dashboardMetric("本月销售额", money(monthSales), "¥", "blue", "除待确认、已取消外，按实际订单金额汇总")}
         ${dashboardMetric("本月下单客户数", monthCustomers.size, "客", "violet", "本月有效销售单客户去重 · 点击查看", "month")}
         ${dashboardMetric("本月新开客户数", monthNewCustomerIds.size, "新", "orange", "首次有效下单发生在本月 · 点击查看", "new")}
-        ${dashboardMetric("本月订单数量", monthPerformanceOrders.length, "单", "cyan", "除待确认和已取消外的全部订单")}
+        ${dashboardMetric("本月订单数量", monthOrders.length, "单", "cyan", "有效销售订单，不含退货单")}
       </div>
       ${dashboardCustomerDetailHtml(state.dashboardCustomerDetail, monthCustomers, monthNewCustomerIds, monthOrders, allValidSalesOrders)}
       <div class="dashboard-section-head today-head"><strong>今日动态</strong><span>${now.getMonth() + 1} 月 ${now.getDate()} 日</span></div>
       <div class="dashboard-metric-grid today-metrics">
         ${dashboardMetric("今日销售额", money(todaySales), "¥", "green", "按今日有效订单实际金额汇总")}
         ${dashboardMetric("今日下单客户数", todayCustomers.size, "客", "gold", "今日有效销售单客户去重")}
-        ${dashboardMetric("今日订单数量", todayPerformanceOrders.length, "单", "red", "除待确认和已取消外的全部订单")}
+        ${dashboardMetric("今日订单数量", todayOrders.length, "单", "red", "有效销售订单，不含退货单")}
       </div>
     </section>
     <div class="grid two-col" style="margin-top:16px">
@@ -6367,25 +6440,263 @@ function renderDashboardRemote() {
   const counts = data.categoryCounts || {};
   return `<section class="dashboard-metrics">
     ${dashboardSalesFilterHtml()}
+    <div class="dashboard-analytics-entry"><div><strong>需要查看更多经营数据？</strong><span>查看业绩增长、月度对比、复购客户和长期未下单客户</span></div><button type="button" class="btn primary" onclick="setRoute('analytics')">查看详细分析</button></div>
     <div class="dashboard-section-head"><strong>本月经营</strong><span>${generatedAt.getFullYear()} 年 ${generatedAt.getMonth() + 1} 月</span></div>
     <div class="dashboard-metric-grid month-metrics">
       ${dashboardMetric("本月销售额", money(metrics.monthSales || 0), "¥", "blue", "除待确认、已取消外，按实际订单金额汇总")}
       ${dashboardMetric("本月下单客户数", metrics.monthCustomerCount || 0, "客", "violet", "本月有效销售单客户去重 · 点击查看", "month")}
       ${dashboardMetric("本月新开客户数", metrics.monthNewCustomerCount || 0, "新", "orange", "首次有效下单发生在本月 · 点击查看", "new")}
-      ${dashboardMetric("本月订单数量", metrics.monthOrderCount || 0, "单", "cyan", "除待确认和已取消外的全部订单")}
+      ${dashboardMetric("本月订单数量", metrics.monthOrderCount || 0, "单", "cyan", "有效销售订单，不含退货单")}
     </div>
     ${dashboardRemoteDetail(data)}
     <div class="dashboard-section-head today-head"><strong>今日动态</strong><span>${generatedAt.getMonth() + 1} 月 ${generatedAt.getDate()} 日</span></div>
     <div class="dashboard-metric-grid today-metrics">
       ${dashboardMetric("今日销售额", money(metrics.todaySales || 0), "¥", "green", "按今日有效订单实际金额汇总")}
       ${dashboardMetric("今日下单客户数", metrics.todayCustomerCount || 0, "客", "gold", "今日有效销售单客户去重")}
-      ${dashboardMetric("今日订单数量", metrics.todayOrderCount || 0, "单", "red", "除待确认和已取消外的全部订单")}
+      ${dashboardMetric("今日订单数量", metrics.todayOrderCount || 0, "单", "red", "有效销售订单，不含退货单")}
     </div>
     <div id="dashboardTrendPanel">${dashboardTrendHtml(data.trend || [])}</div>
   </section>
   <div class="grid two-col" style="margin-top:16px">
     <div class="card card-pad"><h3>最近订单</h3><div class="order-list">${(data.recentOrders || []).map(orderCard).join("") || `<div class="empty">暂无订单</div>`}</div></div>
     <div class="card card-pad"><h3>高频建材分类</h3>${["水电", "木", "油", "瓦"].map((cat) => `<div class="summary-row"><span>${cat}</span><strong>${Number(counts[cat] || 0)} 件商品</strong></div>`).join("")}<button class="btn primary" style="width:100%;margin-top:14px" onclick="setRoute('create')">开始开单</button></div>
+  </div>`;
+}
+
+function analyticsDatePresetRange(preset, referenceDate = new Date()) {
+  const today = new Date(referenceDate.getFullYear(), referenceDate.getMonth(), referenceDate.getDate());
+  let from = new Date(today);
+  let to = new Date(today);
+  if (preset === "month") {
+    from = new Date(today.getFullYear(), today.getMonth(), 1);
+  } else if (preset === "last7") {
+    from.setDate(from.getDate() - 6);
+  } else if (preset === "last30") {
+    from.setDate(from.getDate() - 29);
+  } else if (preset === "previousMonth") {
+    from = new Date(today.getFullYear(), today.getMonth() - 1, 1);
+    to = new Date(today.getFullYear(), today.getMonth(), 0);
+  } else if (preset === "quarter") {
+    from = new Date(today.getFullYear(), Math.floor(today.getMonth() / 3) * 3, 1);
+  } else if (preset === "year") {
+    from = new Date(today.getFullYear(), 0, 1);
+  }
+  return { from: costDateInputValue(from), to: costDateInputValue(to) };
+}
+
+function analyticsSalesUsers() {
+  return salesUsers.filter((user) => user.role === "销售人员" && user.status !== "停用");
+}
+
+function canChooseAnalyticsSalesperson() {
+  return Boolean(state.user && state.user.role !== "销售人员");
+}
+
+function setAnalyticsPreset(preset) {
+  const range = analyticsDatePresetRange(preset);
+  state.analyticsPreset = preset;
+  state.analyticsDateFrom = range.from;
+  state.analyticsDateTo = range.to;
+  state.dataLoaded.analytics = false;
+  render();
+  loadAnalytics(true);
+}
+
+function setAnalyticsCustomDate(field, value) {
+  if (field === "from") state.analyticsDateFrom = value;else state.analyticsDateTo = value;
+  state.analyticsPreset = "custom";
+  if (state.analyticsDateFrom && state.analyticsDateTo) {
+    state.dataLoaded.analytics = false;
+    loadAnalytics(true);
+  }
+}
+
+function toggleAnalyticsSalesMenu() {
+  state.analyticsSalesMenuOpen = !state.analyticsSalesMenuOpen;
+  render();
+}
+
+function toggleAnalyticsSalesperson(userId) {
+  const selected = new Set(state.analyticsSalesFilters);
+  if (selected.has(userId)) selected.delete(userId);else selected.add(userId);
+  state.analyticsSalesFilters = Array.from(selected);
+  state.analyticsCustomerDetails = null;
+  state.dataLoaded.analytics = false;
+  render();
+  loadAnalytics(true);
+}
+
+function clearAnalyticsSalespeople() {
+  state.analyticsSalesFilters = [];
+  state.analyticsCustomerDetails = null;
+  state.dataLoaded.analytics = false;
+  render();
+  loadAnalytics(true);
+}
+
+function setAnalyticsMobileSalesperson(value) {
+  state.analyticsSalesFilters = value ? [value] : [];
+  state.analyticsCustomerDetails = null;
+  state.dataLoaded.analytics = false;
+  loadAnalytics(true);
+}
+
+function setAnalyticsInactiveDays(value) {
+  state.analyticsInactiveDays = [30, 60, 90].includes(Number(value)) ? Number(value) : 30;
+  state.analyticsCustomerDetails = null;
+  state.dataLoaded.analytics = false;
+  render();
+  loadAnalytics(true);
+}
+
+function setAnalyticsMonthCount(value) {
+  state.analyticsMonthCount = Number(value) === 12 ? 12 : 6;
+  state.dataLoaded.analytics = false;
+  render();
+  loadAnalytics(true);
+}
+
+function setAnalyticsTrendMetric(metric) {
+  state.analyticsTrendMetric = metric === "orders" ? "orders" : "sales";
+  render();
+}
+
+function setAnalyticsMonthlyMetric(metric) {
+  state.analyticsMonthlyMetric = metric === "orders" ? "orders" : "sales";
+  render();
+}
+
+function analyticsPresetButton(value, label) {
+  return `<button type="button" class="${state.analyticsPreset === value ? "active" : ""}" onclick="setAnalyticsPreset(${jsArg(value)})">${html(label)}</button>`;
+}
+
+function analyticsSalesFilterHtml() {
+  if (!canChooseAnalyticsSalesperson()) return `<div class="analytics-self-scope">我的数据</div>`;
+  const users = analyticsSalesUsers();
+  const selectedNames = users.filter((user) => state.analyticsSalesFilters.includes(user.id)).map((user) => user.name);
+  const label = selectedNames.length ? selectedNames.length === 1 ? selectedNames[0] : `已选 ${selectedNames.length} 人` : "全部销售人员";
+  return `<div class="analytics-sales-filter">
+    <button type="button" class="select analytics-sales-trigger" onclick="toggleAnalyticsSalesMenu()"><span>${html(label)}</span><b>⌄</b></button>
+    ${state.analyticsSalesMenuOpen ? `<div class="analytics-sales-menu"><button type="button" class="${!state.analyticsSalesFilters.length ? "selected" : ""}" onclick="clearAnalyticsSalespeople()">全部销售人员</button>${users.map((user) => `<label><input type="checkbox" ${state.analyticsSalesFilters.includes(user.id) ? "checked" : ""} onchange="toggleAnalyticsSalesperson(${jsArg(user.id)})"/><span>${html(user.name)}</span></label>`).join("")}</div>` : ""}
+  </div>`;
+}
+
+function analyticsFilterHtml(data) {
+  const range = data && data.range || {};
+  return `<section class="analytics-filter-card">
+    <div class="analytics-preset-tabs">
+      ${analyticsPresetButton("month", "本月")}${analyticsPresetButton("last7", "近7天")}${analyticsPresetButton("last30", "近30天")}${analyticsPresetButton("previousMonth", "上月")}${analyticsPresetButton("quarter", "本季度")}${analyticsPresetButton("year", "本年")}${analyticsPresetButton("custom", "自定义")}
+    </div>
+    <div class="analytics-filter-actions">
+      <label class="analytics-date-range"><input type="date" value="${html(state.analyticsDateFrom)}" onchange="setAnalyticsCustomDate('from',this.value)"/><span>至</span><input type="date" value="${html(state.analyticsDateTo)}" onchange="setAnalyticsCustomDate('to',this.value)"/></label>
+      ${analyticsSalesFilterHtml()}
+      <button type="button" class="btn analytics-mobile-filter" onclick="toggleMobileFilter('analytics')">筛选</button>
+      <button type="button" class="btn" onclick="loadAnalytics(true)">刷新</button>
+    </div>
+    <div class="analytics-range-note">当前：${html((range.from || state.analyticsDateFrom).replace(/-/g, "/"))} 至 ${html((range.to || state.analyticsDateTo).replace(/-/g, "/"))} · 对比 ${html(String(range.previousFrom || "").replace(/-/g, "/"))} 至 ${html(String(range.previousTo || "").replace(/-/g, "/"))}</div>
+  </section>`;
+}
+
+function analyticsChangeText(entry) {
+  if (!entry) return "较上期 0%";
+  if (entry.isNew) return "较上期 新增";
+  const rate = Number(entry.rate || 0);
+  return `较上期 ${rate > 0 ? "+" : ""}${rate}%`;
+}
+
+function analyticsKpi(label, entry, type, tone) {
+  const value = type === "money" ? money(entry && entry.value || 0) : `${Number(entry && entry.value || 0).toLocaleString("zh-CN")} 单`;
+  const rate = entry && entry.rate;
+  const direction = entry && entry.isNew || Number(rate || 0) > 0 ? "up" : Number(rate || 0) < 0 ? "down" : "flat";
+  return `<article class="analytics-kpi ${tone}"><div class="analytics-kpi-icon">${type === "money" ? "¥" : "单"}</div><div><span>${html(label)}</span><strong>${html(value)}</strong><small class="${direction}">${html(analyticsChangeText(entry))}</small></div></article>`;
+}
+
+function analyticsLineChart(data) {
+  const metric = state.analyticsTrendMetric === "orders" ? "orders" : "sales";
+  const current = data && data.trend && data.trend.current || [];
+  const previous = data && data.trend && data.trend.previous || [];
+  const values = current.concat(previous).map((item) => Number(item[metric] || 0));
+  const max = Math.max(1, ...values);
+  const width = 760;
+  const height = 238;
+  const left = 42;
+  const right = 738;
+  const top = 20;
+  const bottom = 188;
+  function coordinates(points) {
+    return points.map((item, index) => {
+      const x = points.length <= 1 ? left : left + (right - left) * index / (points.length - 1);
+      const y = bottom - (bottom - top) * Number(item[metric] || 0) / max;
+      return { x, y, item };
+    });
+  }
+  const currentCoords = coordinates(current);
+  const previousCoords = coordinates(previous);
+  const labelStep = Math.max(1, Math.ceil(current.length / 7));
+  const modeLabel = data && data.trend && data.trend.mode === "month" ? "每月" : data && data.trend && data.trend.mode === "week" ? "每周" : "每日";
+  return `<section class="analytics-chart-card analytics-daily-card">
+    <div class="analytics-card-head"><div><strong>${modeLabel}业绩变化</strong><span>实线为当前周期，虚线为上一周期</span></div><div class="analytics-chart-tabs"><button class="${metric === "sales" ? "active" : ""}" onclick="setAnalyticsTrendMetric('sales')">销售额</button><button class="${metric === "orders" ? "active" : ""}" onclick="setAnalyticsTrendMetric('orders')">订单数</button></div></div>
+    <div class="analytics-svg-wrap"><svg viewBox="0 0 ${width} ${height}" role="img" aria-label="业绩变化趋势">
+      ${[0, 1, 2, 3].map((index) => { const y = top + (bottom - top) * index / 3; return `<line x1="${left}" y1="${y}" x2="${right}" y2="${y}" class="analytics-grid-line"></line><text x="4" y="${y + 4}" class="analytics-axis-label">${metric === "sales" ? Math.round(max * (3 - index) / 3).toLocaleString("zh-CN") : Math.round(max * (3 - index) / 3)}</text>`; }).join("")}
+      ${previousCoords.length ? `<polyline points="${previousCoords.map((point) => `${point.x.toFixed(1)},${point.y.toFixed(1)}`).join(" ")}" class="analytics-line previous"></polyline>` : ""}
+      ${currentCoords.length ? `<polyline points="${currentCoords.map((point) => `${point.x.toFixed(1)},${point.y.toFixed(1)}`).join(" ")}" class="analytics-line current"></polyline>` : ""}
+      ${currentCoords.map((point, index) => `<circle cx="${point.x.toFixed(1)}" cy="${point.y.toFixed(1)}" r="4" class="analytics-point"><title>${html(point.item.label)}：${metric === "sales" ? money(point.item.sales) : `${point.item.orders} 单`}${point.item.dayChangeRate === null ? "" : `，较前一日 ${point.item.dayChangeRate > 0 ? "+" : ""}${point.item.dayChangeRate}%`}</title></circle>${index % labelStep === 0 || index === currentCoords.length - 1 ? `<text x="${point.x.toFixed(1)}" y="220" text-anchor="middle" class="analytics-x-label">${html(point.item.label)}</text>` : ""}`).join("")}
+    </svg></div>
+  </section>`;
+}
+
+function analyticsMonthlyChart(data) {
+  const metric = state.analyticsMonthlyMetric === "orders" ? "orders" : "sales";
+  const rows = data && data.monthly || [];
+  const max = Math.max(1, ...rows.map((item) => Number(item[metric] || 0)));
+  return `<section class="analytics-chart-card analytics-month-card">
+    <div class="analytics-card-head"><div><strong>最近${state.analyticsMonthCount}个月业绩对比</strong><span>${metric === "sales" ? "净销售额与月度环比" : "有效销售订单数量"}</span></div><div class="analytics-head-controls"><div class="analytics-chart-tabs"><button class="${metric === "sales" ? "active" : ""}" onclick="setAnalyticsMonthlyMetric('sales')">销售额</button><button class="${metric === "orders" ? "active" : ""}" onclick="setAnalyticsMonthlyMetric('orders')">订单数</button></div><select onchange="setAnalyticsMonthCount(this.value)"><option value="6" ${state.analyticsMonthCount === 6 ? "selected" : ""}>6个月</option><option value="12" ${state.analyticsMonthCount === 12 ? "selected" : ""}>12个月</option></select></div></div>
+    <div class="analytics-bars">${rows.map((item) => `<div class="analytics-bar-column"><span class="analytics-bar-change ${Number(item.changeRate || 0) < 0 ? "down" : ""}">${item.changeRate === null ? "" : `${item.changeRate > 0 ? "+" : ""}${item.changeRate}%`}</span><b>${metric === "sales" ? Number(item.sales || 0).toLocaleString("zh-CN", { maximumFractionDigits: 0 }) : item.orders}</b><div class="analytics-bar-track"><i style="height:${Math.max(3, Number(item[metric] || 0) / max * 100).toFixed(1)}%"></i></div><small>${html(item.label)}${item.current ? "*" : ""}</small></div>`).join("")}</div>
+    <div class="analytics-chart-foot">* 当前月数据统计截至今日</div>
+  </section>`;
+}
+
+function analyticsCustomerCard(type, label, value, previous, tone) {
+  const active = state.analyticsCustomerType === type;
+  const comparison = type === "inactive" ? `${state.analyticsInactiveDays}天以上未下单` : `上期 ${Number(previous || 0)} 人`;
+  return `<button type="button" class="analytics-customer-kpi ${tone} ${active ? "active" : ""}" onclick="loadAnalyticsCustomerDetails(${jsArg(type)},1)"><span>${html(label)}</span><strong>${Number(value || 0)}</strong><small>${html(comparison)}</small></button>`;
+}
+
+function analyticsCustomerRows(data) {
+  const details = state.analyticsCustomerDetails;
+  const type = state.analyticsCustomerType;
+  const previews = data && data.customers && data.customers.previews || {};
+  const rows = details && details.type === type ? details.items || [] : previews[type] || [];
+  const titles = { ordering: "下单客户", new: "新客户", repeat: "重复下单客户", inactive: "重点跟进客户" };
+  return `<section class="analytics-customer-list-card"><div class="analytics-customer-list-head"><div><strong>${titles[type]}</strong><span>${type === "inactive" ? `连续${state.analyticsInactiveDays}天以上未产生有效订单` : "按当前筛选周期统计"}</span></div>${!details || details.type !== type ? `<button type="button" onclick="loadAnalyticsCustomerDetails(${jsArg(type)},1)">查看全部</button>` : ""}</div>
+    <div class="analytics-customer-table"><div class="analytics-customer-row head"><span>客户</span><span>所属销售</span><span>${type === "inactive" ? "最近下单" : "本期订单"}</span><span>${type === "inactive" ? "未下单天数" : "本期金额"}</span></div>${rows.map((row) => `<div class="analytics-customer-row"><span><strong>${html(row.name || "未知客户")}</strong><small>${html(row.phone || "-")}</small></span><span>${html(row.salesperson || "-")}</span><span>${type === "inactive" ? html((row.lastOrderDate || "从未下单").replace(/-/g, "/")) : `${Number(row.orderCount || 0)} 单`}</span><span class="${type === "inactive" ? "warning" : ""}">${type === "inactive" ? row.neverOrdered ? "从未下单" : `${Number(row.daysSinceLastOrder || 0)} 天` : money(row.amount || 0)}</span></div>`).join("") || `<div class="empty">暂无符合条件的客户</div>`}</div>
+    ${details && details.type === type && details.totalPages > 1 ? `<div class="analytics-pagination"><span>共 ${details.total} 位，第 ${details.page}/${details.totalPages} 页</span><button ${details.page <= 1 ? "disabled" : ""} onclick="loadAnalyticsCustomerDetails(${jsArg(type)},${details.page - 1})">上一页</button><button ${details.page >= details.totalPages ? "disabled" : ""} onclick="loadAnalyticsCustomerDetails(${jsArg(type)},${details.page + 1})">下一页</button></div>` : ""}
+  </section>`;
+}
+
+function analyticsCustomerSection(data) {
+  const customerData = data && data.customers || {};
+  const counts = customerData.counts || {};
+  const previous = customerData.previousCounts || {};
+  const ordering = Math.max(1, Number(counts.ordering || 0));
+  const newShare = Math.min(100, Number(counts.new || 0) / ordering * 100);
+  return `<section class="analytics-customer-section"><div class="analytics-section-title"><div><strong>客户分析</strong><span>关注客户增长、复购和长期未下单情况</span></div><label>待跟进标准<select onchange="setAnalyticsInactiveDays(this.value)"><option value="30" ${state.analyticsInactiveDays === 30 ? "selected" : ""}>30天</option><option value="60" ${state.analyticsInactiveDays === 60 ? "selected" : ""}>60天</option><option value="90" ${state.analyticsInactiveDays === 90 ? "selected" : ""}>90天</option></select></label></div>
+    <div class="analytics-customer-kpis">${analyticsCustomerCard("ordering", "下单客户", counts.ordering, previous.ordering, "blue")}${analyticsCustomerCard("new", "新客户", counts.new, previous.new, "green")}${analyticsCustomerCard("repeat", "重复下单客户", counts.repeat, previous.repeat, "violet")}${analyticsCustomerCard("inactive", `${state.analyticsInactiveDays}天未下单`, counts.inactive, 0, "orange")}</div>
+    <div class="analytics-customer-grid"><section class="analytics-composition-card"><strong>客户构成</strong><div class="analytics-donut" style="--new-share:${newShare.toFixed(1)}%"><div><b>${Number(counts.ordering || 0)}</b><span>下单客户</span></div></div><div class="analytics-composition-legend"><span><i class="new"></i>新客户 <b>${Number(counts.new || 0)}</b></span><span><i class="old"></i>老客户 <b>${Math.max(0, Number(counts.ordering || 0) - Number(counts.new || 0))}</b></span><span><i class="repeat"></i>重复下单 <b>${Number(counts.repeat || 0)}</b></span></div></section>${analyticsCustomerRows(data)}</div>
+  </section>`;
+}
+
+function renderAnalytics() {
+  const data = state.analyticsData;
+  if (!data) return `${analyticsFilterHtml(null)}<div class="card card-pad"><div class="empty">${html(state.analyticsError || (state.analyticsLoading ? "正在加载数据分析…" : "数据分析尚未加载"))}</div></div>`;
+  const summary = data.summary || {};
+  return `<div class="analytics-page">
+    ${analyticsFilterHtml(data)}
+    ${state.analyticsError ? `<div class="analytics-error">${html(state.analyticsError)}</div>` : ""}
+    <section class="analytics-kpi-grid">${analyticsKpi("净销售额", summary.netSales, "money", "blue")}${analyticsKpi("销售订单", summary.orderCount, "count", "indigo")}${analyticsKpi("平均客单价", summary.averageOrderAmount, "money", "teal")}${analyticsKpi("日均业绩", summary.dailyAverage, "money", "gold")}</section>
+    <div class="analytics-return-note">退货冲减：${money(data.returns && data.returns.amount || 0)} · 退货单 ${Number(data.returns && data.returns.count || 0)} 单（不计入销售订单数）</div>
+    <div class="analytics-chart-grid">${analyticsLineChart(data)}${analyticsMonthlyChart(data)}</div>
+    ${analyticsCustomerSection(data)}
   </div>`;
 }
 
