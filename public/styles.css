@@ -2009,7 +2009,7 @@ tbody tr:hover {
 }
 
 .dashboard-metric-grid.month-metrics {
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-template-columns: repeat(5, minmax(0, 1fr));
 }
 
 .dashboard-metric-grid.today-metrics {
@@ -2051,6 +2051,7 @@ tbody tr:hover {
 .dashboard-metric.green { --metric-color: #16856b; --metric-bg: #eaf8f3; }
 .dashboard-metric.gold { --metric-color: #a77b0a; --metric-bg: #fff8df; }
 .dashboard-metric.red { --metric-color: #cc4e58; --metric-bg: #fff0f1; }
+.dashboard-metric.receivable { --metric-color: #b56a13; --metric-bg: #fff3df; }
 
 .dashboard-metric-label {
   color: var(--muted);
@@ -2134,6 +2135,10 @@ tbody tr:hover {
 @media (max-width: 1100px) {
   .dashboard-metric-grid.month-metrics {
     grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .dashboard-metric-grid.month-metrics > :last-child:nth-child(odd) {
+    grid-column: 1 / -1;
   }
 }
 
@@ -9096,8 +9101,16 @@ body.cart-drawer-open {
   }
 
   .dashboard-metric-grid.month-metrics {
-    grid-template-columns: repeat(4, minmax(0, 1fr));
+    grid-template-columns: repeat(6, minmax(0, 1fr));
     gap: 4px;
+  }
+
+  .dashboard-metric-grid.month-metrics > .dashboard-metric {
+    grid-column: span 2;
+  }
+
+  .dashboard-metric-grid.month-metrics > .dashboard-metric:nth-last-child(-n + 2) {
+    grid-column: span 3;
   }
 
   .dashboard-metric-grid.today-metrics {

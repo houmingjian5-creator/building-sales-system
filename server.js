@@ -536,6 +536,11 @@ function dashboardPayload(db, user, salesFilters) {
   const todayPerformance = validOrders.filter((order) => sameDashboardDay(order.date, now));
   const monthOrders = validSalesOrders.filter((order) => sameDashboardMonth(order.date, now));
   const todayOrders = validSalesOrders.filter((order) => sameDashboardDay(order.date, now));
+  const totalReceivableAmount = scopedOrders.filter((order) => {
+    return !dashboardIsReturn(order)
+      && ["已确认", "已确定", "已发货", "已完成"].includes(order.status)
+      && normalizePayStatus(order.payStatus) === "未付款";
+  }).reduce((sum, order) => sum + effectiveOrderAmount(order), 0);
   const monthCustomerIds = Array.from(new Set(monthOrders.map((order) => order.customerId).filter(Boolean)));
   const todayCustomerIds = Array.from(new Set(todayOrders.map((order) => order.customerId).filter(Boolean)));
   const firstDates = {};
@@ -594,6 +599,7 @@ function dashboardPayload(db, user, salesFilters) {
       monthCustomerCount: monthCustomerIds.length,
       monthNewCustomerCount: newCustomerIds.length,
       monthOrderCount: monthOrders.length,
+      totalReceivableAmount: Math.round(totalReceivableAmount * 100) / 100,
       todaySales: todayPerformance.reduce((sum, order) => sum + dashboardPerformanceAmount(order), 0),
       todayCustomerCount: todayCustomerIds.length,
       todayOrderCount: todayOrders.length,

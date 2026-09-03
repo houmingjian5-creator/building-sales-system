@@ -3264,6 +3264,10 @@ function renderDashboard() {
   }));
   const monthSales = monthPerformanceOrders.reduce((sum, order) => sum + performanceOrderAmount(order), 0);
   const todaySales = todayPerformanceOrders.reduce((sum, order) => sum + performanceOrderAmount(order), 0);
+  const totalReceivableAmount = scopedOrders.filter((order) => !isReturnOrder(order)
+    && ["已确认", "已确定", "已发货", "已完成"].includes(order.status)
+    && normalizeClientPayStatus(order.payStatus) === "待回款")
+    .reduce((sum, order) => sum + effectiveOrderAmount(order), 0);
   return `
     <section class="dashboard-metrics">
       ${dashboardSalesFilterHtml()}
@@ -3273,6 +3277,7 @@ function renderDashboard() {
         ${dashboardMetric("本月下单客户数", monthCustomers.size, "客", "violet", "本月有效销售单客户去重 · 点击查看", "month")}
         ${dashboardMetric("本月新开客户数", monthNewCustomerIds.size, "新", "orange", "首次有效下单发生在本月 · 点击查看", "new")}
         ${dashboardMetric("本月订单数量", monthOrders.length, "单", "cyan", "有效销售订单，不含退货单")}
+        ${dashboardMetric("待回款金额", money(totalReceivableAmount), "收", "receivable", "全部历史已确认、已发货、已完成且待回款订单")}
       </div>
       ${dashboardCustomerDetailHtml(state.dashboardCustomerDetail, monthCustomers, monthNewCustomerIds, monthOrders, allValidSalesOrders)}
       <div class="dashboard-section-head today-head"><strong>今日动态</strong><span>${now.getMonth() + 1} 月 ${now.getDate()} 日</span></div>
@@ -6447,6 +6452,7 @@ function renderDashboardRemote() {
       ${dashboardMetric("本月下单客户数", metrics.monthCustomerCount || 0, "客", "violet", "本月有效销售单客户去重 · 点击查看", "month")}
       ${dashboardMetric("本月新开客户数", metrics.monthNewCustomerCount || 0, "新", "orange", "首次有效下单发生在本月 · 点击查看", "new")}
       ${dashboardMetric("本月订单数量", metrics.monthOrderCount || 0, "单", "cyan", "有效销售订单，不含退货单")}
+      ${dashboardMetric("待回款金额", money(metrics.totalReceivableAmount || 0), "收", "receivable", "累计至今，不受本月日期限制")}
     </div>
     ${dashboardRemoteDetail(data)}
     <div class="dashboard-section-head today-head"><strong>今日动态</strong><span>${generatedAt.getMonth() + 1} 月 ${generatedAt.getDate()} 日</span></div>

@@ -71,6 +71,8 @@ const dashboardDb = {
   orders: [
     { id: "a", no: "A", salesUserId: "sales-a", customerId: "customer-a", date: today, status: "已确认", amount: 100, actualPaidAmount: 80, items: [] },
     { id: "b", no: "B", salesUserId: "sales-b", customerId: "customer-b", date: today, status: "已确认", amount: 50, items: [] },
+    { id: "old", no: "OLD", salesUserId: "sales-a", customerId: "customer-a", date: "2020-01-01", status: "已发货", payStatus: "待回款", amount: 70, items: [] },
+    { id: "paid", no: "PAID", salesUserId: "sales-a", customerId: "customer-a", date: "2020-01-02", status: "已完成", payStatus: "已回款", amount: 500, items: [] },
     { id: "pending", no: "P", salesUserId: "sales-a", customerId: "customer-a", date: today, status: "待确认", amount: 999, items: [] },
   ],
 };
@@ -80,6 +82,7 @@ Promise.all([firstWrite, secondWrite]).then(() => {
   assert.strictEqual(dashboard.metrics.todaySales, 80, "概览必须按所选销售和实际付款金额汇总");
   assert.strictEqual(dashboard.metrics.todayOrderCount, 1, "概览必须排除待确认订单");
   assert.strictEqual(dashboard.metrics.todayCustomerCount, 1, "概览客户数必须去重并遵守销售筛选");
+  assert.strictEqual(dashboard.metrics.totalReceivableAmount, 150, "累计待回款必须跨月份累计、遵守销售筛选、排除已回款并使用实际订单金额");
   assert(Array.isArray(dashboard.trend) && dashboard.trend.length >= now.getDate(), "概览接口必须返回本月每日经营趋势");
   assert.strictEqual(dashboard.trend[now.getDate() - 1].sales, 80, "趋势销售额必须沿用权限和实际付款口径");
 
