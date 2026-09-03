@@ -22,6 +22,7 @@ const state = {
   aiDraft: null,
   aiLoading: false,
   aiProgress: null,
+  aiCloseConfirmOpen: false,
   aiError: "",
   aiText: "",
   aiGroups: [],
@@ -613,6 +614,7 @@ async function logout() {
     state.assistantLoading = false;
     state.aiLoading = false;
     state.aiProgress = null;
+    state.aiCloseConfirmOpen = false;
     state.assistantError = "";
     state.costOrders = [];
     state.costLoaded = false;
@@ -922,7 +924,46 @@ function openAiOrderModal() {
     state.aiDraftCustomerId = state.selectedCustomerId;
     state.aiDraftOrderType = state.orderType;
   }
+  state.aiCloseConfirmOpen = false;
   state.modal = { type: "aiOrder" };
+  render();
+}
+
+function minimizeAiOrderModal() {
+  state.aiCloseConfirmOpen = false;
+  closeModal();
+}
+
+function requestClearAiOrder() {
+  state.aiCloseConfirmOpen = true;
+  render();
+}
+
+function cancelClearAiOrder() {
+  state.aiCloseConfirmOpen = false;
+  render();
+}
+
+function clearAiOrderSession() {
+  if (aiRecognitionAbortController) aiRecognitionAbortController.abort();
+  aiRecognitionAbortController = null;
+  aiRecognitionRunId += 1;
+  state.aiDraft = null;
+  state.aiLoading = false;
+  state.aiProgress = null;
+  state.aiError = "";
+  state.aiText = "";
+  state.aiGroups = [];
+  state.aiActiveGroupId = "";
+  state.aiActiveResultKey = "";
+  state.aiMobileEditorOpen = false;
+  state.aiDraftDirty = false;
+  state.aiSourceDirty = false;
+  state.aiSourceEditorOpen = false;
+  state.aiDraftCustomerId = "";
+  state.aiDraftOrderType = "";
+  state.aiCloseConfirmOpen = false;
+  state.modal = null;
   render();
 }
 
@@ -1852,7 +1893,10 @@ function aiOrderModal() {
       <div class="modal ai-modal ${draft ? "has-results" : ""} ${state.aiLoading ? "is-recognizing" : ""}">
         <div class="modal-head">
           <div><h3>AI 帮我开单</h3><div class="hint">当前客户：${customer ? `${customer.name} - ${customer.phone}` : "请先选择客户"}。AI 只匹配商品库商品，生成后还需要销售确认保存。</div></div>
-          <button class="icon-btn" onclick="closeModal()">×</button>
+          <div class="ai-modal-head-actions">
+            <button type="button" class="icon-btn ai-minimize-button" title="缩小并保留内容" aria-label="缩小并保留内容" onclick="minimizeAiOrderModal()">−</button>
+            <button type="button" class="icon-btn" title="清空并关闭" aria-label="清空并关闭" onclick="requestClearAiOrder()">×</button>
+          </div>
         </div>
         <div class="modal-body">
           ${draft ? `<details class="ai-source-editor" ${state.aiSourceEditorOpen ? "open" : ""} ontoggle="setAiSourceEditorOpen(this.open)"><summary>查看或修改原始材料并重新识别</summary><div class="ai-source-editor-body">${sourceEditor}</div></details>` : sourceEditor}
@@ -1861,10 +1905,11 @@ function aiOrderModal() {
           ${draft ? renderAiDraft(draft) : ""}
         </div>
         <div class="modal-foot">
-          <button class="btn" onclick="closeModal()">取消</button>
+          <button class="btn" onclick="minimizeAiOrderModal()">缩小并保留</button>
           <button class="btn primary" onclick="applyAiDraft()" ${draft && !state.aiLoading ? "" : "disabled"}>填入开单页面</button>
         </div>
       </div>
+      ${state.aiCloseConfirmOpen ? `<div class="ai-clear-confirm-backdrop" role="presentation" onclick="cancelClearAiOrder()"><section class="ai-clear-confirm" role="alertdialog" aria-modal="true" aria-labelledby="aiClearConfirmTitle" onclick="event.stopPropagation()"><div class="ai-clear-confirm-icon">!</div><div><h4 id="aiClearConfirmTitle">确定清空 AI 开单内容吗？</h4><p>关闭后，当前分类材料、识别进度、候选商品和人工调整都会清空，无法继续恢复。</p></div><div class="ai-clear-confirm-actions"><button type="button" class="btn" onclick="cancelClearAiOrder()">继续保留</button><button type="button" class="btn danger" onclick="clearAiOrderSession()">清空并关闭</button></div></section></div>` : ""}
     </div>
   `;
 }
@@ -4098,7 +4143,7 @@ function renderCreateOrder() {
         <div class="mobile-product-filters">
           <div class="toolbar filter-toolbar">
             <input id="orderProductSearchInput" class="input" placeholder="搜索商品名称、规格、编码、别名..." value="${html(state.productQuery)}" oncompositionstart="this.dataset.composing='true'" oncompositionend="this.dataset.composing='false';updateProductQuery(this)" oninput="updateProductQuery(this)" />
-            <button class="btn primary" onclick="openAiOrderModal()">AI 帮我开单</button>
+            <button class="btn primary" onclick="openAiOrderModal()">${state.aiGroups.length && state.aiDraftCustomerId === state.selectedCustomerId && state.aiDraftOrderType === state.orderType ? state.aiLoading ? "查看 AI 识别进度" : "继续 AI 开单" : "AI 帮我开单"}</button>
             ${desktopCartButton()}
           </div>
           ${categoryTabs()}

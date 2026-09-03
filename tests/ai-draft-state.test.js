@@ -72,6 +72,9 @@ assert(modalSource.includes("state.aiSourceEditorOpen"), "查看分类原文时�
 assert(modalSource.includes("aiGroupEditorHtml()"), "AI 开单弹层必须复用可局部刷新的分类编辑器");
 assert(modalSource.includes("aiProgressHtml()"), "AI 弹层必须显示逐分类识别进度");
 assert(modalSource.includes("draft && !state.aiLoading"), "分批识别完成前不能把尚在更新的结果填入订单");
+assert(modalSource.includes("minimizeAiOrderModal()"), "AI弹窗右上角必须提供保留内容的缩小按钮");
+assert(modalSource.includes("requestClearAiOrder()"), "AI弹窗关闭按钮必须先打开清空确认卡");
+assert(modalSource.includes("ai-clear-confirm"), "清空AI内容前必须显示明确的确认卡片");
 
 const categorySource = functionSource("productPrimaryCategories", "productSubcategoriesFor");
 const subcategorySource = functionSource("productSubcategoriesFor", "jsArg");
@@ -86,5 +89,12 @@ const openSource = functionSource("openAiOrderModal", "addAiGroup");
 assert(openSource.includes("if (!state.aiGroups.length || aiSessionChanged)"), "关闭后重新打开同一客户的 AI 开单必须恢复未保存草稿");
 assert(openSource.includes("aiSessionChanged"), "切换客户或销售/退货类型时必须开启独立 AI 草稿");
 assert(!openSource.includes("state.aiLoading = false;\n  const aiSessionChanged"), "关闭后重新打开同一客户时不能停止后台识别");
+
+const minimizeSource = functionSource("minimizeAiOrderModal", "requestClearAiOrder");
+assert(minimizeSource.includes("closeModal()"), "缩小AI弹窗只应隐藏弹窗");
+assert(!minimizeSource.includes("state.aiDraft = null") && !minimizeSource.includes("state.aiGroups = []"), "缩小AI弹窗不能清空原文或识别结果");
+const clearSource = functionSource("clearAiOrderSession", "addAiGroup");
+assert(clearSource.includes("aiRecognitionAbortController.abort()"), "确认清空时必须停止后台识别");
+assert(clearSource.includes("state.aiDraft = null") && clearSource.includes("state.aiGroups = []"), "确认清空后必须移除原文和识别结果");
 
 console.log("AI draft state persistence tests passed");

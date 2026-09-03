@@ -123,8 +123,9 @@ assert(aiResultActivation.includes("mobile-editor-open"), "手机点击 AI 识�
 assert(!aiResultActivation.includes("modalBody.scrollTo"), "手机点击 AI 识别商品不得滚动到页面下方编辑区");
 assert(mobileAiStyles.includes(".mobile-v2 .ai-master-detail.mobile-editor-open .ai-result-detail"), "最终生效的手机样式必须显示 AI 编辑抽屉");
 assert(mobileAiStyles.includes("width: min(90%, 430px)") && mobileAiStyles.includes("transform: translateX(100%)"), "手机 AI 编辑抽屉必须从右侧保留部分商品列表上下文");
-assert(indexSource.includes("app.js?v=20260903-ai-resilience-1") && indexSource.includes("styles.css?v=20260903-ai-resilience-1") && indexSource.includes("mobile-v2.css?v=20260817-1"), "手机端更新必须使用新的静态资源版本，避免继续命中旧缓存");
+assert(indexSource.includes("app.js?v=20260903-ai-minimize-1") && indexSource.includes("styles.css?v=20260903-ai-minimize-1") && indexSource.includes("mobile-v2.css?v=20260817-1"), "手机端更新必须使用新的静态资源版本，避免继续命中旧缓存");
 assert(stylesSource.includes(".ai-progress-groups") && stylesSource.includes("overflow-x: auto"), "多分类识别进度在手机端必须可横向滚动，不能撑宽页面");
+assert(stylesSource.includes(".ai-clear-confirm-backdrop") && stylesSource.includes("calc(12px + env(safe-area-inset-bottom))"), "手机端清空确认卡必须避开底部安全区");
 assert(appSource.includes('class="edit-order-mobile-summary"'), "手机订单编辑必须提供紧凑商品清单行");
 assert(appSource.includes("function toggleEditOrderLine"), "手机订单编辑必须支持点击单项展开或收起");
 assert(appSource.includes("editOrderMobileMeta${index}"), "手机订单编辑修改数量或单价后必须同步更新紧凑清单摘要");
