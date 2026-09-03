@@ -22,6 +22,8 @@ assert(!groupSwitchSource.includes("render()"), "分类切换不得整体重绘 
   const source = functionSource(name, nextName);
   assert(!source.includes("state.aiDraft = null"), `${name} 不能在重新识别前清空 AI 草稿`);
 });
+const addGroupSource = functionSource("addAiGroup", "removeAiGroup");
+assert(addGroupSource.includes("state.aiGroups.length >= 8"), "AI开单一次最多允许8个分类窗口");
 
 const selectionSource = functionSource("selectAiCandidateChoice", "updateAiNavStatus");
 assert(selectionSource.includes("persistAiDraftProductSelection"), "人工选择商品必须立即写入 AI 草稿");
@@ -56,12 +58,20 @@ assert(!applySource.includes('document.querySelectorAll("[data-ai-matched-line]"
 const analyzeSource = functionSource("analyzeAiOrder", "addDraftLine");
 assert(analyzeSource.includes("state.aiDraftDirty"), "已有人工修改时重新识别必须检测草稿状态");
 assert(analyzeSource.includes("重新识别会重新生成全部匹配结果"), "重新识别覆盖人工修改前必须明确确认");
-assert(analyzeSource.includes("timeoutMs: 65000"), "AI 开单必须允许模型在普通接口超时后继续完成识别");
+assert(appSource.includes("AI_ORDER_MAX_CONCURRENCY = 3"), "多分类识别最多只能三路并发");
+assert(appSource.includes("AI_ORDER_MAX_DURATION_MS = 180000"), "整单识别必须限制在三分钟内");
+assert(appSource.includes("AI_ORDER_MODEL_ATTEMPTS = 2"), "模型请求失败后必须自动重试一次");
+assert(analyzeSource.includes('requestAiOrderDraft(groups, "local-only"'), "调用模型前必须先保存全量本地解析结果");
+assert(analyzeSource.includes('requestAiOrderDraft([group], "model-only"'), "模型请求必须按单个分类排队处理");
+assert(analyzeSource.includes("replaceAiDraftGroup"), "重试结果必须替换分类结果，不能追加出重复商品");
+assert(analyzeSource.includes("markAiDraftGroupFallback"), "分类失败后必须保留本地解析和候选");
 assert(!analyzeSource.includes("setTimeout(() => controller.abort()"), "AI 开单不能保留与统一请求层冲突的重复计时器");
 
 const modalSource = functionSource("aiOrderModal", "renderAiDraft");
 assert(modalSource.includes("state.aiSourceEditorOpen"), "查看分类原文时必须保持展开状态");
 assert(modalSource.includes("aiGroupEditorHtml()"), "AI 开单弹层必须复用可局部刷新的分类编辑器");
+assert(modalSource.includes("aiProgressHtml()"), "AI 弹层必须显示逐分类识别进度");
+assert(modalSource.includes("draft && !state.aiLoading"), "分批识别完成前不能把尚在更新的结果填入订单");
 
 const categorySource = functionSource("productPrimaryCategories", "productSubcategoriesFor");
 const subcategorySource = functionSource("productSubcategoriesFor", "jsArg");
@@ -75,5 +85,6 @@ assert(groupEditorSource.includes("productSubcategoriesFor(activeGroup.cat1)"), 
 const openSource = functionSource("openAiOrderModal", "addAiGroup");
 assert(openSource.includes("if (!state.aiGroups.length || aiSessionChanged)"), "关闭后重新打开同一客户的 AI 开单必须恢复未保存草稿");
 assert(openSource.includes("aiSessionChanged"), "切换客户或销售/退货类型时必须开启独立 AI 草稿");
+assert(!openSource.includes("state.aiLoading = false;\n  const aiSessionChanged"), "关闭后重新打开同一客户时不能停止后台识别");
 
 console.log("AI draft state persistence tests passed");

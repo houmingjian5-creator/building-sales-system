@@ -21,6 +21,7 @@ const state = {
   orderType: "sale",
   aiDraft: null,
   aiLoading: false,
+  aiProgress: null,
   aiError: "",
   aiText: "",
   aiGroups: [],
@@ -112,6 +113,12 @@ let inputRenderTimer = null;
 let toastTimer = null;
 let assistantAbortController = null;
 let assistantStageTimer = null;
+let aiRecognitionAbortController = null;
+let aiRecognitionRunId = 0;
+const AI_ORDER_MAX_CONCURRENCY = 3;
+const AI_ORDER_MAX_DURATION_MS = 180000;
+const AI_ORDER_REQUEST_TIMEOUT_MS = 58000;
+const AI_ORDER_MODEL_ATTEMPTS = 2;
 let lastRenderedRoute = "";
 const motionCloseTimers = {};
 
@@ -593,8 +600,10 @@ async function logout() {
   persistCart(state.orderType, true);
   try {
     await apiFetch("/api/logout", { method: "POST" });
-  } finally {var _assistantAbortContro;
+  } finally {var _assistantAbortContro, _aiRecognitionAbort;
     (_assistantAbortContro = assistantAbortController) === null || _assistantAbortContro === void 0 || _assistantAbortContro.abort();
+    (_aiRecognitionAbort = aiRecognitionAbortController) === null || _aiRecognitionAbort === void 0 || _aiRecognitionAbort.abort();
+    aiRecognitionRunId += 1;
     clearInterval(assistantStageTimer);
     state.user = null;
     state.route = "dashboard";
@@ -602,6 +611,8 @@ async function logout() {
     state.assistantMessages = [];
     state.assistantLoaded = false;
     state.assistantLoading = false;
+    state.aiLoading = false;
+    state.aiProgress = null;
     state.assistantError = "";
     state.costOrders = [];
     state.costLoaded = false;
@@ -892,10 +903,13 @@ function signedOrderPrice(item, price) {
 }
 
 function openAiOrderModal() {
-  state.aiLoading = false;
   const aiSessionChanged = state.aiDraftCustomerId !== state.selectedCustomerId || state.aiDraftOrderType !== state.orderType;
   if (!state.aiGroups.length || aiSessionChanged) {
+    if (aiSessionChanged && aiRecognitionAbortController) aiRecognitionAbortController.abort();
+    if (aiSessionChanged) aiRecognitionRunId += 1;
     state.aiDraft = null;
+    state.aiLoading = false;
+    state.aiProgress = null;
     state.aiDraftDirty = false;
     state.aiSourceDirty = false;
     state.aiSourceEditorOpen = false;
@@ -913,6 +927,11 @@ function openAiOrderModal() {
 }
 
 function addAiGroup() {
+  if (state.aiGroups.length >= 8) {
+    state.aiError = "一次最多可以添加8个分类窗口。";
+    render();
+    return;
+  }
   const group = { id: `ai-${Date.now()}`, cat1: "", cat2: "", content: "" };
   state.aiGroups.push(group);
   state.aiActiveGroupId = group.id;
@@ -972,54 +991,208 @@ async function analyzeAiOrder() {
   if (state.aiDraft && state.aiDraftDirty && !confirm("重新识别会重新生成全部匹配结果，并清除你刚才更换商品、修改数量或删除商品等人工调整。确定继续吗？")) {
     return;
   }
+  if (aiRecognitionAbortController) aiRecognitionAbortController.abort();
+  const runId = ++aiRecognitionRunId;
+  const controller = new AbortController();
+  aiRecognitionAbortController = controller;
+  const startedAt = Date.now();
+  const deadlineAt = startedAt + AI_ORDER_MAX_DURATION_MS;
+  const groups = validGroups.map((group, index) => ({ ...group, sourceOrder: index }));
   state.aiLoading = true;
   state.aiError = "";
+  state.aiProgress = {
+    runId,
+    total: groups.length,
+    completed: 0,
+    startedAt,
+    deadlineAt,
+    groups: groups.map((group, index) => ({ id: group.id, title: group.cat2 || group.cat1 || `分类 ${index + 1}`, status: "waiting", attempts: 0 }))
+  };
+  state.aiDraft = null;
+  state.aiDraftDirty = false;
+  state.aiSourceDirty = false;
+  state.aiDraftCustomerId = state.selectedCustomerId;
+  state.aiDraftOrderType = state.orderType;
   render();
   try {
-    const response = await apiFetch("/api/ai/order-draft", {
+    const baseline = await requestAiOrderDraft(groups, "local-only", controller.signal, 30000);
+    if (runId !== aiRecognitionRunId || controller.signal.aborted) return;
+    state.aiDraft = normalizeAiDraftOrder(baseline, groups);
+    mergeAiDraftProducts(state.aiDraft);
+    refreshAiRecognitionUi(true);
+
+    let nextGroupIndex = 0;
+    const processGroup = async () => {
+      while (nextGroupIndex < groups.length && runId === aiRecognitionRunId && !controller.signal.aborted) {
+        const group = groups[nextGroupIndex++];
+        const progress = aiProgressGroup(group.id);
+        if (!progress) continue;
+        let modelDraft = null;
+        let lastError = null;
+        for (let attempt = 1; attempt <= AI_ORDER_MODEL_ATTEMPTS; attempt += 1) {
+          const remaining = deadlineAt - Date.now();
+          if (remaining <= 1000 || controller.signal.aborted) break;
+          progress.attempts = attempt;
+          progress.status = attempt === 1 ? "recognizing" : "retrying";
+          progress.message = attempt === 1 ? "DeepSeek识别中" : "首次失败，正在自动重试";
+          refreshAiRecognitionUi();
+          try {
+            modelDraft = await requestAiOrderDraft([group], "model-only", controller.signal, Math.min(AI_ORDER_REQUEST_TIMEOUT_MS, remaining));
+            break;
+          } catch (error) {
+            lastError = error;
+            if (!error.retryable || attempt >= AI_ORDER_MODEL_ATTEMPTS) break;
+          }
+        }
+        if (runId !== aiRecognitionRunId || controller.signal.aborted) return;
+        if (modelDraft) {
+          state.aiDraft = replaceAiDraftGroup(state.aiDraft, modelDraft, group.id, groups);
+          mergeAiDraftProducts(modelDraft);
+          progress.status = "completed";
+          progress.message = "AI识别完成";
+        } else {
+          markAiDraftGroupFallback(state.aiDraft, group.id, lastError);
+          progress.status = "fallback";
+          progress.message = Date.now() >= deadlineAt ? "达到总时限，已用本地候选" : "模型暂不可用，已用本地候选";
+        }
+        state.aiProgress.completed += 1;
+        refreshAiRecognitionUi();
+      }
+    };
+    const workerCount = Math.min(AI_ORDER_MAX_CONCURRENCY, groups.length);
+    await Promise.all(Array.from({ length: workerCount }, () => processGroup()));
+    if (runId !== aiRecognitionRunId || controller.signal.aborted) return;
+    state.aiProgress.groups.forEach((progress) => {
+      if (progress.status === "waiting" || progress.status === "recognizing" || progress.status === "retrying") {
+        markAiDraftGroupFallback(state.aiDraft, progress.id);
+        progress.status = "fallback";
+        progress.message = "达到总时限，已用本地候选";
+        state.aiProgress.completed += 1;
+      }
+    });
+    finishAiOrderRecognition(runId);
+  } catch (error) {
+    if (runId !== aiRecognitionRunId || controller.signal.aborted) return;
+    state.aiLoading = false;
+    state.aiError = error.message || "AI识别初始化失败";
+    render();
+  } finally {
+    if (runId === aiRecognitionRunId) aiRecognitionAbortController = null;
+  }
+}
+
+const AI_DRAFT_LISTS = ["matched", "needsQuantity", "uncertain", "unmatched"];
+
+async function requestAiOrderDraft(groups, strategy, signal, timeoutMs) {
+  let response;
+  try {
+    response = await apiFetch("/api/ai/order-draft", {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ groups: validGroups, customerId: state.selectedCustomerId }),
-      timeoutMs: 65000
+      body: JSON.stringify({ groups, customerId: state.selectedCustomerId, strategy }),
+      timeoutMs,
+      signal
     });
-    const raw = await response.text();
-    let data;
-    try {
-      data = JSON.parse(raw);
-    } catch (error) {
-      throw new Error(response.ok ? "服务器返回内容异常" : `服务器请求失败（${response.status}）`);
-    }
-    if (!response.ok) throw new Error(data.error || "AI 识别失败");
-    const resultCount = [data.matched, data.needsQuantity, data.uncertain, data.unmatched].
-    reduce((sum, list) => sum + (Array.isArray(list) ? list.length : 0), 0);
-    if (!resultCount) throw new Error("AI没有返回任何材料，请检查输入内容后重试");
-    const draftProducts = [];
-    [data.matched, data.needsQuantity, data.uncertain, data.unmatched].forEach((list) => {
-      (Array.isArray(list) ? list : []).forEach((item) => {
-        if (item && item.productId) draftProducts.push({ ...item, id: item.productId });
-        (Array.isArray(item && item.candidates) ? item.candidates : []).forEach((candidate) => {
-          if (candidate && candidate.productId) draftProducts.push({ ...candidate, id: candidate.productId });
-        });
+  } catch (error) {
+    if (!(signal && signal.aborted)) error.retryable = true;
+    throw error;
+  }
+  const raw = await response.text();
+  let data;
+  try {
+    data = JSON.parse(raw);
+  } catch (error) {
+    const invalidError = new Error(response.ok ? "服务器返回内容异常" : `服务器请求失败（${response.status}）`);
+    invalidError.retryable = true;
+    throw invalidError;
+  }
+  if (!response.ok) {
+    const requestError = new Error(data.error || "AI 识别失败");
+    requestError.retryable = response.status === 429 || response.status >= 500;
+    throw requestError;
+  }
+  const resultCount = AI_DRAFT_LISTS.reduce((sum, key) => sum + (Array.isArray(data[key]) ? data[key].length : 0), 0);
+  if (!resultCount) {
+    const emptyError = new Error("AI没有返回任何材料，请检查输入内容后重试");
+    emptyError.retryable = strategy === "model-only";
+    throw emptyError;
+  }
+  return data;
+}
+
+function aiProgressGroup(groupId) {
+  return state.aiProgress && state.aiProgress.groups.find((item) => item.id === groupId);
+}
+
+function normalizeAiDraftOrder(draft, groups) {
+  const groupOrder = new Map(groups.map((group, index) => [group.id, index]));
+  const normalized = { ...draft };
+  AI_DRAFT_LISTS.forEach((key) => {
+    normalized[key] = (Array.isArray(draft && draft[key]) ? draft[key] : []).map((item, index) => ({
+      ...item,
+      orderIndex: (groupOrder.has(item.groupId) ? groupOrder.get(item.groupId) : groups.length) * 100000 + Number(item.sourceIndex || 0) * 100 + index
+    }));
+  });
+  return normalized;
+}
+
+function replaceAiDraftGroup(current, incoming, groupId, groups) {
+  const combined = { ...(current || {}) };
+  AI_DRAFT_LISTS.forEach((key) => {
+    const kept = (Array.isArray(current && current[key]) ? current[key] : []).filter((item) => item.groupId !== groupId);
+    const replacement = (Array.isArray(incoming && incoming[key]) ? incoming[key] : []).filter((item) => item.groupId === groupId);
+    combined[key] = kept.concat(replacement);
+  });
+  return normalizeAiDraftOrder(combined, groups);
+}
+
+function mergeAiDraftProducts(draft) {
+  const draftProducts = [];
+  AI_DRAFT_LISTS.forEach((key) => {
+    (Array.isArray(draft && draft[key]) ? draft[key] : []).forEach((item) => {
+      if (item && item.productId) draftProducts.push({ ...item, id: item.productId });
+      (Array.isArray(item && item.candidates) ? item.candidates : []).forEach((candidate) => {
+        if (candidate && candidate.productId) draftProducts.push({ ...candidate, id: candidate.productId });
       });
     });
-    mergeProductCache(draftProducts);
-    state.aiDraft = data;
-    state.aiDraftDirty = false;
-    state.aiSourceDirty = false;
-    state.aiDraftCustomerId = state.selectedCustomerId;
-    state.aiDraftOrderType = state.orderType;
-    const draftItems = aiDraftItems(data);
-    const firstIssue = draftItems.find((item) => item.status !== "confirmed");
-    state.aiActiveResultKey = (firstIssue || draftItems[0] || {}).key || "";
-    state.aiMobileEditorOpen = false;
-    state.aiLoading = false;
-    state.aiError = "";
-    render();
-  } catch (error) {
-    state.aiLoading = false;
-    state.aiError = error.message;
-    render();
+  });
+  mergeProductCache(draftProducts);
+}
+
+function markAiDraftGroupFallback(draft, groupId, error) {
+  const warning = error && error.message ? `DeepSeek识别失败（${error.message}），已保留本地解析和商品候选` : "DeepSeek暂不可用，已保留本地解析和商品候选";
+  AI_DRAFT_LISTS.forEach((key) => {
+    (Array.isArray(draft && draft[key]) ? draft[key] : []).forEach((item) => {
+      if (item.groupId !== groupId) return;
+      const warnings = Array.isArray(item.parseWarnings) ? item.parseWarnings : [];
+      if (!warnings.includes(warning)) item.parseWarnings = warnings.concat(warning);
+    });
+  });
+}
+
+function refreshAiRecognitionUi(includeResults = false) {
+  if (!state.modal || state.modal.type !== "aiOrder") return;
+  refreshAiGroupEditor();
+  const current = document.querySelector("[data-ai-progress]");
+  if (current) {
+    const template = document.createElement("template");
+    template.innerHTML = aiProgressHtml().trim();
+    if (template.content.firstElementChild) current.replaceWith(template.content.firstElementChild);
   }
+  if (includeResults) render();
+}
+
+function finishAiOrderRecognition(runId) {
+  if (runId !== aiRecognitionRunId) return;
+  state.aiLoading = false;
+  state.aiDraftDirty = false;
+  state.aiSourceDirty = false;
+  const draftItems = aiDraftItems(state.aiDraft);
+  const firstIssue = draftItems.find((item) => item.status !== "confirmed");
+  state.aiActiveResultKey = (firstIssue || draftItems[0] || {}).key || "";
+  state.aiMobileEditorOpen = false;
+  state.aiError = "";
+  render();
 }
 
 function addDraftLine(productId, quantity) {
@@ -1633,13 +1806,25 @@ function aiGroupEditorHtml() {
   const activeGroup = state.aiGroups.find((group) => group.id === state.aiActiveGroupId) || state.aiGroups[0];
   const cat2Options = activeGroup ? productSubcategoriesFor(activeGroup.cat1) : [];
   const draft = state.aiDraft;
-  return `<div class="ai-group-editor">
-    <div class="ai-group-tabs">${state.aiGroups.map((group, index) => `<button class="ai-group-tab ${group.id === state.aiActiveGroupId ? "active" : ""}" onclick="setAiActiveGroup(${jsArg(group.id)})"><span>${html(group.cat2 || group.cat1 || `分类 ${index + 1}`)}</span>${state.aiGroups.length > 1 ? `<i onclick="event.stopPropagation();removeAiGroup(${jsArg(group.id)})">×</i>` : ""}</button>`).join("")}<button class="ai-group-add" onclick="addAiGroup()">＋ 添加分类窗口</button></div>
-    ${activeGroup ? `<section class="ai-group-panel"><div class="ai-group-filters"><div class="field"><label>一级分类 *</label><select class="select" onchange="setAiGroupCategory('${html(activeGroup.id)}',this.value)"><option value="">请选择一级分类</option>${cat1Options.map((cat1) => `<option value="${html(cat1)}" ${activeGroup.cat1 === cat1 ? "selected" : ""}>${html(cat1)}</option>`).join("")}</select></div><div class="field"><label>二级分类（选填）</label><select class="select" ${activeGroup.cat1 ? "" : "disabled"} onchange="setAiGroupSubcategory('${html(activeGroup.id)}',this.value)"><option value="">全部二级分类</option>${cat2Options.map((cat2) => `<option value="${html(cat2)}" ${activeGroup.cat2 === cat2 ? "selected" : ""}>${html(cat2)}</option>`).join("")}</select></div></div><div class="field"><label>该分类下的材料清单</label><textarea class="textarea ai-textarea" oninput="updateAiGroupText('${html(activeGroup.id)}',this.value)" placeholder="只填写属于当前分类的材料，例如：20管6根，20弯头30个...">${html(activeGroup.content)}</textarea></div><div class="hint">匹配范围：${activeGroup.cat1 ? html(activeGroup.cat1) : "尚未选择"}${activeGroup.cat2 ? ` / ${html(activeGroup.cat2)}` : activeGroup.cat1 ? " / 全部二级分类" : ""}。系统不会跨出这个范围推荐商品。</div></section>` : ""}
+  return `<div class="ai-group-editor ${state.aiLoading ? "is-loading" : ""}">
+    <div class="ai-group-tabs">${state.aiGroups.map((group, index) => `<button class="ai-group-tab ${group.id === state.aiActiveGroupId ? "active" : ""}" onclick="setAiActiveGroup(${jsArg(group.id)})"><span>${html(group.cat2 || group.cat1 || `分类 ${index + 1}`)}</span>${state.aiGroups.length > 1 && !state.aiLoading ? `<i onclick="event.stopPropagation();removeAiGroup(${jsArg(group.id)})">×</i>` : ""}</button>`).join("")}<button class="ai-group-add" onclick="addAiGroup()" ${state.aiLoading || state.aiGroups.length >= 8 ? "disabled" : ""}>＋ 添加分类窗口</button></div>
+    ${activeGroup ? `<section class="ai-group-panel"><div class="ai-group-filters"><div class="field"><label>一级分类 *</label><select class="select" ${state.aiLoading ? "disabled" : ""} onchange="setAiGroupCategory('${html(activeGroup.id)}',this.value)"><option value="">请选择一级分类</option>${cat1Options.map((cat1) => `<option value="${html(cat1)}" ${activeGroup.cat1 === cat1 ? "selected" : ""}>${html(cat1)}</option>`).join("")}</select></div><div class="field"><label>二级分类（选填）</label><select class="select" ${activeGroup.cat1 && !state.aiLoading ? "" : "disabled"} onchange="setAiGroupSubcategory('${html(activeGroup.id)}',this.value)"><option value="">全部二级分类</option>${cat2Options.map((cat2) => `<option value="${html(cat2)}" ${activeGroup.cat2 === cat2 ? "selected" : ""}>${html(cat2)}</option>`).join("")}</select></div></div><div class="field"><label>该分类下的材料清单</label><textarea class="textarea ai-textarea" ${state.aiLoading ? "disabled" : ""} oninput="updateAiGroupText('${html(activeGroup.id)}',this.value)" placeholder="只填写属于当前分类的材料，例如：20管6根，20弯头30个...">${html(activeGroup.content)}</textarea></div><div class="hint">匹配范围：${activeGroup.cat1 ? html(activeGroup.cat1) : "尚未选择"}${activeGroup.cat2 ? ` / ${html(activeGroup.cat2)}` : activeGroup.cat1 ? " / 全部二级分类" : ""}。系统不会跨出这个范围推荐商品。</div></section>` : ""}
     <div class="ai-actions">
       <button class="btn primary" onclick="analyzeAiOrder()" ${state.aiLoading ? "disabled" : ""}>${state.aiLoading ? "识别中..." : draft ? "重新识别" : "开始识别"}</button>
-      <span class="hint">${state.aiLoading ? "正在提交分类材料并等待AI解析，请不要关闭窗口。" : state.aiSourceDirty && draft ? "原始材料已修改；下方人工调整仍会保留，只有点击重新识别才会生成新结果。" : "唯一可靠商品自动匹配；不确定就留给你确认或进入未匹配。"}</span>
+      <span class="hint">${state.aiLoading ? "正在分批识别；可以关闭窗口，稍后为同一客户重新打开查看进度。" : state.aiSourceDirty && draft ? "原始材料已修改；下方人工调整仍会保留，只有点击重新识别才会生成新结果。" : "唯一可靠商品自动匹配；不确定就留给你确认或进入未匹配。"}</span>
     </div></div>`;
+}
+
+function aiProgressHtml() {
+  const progress = state.aiProgress;
+  if (!progress) return `<div data-ai-progress class="ai-progress-placeholder"></div>`;
+  const labels = { waiting: "等待中", recognizing: "识别中", retrying: "自动重试", completed: "已完成", fallback: "本地兜底" };
+  const percent = progress.total ? Math.round(progress.completed / progress.total * 100) : 0;
+  return `<section class="ai-progress" data-ai-progress>
+    <div class="ai-progress-head"><div><strong>${state.aiLoading ? `正在识别 ${progress.completed}/${progress.total} 个分类` : `识别完成 ${progress.completed}/${progress.total}`}</strong><span>${state.aiLoading ? "最多同时处理3个分类，整单最长等待3分钟" : "所有分类均已保留并完成合并"}</span></div><b>${percent}%</b></div>
+    <div class="ai-progress-track"><i style="width:${percent}%"></i></div>
+    <div class="ai-progress-groups">${progress.groups.map((group) => `<span class="ai-progress-group is-${group.status}" title="${html(group.message || labels[group.status] || "")}"><i></i><b>${html(group.title)}</b><em>${labels[group.status] || group.status}</em></span>`).join("")}</div>
+  </section>`;
 }
 
 function refreshAiGroupEditor() {
@@ -1664,19 +1849,20 @@ function aiOrderModal() {
   const sourceEditor = aiGroupEditorHtml();
   return `
     <div class="modal-backdrop">
-      <div class="modal ai-modal ${draft ? "has-results" : ""}">
+      <div class="modal ai-modal ${draft ? "has-results" : ""} ${state.aiLoading ? "is-recognizing" : ""}">
         <div class="modal-head">
           <div><h3>AI 帮我开单</h3><div class="hint">当前客户：${customer ? `${customer.name} - ${customer.phone}` : "请先选择客户"}。AI 只匹配商品库商品，生成后还需要销售确认保存。</div></div>
           <button class="icon-btn" onclick="closeModal()">×</button>
         </div>
         <div class="modal-body">
           ${draft ? `<details class="ai-source-editor" ${state.aiSourceEditorOpen ? "open" : ""} ontoggle="setAiSourceEditorOpen(this.open)"><summary>查看或修改原始材料并重新识别</summary><div class="ai-source-editor-body">${sourceEditor}</div></details>` : sourceEditor}
+          ${aiProgressHtml()}
           ${state.aiError ? `<div class="ai-error">${html(state.aiError)}</div>` : ""}
           ${draft ? renderAiDraft(draft) : ""}
         </div>
         <div class="modal-foot">
           <button class="btn" onclick="closeModal()">取消</button>
-          <button class="btn primary" onclick="applyAiDraft()" ${draft ? "" : "disabled"}>填入开单页面</button>
+          <button class="btn primary" onclick="applyAiDraft()" ${draft && !state.aiLoading ? "" : "disabled"}>填入开单页面</button>
         </div>
       </div>
     </div>

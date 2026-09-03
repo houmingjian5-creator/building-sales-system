@@ -3307,6 +3307,109 @@ tbody tr:hover {
   margin-bottom: 16px;
 }
 
+.ai-progress {
+  display: grid;
+  gap: 10px;
+  padding: 13px 14px;
+  margin: 0 0 14px;
+  border: 1px solid #cddaff;
+  border-radius: 9px;
+  background: #f5f8ff;
+}
+
+.ai-progress-head,
+.ai-progress-head > div {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.ai-progress-head > div {
+  min-width: 0;
+  justify-content: flex-start;
+}
+
+.ai-progress-head span {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.ai-progress-head > b {
+  color: var(--primary);
+}
+
+.ai-progress-track {
+  height: 6px;
+  overflow: hidden;
+  border-radius: 99px;
+  background: #dfe7f8;
+}
+
+.ai-progress-track i {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: var(--primary);
+  transition: width .2s ease;
+}
+
+.ai-progress-groups {
+  display: flex;
+  gap: 7px;
+  overflow-x: auto;
+  padding-bottom: 2px;
+}
+
+.ai-progress-group {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex: 0 0 auto;
+  min-height: 30px;
+  padding: 0 9px;
+  border: 1px solid var(--line);
+  border-radius: 99px;
+  background: #fff;
+  font-size: 12px;
+}
+
+.ai-progress-group i {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: #a6b2c4;
+}
+
+.ai-progress-group b,
+.ai-progress-group em {
+  white-space: nowrap;
+}
+
+.ai-progress-group em {
+  color: var(--muted);
+  font-style: normal;
+}
+
+.ai-progress-group.is-recognizing i,
+.ai-progress-group.is-retrying i {
+  background: #e39a21;
+  box-shadow: 0 0 0 3px #fff0cd;
+}
+
+.ai-progress-group.is-completed i {
+  background: #13a36d;
+}
+
+.ai-progress-group.is-fallback i {
+  background: #64748b;
+}
+
+.ai-modal.is-recognizing .ai-result {
+  pointer-events: none;
+  opacity: .72;
+}
+
 .ai-error {
   padding: 10px 12px;
   margin: -6px 0 14px;
@@ -4046,6 +4149,25 @@ tbody tr:hover {
 
   .ai-actions {
     display: grid;
+  }
+
+  .ai-progress-head,
+  .ai-progress-head > div {
+    align-items: flex-start;
+  }
+
+  .ai-progress-head > div {
+    display: grid;
+    gap: 3px;
+  }
+
+  .ai-progress-group {
+    max-width: 190px;
+  }
+
+  .ai-progress-group b {
+    overflow: hidden;
+    text-overflow: ellipsis;
   }
 
   .ai-small-input {

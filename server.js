@@ -4000,8 +4000,21 @@ function validateAiDraft(db, aiResult, content = '', scopes = [], customerId = '
   return { matched, needsQuantity, uncertain, unmatched };
 }
 
-async function parseAiOrderGroup(scope, products) {
+function localParseAiOrderGroup(scope, products, warning = '') {
   const parseOptions = { products: products, cat1: scope.cat1, cat2: scope.cat2 };
+  return mergeAiParsedItems(scope.content, [], parseOptions).map((item) => ({
+    ...item,
+    groupId: scope.id,
+    system: item.system || scope.cat2 || scope.cat1,
+    parseWarnings: warning
+      ? [...(Array.isArray(item.parseWarnings) ? item.parseWarnings : []), warning]
+      : (Array.isArray(item.parseWarnings) ? item.parseWarnings : []),
+  }));
+}
+
+async function parseAiOrderGroup(scope, products, strategy = '') {
+  const parseOptions = { products: products, cat1: scope.cat1, cat2: scope.cat2 };
+  if (strategy === 'local-only') return localParseAiOrderGroup(scope, products);
   const messages = [
     {
       role: 'system',
@@ -4052,21 +4065,27 @@ async function parseAiOrderGroup(scope, products) {
       }),
     },
   ];
-  const text = await callDeepSeek(messages);
-  const result = parseJsonFromText(text);
-  const parsedItems = mergeAiParsedItems(scope.content, result.items, parseOptions);
-  return parsedItems.map((item) => ({ ...item, groupId: scope.id, system: item.system || scope.cat2 || scope.cat1 }));
+  try {
+    const text = await callDeepSeek(messages);
+    const result = parseJsonFromText(text);
+    const parsedItems = mergeAiParsedItems(scope.content, result.items, parseOptions);
+    return parsedItems.map((item) => ({ ...item, groupId: scope.id, system: item.system || scope.cat2 || scope.cat1 }));
+  } catch (error) {
+    if (strategy === 'model-only') throw error;
+    return localParseAiOrderGroup(scope, products, 'DeepSeek暂不可用，已使用本地原文解析和商品库匹配');
+  }
 }
 
-async function buildAiOrderDraft(db, groups, customerId = '') {
+async function buildAiOrderDraft(db, groups, customerId = '', options = {}) {
+  const strategy = ['model-only', 'local-only'].includes(options.strategy) ? options.strategy : '';
   const scopes = (Array.isArray(groups) ? groups : []).map((group, index) => ({
     id: String(group.id || `group-${index + 1}`),
     title: String(group.title || group.cat2 || group.cat1 || `\u5206\u7c7b ${index + 1}`),
     cat1: String(group.cat1 || ''),
     cat2: String(group.cat2 || ''),
-    content: String(group.content || '').slice(0, 1600),
+    content: String(group.content || '').slice(0, 12000),
   })).filter((group) => group.cat1 && group.content.trim());
-  const parsedGroups = await Promise.all(scopes.map((scope) => parseAiOrderGroup(scope, db.products)));
+  const parsedGroups = await Promise.all(scopes.map((scope) => parseAiOrderGroup(scope, db.products, strategy)));
   const items = parsedGroups.reduce((all, groupItems) => all.concat(groupItems), []);
   if (!items.length) throw new Error('\u672a\u80fd\u4ece\u6750\u6599\u6587\u672c\u4e2d\u89e3\u6790\u51fa\u5546\u54c1\uff0c\u8bf7\u68c0\u67e5\u8f93\u5165\u5185\u5bb9');
   const content = scopes.map((scope) => scope.content).join('\n');
@@ -4785,7 +4804,8 @@ async function handleApi(req, res) {
     if (customerId && !customer) return sendError(res, 400, "客户不存在");
     if (customer && user.role === "销售人员" && customer.ownerId !== user.id) return sendError(res, 403, "无权查看该客户的购买习惯");
     try {
-      const draft = await buildAiOrderDraft(db, groups, customerId);
+      const strategy = ['model-only', 'local-only'].includes(payload.strategy) ? payload.strategy : '';
+      const draft = await buildAiOrderDraft(db, groups, customerId, { strategy });
       return sendJson(res, 200, draft);
     } catch (error) {
       console.error(`[AI order] ${new Date().toISOString()} ${error && error.stack ? error.stack : error}`);
@@ -5173,6 +5193,9 @@ module.exports.matchProductCandidates = matchProductCandidates;
 module.exports.fallbackParseOrderText = fallbackParseOrderText;
 module.exports.parseAiSourcePart = parseAiSourcePart;
 module.exports.mergeAiParsedItems = mergeAiParsedItems;
+module.exports.localParseAiOrderGroup = localParseAiOrderGroup;
+module.exports.parseAiOrderGroup = parseAiOrderGroup;
+module.exports.buildAiOrderDraft = buildAiOrderDraft;
 module.exports.productQuantityUnitInfo = productQuantityUnitInfo;
 module.exports.resolveAiQuantityForProduct = resolveAiQuantityForProduct;
 module.exports.buildAiRecommendationContext = buildAiRecommendationContext;
