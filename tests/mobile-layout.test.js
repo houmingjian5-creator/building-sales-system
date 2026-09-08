@@ -123,7 +123,7 @@ assert(aiResultActivation.includes("mobile-editor-open"), "手机点击 AI 识�
 assert(!aiResultActivation.includes("modalBody.scrollTo"), "手机点击 AI 识别商品不得滚动到页面下方编辑区");
 assert(mobileAiStyles.includes(".mobile-v2 .ai-master-detail.mobile-editor-open .ai-result-detail"), "最终生效的手机样式必须显示 AI 编辑抽屉");
 assert(mobileAiStyles.includes("width: min(90%, 430px)") && mobileAiStyles.includes("transform: translateX(100%)"), "手机 AI 编辑抽屉必须从右侧保留部分商品列表上下文");
-assert(indexSource.includes("app.js?v=20260903-ai-minimize-1") && indexSource.includes("styles.css?v=20260903-ai-minimize-1") && indexSource.includes("mobile-v2.css?v=20260817-1"), "手机端更新必须使用新的静态资源版本，避免继续命中旧缓存");
+assert(indexSource.includes("app.js?v=20260903-ai-minimize-1") && indexSource.includes("styles.css?v=20260903-ai-minimize-1") && indexSource.includes("mobile-v2.css?v=20260908-dashboard-1"), "手机端更新必须使用新的静态资源版本，避免继续命中旧缓存");
 assert(stylesSource.includes(".ai-progress-groups") && stylesSource.includes("overflow-x: auto"), "多分类识别进度在手机端必须可横向滚动，不能撑宽页面");
 assert(stylesSource.includes(".ai-clear-confirm-backdrop") && stylesSource.includes("calc(12px + env(safe-area-inset-bottom))"), "手机端清空确认卡必须避开底部安全区");
 assert(appSource.includes('class="edit-order-mobile-summary"'), "手机订单编辑必须提供紧凑商品清单行");
@@ -137,7 +137,9 @@ assert(appSource.includes('class="mobile-page-more"'), "手机产品页低频批
 assert(appSource.includes('class="cart-line-delete"'), "购物车删除按钮必须独立于单价和数量控制行");
 assert(appSource.includes('class="cart-price-input"'), "购物车单价必须使用横向金额输入容器");
 assert(mobileV2Source.includes(".month-metrics .dashboard-metric:first-child"), "E 版概览必须突出本月销售额主指标");
-assert(mobileV2Source.includes("grid-template-columns: repeat(3,minmax(0,1fr))"), "E 版概览其余三个月度指标必须紧凑同排");
+assert(mobileV2Source.includes("grid-template-columns: repeat(2,minmax(0,1fr))"), "概览四个辅助月度指标必须使用两列等宽布局");
+assert(indexSource.includes("viewport-fit=cover"), "手机首页必须适配全面屏顶部安全区");
+assert(mobileV2Source.includes("max(env(safe-area-inset-top), 6px)"), "手机顶栏必须为状态栏保留安全距离");
 assert(appSource.includes("toggleMobileFilter('orders')"), "手机订单状态、付款状态和销售人员必须进入筛选抽屉");
 assert(mobileV2Source.includes("grid-template-columns: 42px minmax(0,1fr) 64px auto"), "A 版产品行必须为图片、信息、价格状态和操作保留独立列");
 assert(mobileV2Source.includes(".customer-actions-mobile"), "A 版客户行必须使用主操作加更多菜单");

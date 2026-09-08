@@ -51,9 +51,9 @@
     z-index: 40;
     display: flex;
     align-items: center;
-    min-height: var(--m-header);
-    height: var(--m-header);
-    padding: 0 var(--m-space-3);
+    min-height: calc(var(--m-header) + max(env(safe-area-inset-top), 6px));
+    height: auto;
+    padding: max(env(safe-area-inset-top), 6px) var(--m-space-3) 0;
     border-bottom: 1px solid var(--m-line);
     background: rgba(255,255,255,.96);
     backdrop-filter: blur(12px);
@@ -183,43 +183,58 @@
   .mobile-v2 .mobile-page-more button.danger,
   .mobile-v2 .mobile-row-more button.danger { color: #dc3545; }
 
-  /* Dashboard: E direction, one hero amount + three compact month metrics. */
+  /* Dashboard: one hero amount + four equal supporting metrics. */
   .mobile-v2.route-dashboard .topbar { color: #fff; background: var(--m-blue); border-color: var(--m-blue); }
   .mobile-v2.route-dashboard .topbar h1 { color: #fff; }
-  .mobile-v2.route-dashboard .dashboard-metrics { gap: 4px; padding: 0; }
-  .mobile-v2.route-dashboard .dashboard-filter-row { gap: 3px; margin-bottom: 2px; }
-  .mobile-v2.route-dashboard .dashboard-filter-row > span { font-size: 10px; }
-  .mobile-v2.route-dashboard .dashboard-sales-filter { margin-bottom: 4px; }
+  .mobile-v2.route-dashboard .content { padding: 10px 10px calc(var(--m-nav) + 16px + env(safe-area-inset-bottom)); }
+  .mobile-v2.route-dashboard .dashboard-metrics { gap: 8px; padding: 0; }
+  .mobile-v2.route-dashboard .dashboard-filter-row { display: grid; gap: 4px; margin: 0; }
+  .mobile-v2.route-dashboard .dashboard-filter-row > span { font-size: 11px; }
+  .mobile-v2.route-dashboard .dashboard-sales-filter { width: 100%; margin: 0; }
   .mobile-v2.route-dashboard .dashboard-sales-filter label { margin-bottom: 3px; font-size: 11px; }
-  .mobile-v2.route-dashboard .dashboard-sales-filter .select { height: 38px; min-height: 38px; }
-  .mobile-v2.route-dashboard .dashboard-section-head { margin: 8px 2px 4px; }
-  .mobile-v2.route-dashboard .dashboard-section-head strong { font-size: 15px; }
+  .mobile-v2.route-dashboard .dashboard-sales-filter .select { height: 42px; min-height: 42px; }
+  .mobile-v2.route-dashboard .dashboard-analytics-entry {
+    display: grid;
+    grid-template-columns: minmax(0,1fr) auto;
+    align-items: center;
+    gap: 8px;
+    margin: 2px 0 0;
+    padding: 10px 11px;
+    border-radius: 12px;
+  }
+  .mobile-v2.route-dashboard .dashboard-analytics-entry strong { font-size: 12px; }
+  .mobile-v2.route-dashboard .dashboard-analytics-entry span { display: none; }
+  .mobile-v2.route-dashboard .dashboard-analytics-entry .btn { min-height: 36px; padding: 6px 10px; font-size: 11px; white-space: nowrap; }
+  .mobile-v2.route-dashboard .dashboard-section-head { margin: 10px 2px 2px; }
+  .mobile-v2.route-dashboard .dashboard-section-head strong { font-size: 17px; }
   .mobile-v2.route-dashboard .dashboard-section-head span { font-size: 11px; }
   .mobile-v2.route-dashboard .dashboard-metric-grid.month-metrics {
     display: grid;
-    grid-template-columns: repeat(3,minmax(0,1fr));
-    gap: 5px;
+    grid-template-columns: repeat(2,minmax(0,1fr));
+    gap: 8px;
     overflow: visible;
   }
   .mobile-v2.route-dashboard .month-metrics .dashboard-metric {
+    grid-column: auto;
     min-width: 0;
-    min-height: 62px;
-    padding: 6px 5px;
-    border-radius: 9px;
+    width: 100%;
+    min-height: 82px;
+    padding: 10px 8px;
+    border-radius: 12px;
   }
   .mobile-v2.route-dashboard .month-metrics .dashboard-metric:first-child {
     grid-column: 1/-1;
-    min-height: 72px;
-    padding: 10px 12px;
+    min-height: 96px;
+    padding: 14px 16px;
     background: linear-gradient(135deg,#315de5,#5079ed);
     border-color: transparent;
     color: #fff;
   }
   .mobile-v2.route-dashboard .month-metrics .dashboard-metric:first-child .dashboard-metric-label,
   .mobile-v2.route-dashboard .month-metrics .dashboard-metric:first-child .dashboard-metric-value { color: #fff; }
-  .mobile-v2.route-dashboard .month-metrics .dashboard-metric:first-child .dashboard-metric-value { margin-top: 2px; font-size: 25px; }
-  .mobile-v2.route-dashboard .dashboard-metric-label { font-size: 10px; line-height: 1.25; }
-  .mobile-v2.route-dashboard .month-metrics .dashboard-metric-value { margin-top: 2px; font-size: 17px; line-height: 1.1; white-space: nowrap; }
+  .mobile-v2.route-dashboard .month-metrics .dashboard-metric:first-child .dashboard-metric-value { margin-top: 7px; font-size: clamp(27px, 8vw, 36px); }
+  .mobile-v2.route-dashboard .dashboard-metric-label { font-size: 11px; line-height: 1.25; }
+  .mobile-v2.route-dashboard .month-metrics .dashboard-metric-value { margin-top: 5px; max-width: 100%; font-size: clamp(17px, 5vw, 23px); line-height: 1.1; white-space: nowrap; }
   .mobile-v2.route-dashboard .dashboard-metric-note { display: none; }
   .mobile-v2.route-dashboard .month-metrics .dashboard-metric:not(:first-child),
   .mobile-v2.route-dashboard .today-metrics .dashboard-metric { display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; }
@@ -229,9 +244,9 @@
     order: -1;
     display: grid;
     place-items: center;
-    width: 23px;
-    height: 23px;
-    margin-bottom: 3px;
+    width: 26px;
+    height: 26px;
+    margin-bottom: 5px;
     border-radius: 50%;
     font-size: 10px;
     font-weight: 800;
@@ -243,8 +258,9 @@
   .mobile-v2.route-dashboard .dashboard-metric.green .dashboard-metric-icon { color: #16845f; background: #e2f7ef; }
   .mobile-v2.route-dashboard .dashboard-metric.gold .dashboard-metric-icon { color: #a36b00; background: #fff4d8; }
   .mobile-v2.route-dashboard .dashboard-metric.red .dashboard-metric-icon { color: #c44855; background: #ffe8eb; }
-  .mobile-v2.route-dashboard .today-metrics { display: grid; grid-template-columns: repeat(3,minmax(0,1fr)); gap: 5px; }
-  .mobile-v2.route-dashboard .today-metrics .dashboard-metric { min-height: 62px; padding: 5px 4px; }
+  .mobile-v2.route-dashboard .dashboard-metric.receivable .dashboard-metric-icon { color: #a36b00; background: #fff4d8; }
+  .mobile-v2.route-dashboard .today-metrics { display: grid; grid-template-columns: repeat(3,minmax(0,1fr)); gap: 6px; }
+  .mobile-v2.route-dashboard .today-metrics .dashboard-metric { min-height: 72px; padding: 7px 4px; }
   .mobile-v2.route-dashboard .today-metrics .dashboard-metric-value { margin-top: 2px; font-size: 15px; white-space: nowrap; }
   .mobile-v2 .dashboard-trend-card { margin-top: 6px; padding: 8px 9px 3px; border-radius: 10px; box-shadow: none; }
   .mobile-v2 .dashboard-trend-head strong { font-size: 14px; }
