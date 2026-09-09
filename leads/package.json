@@ -1,0 +1,7 @@
+{
+  "name": "building-sales-leads-runtime",
+  "version": "1.0.0",
+  "private": true,
+  "engines": { "node": ">=12" },
+  "dependencies": { "mysql2": "3.14.5" }
+}

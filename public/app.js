@@ -543,6 +543,7 @@ function render() {
           ${navButton("dashboard", "销售概览")}
           ${navButton("analytics", "数据分析")}
           ${navButton("customers", "客户管理")}
+          ${state.leadsCapability && state.leadsCapability.enabled ? navButton("leads", "外呼管理") : ""}
           ${navButton("products", "产品管理")}
           ${navButton("create", "销售开单")}
           ${navButton("orders", "订单管理")}
@@ -598,6 +599,7 @@ async function boot() {
 }
 
 async function logout() {
+  if (typeof resetLeads === "function") resetLeads();
   persistCart(state.orderType, true);
   try {
     await apiFetch("/api/logout", { method: "POST" });
@@ -693,6 +695,7 @@ function renderMobileMoreSheet() {var _state$user2, _state$user3;
           <button type="button" class="mobile-assistant-entry" onclick="openXiaocai()"><span class="nav-icon"><img src="./assets/xiaocai.png" alt="" /></span><span>小材 AI 助手</span></button>
           ${mobileMoreRouteButton("analytics", "数据分析")}
           ${mobileMoreRouteButton("products", "产品管理")}
+          ${state.leadsCapability && state.leadsCapability.enabled ? mobileMoreRouteButton("leads", "外呼管理") : ""}
           ${mobileMoreRouteButton("returns", "退货开单")}
           ${isAdmin() ? mobileMoreRouteButton("users", "人员管理") : ""}
           ${isAdmin() ? mobileMoreRouteButton("costs", "成本控制") : ""}
@@ -835,14 +838,17 @@ function desktopCartButton() {
 }
 
 function titleForRoute() {
+  if (state.route === "leads") return "外呼管理";
   return { dashboard: "销售概览", analytics: "数据分析", customers: "客户管理", products: "产品管理", create: "销售开单", orders: "订单管理", returns: "退货单", users: "人员管理", costs: "成本控制", audit: "操作日志" }[state.route];
 }
 
 function subtitleForRoute() {
+  if (state.route === "leads") return "公海领取、私海跟进与客户资源关联";
   return { dashboard: "查看本月与今日销售、客户和订单数据", analytics: "查看业绩趋势、客户增长与复购情况", customers: "管理客户信息和成交记录", products: "管理建材商品信息与价格", create: "选择客户和商品生成销售单", orders: "管理订单状态、打印和导出", returns: "从销售流程中创建退货单", users: "添加登录人员，维护手机号、密码和角色定位", costs: "核算订单材料成本、运输成本与实际盈利", audit: "查询关键业务操作与错误请求编号" }[state.route];
 }
 
 function renderPage() {
+  if (state.route === "leads") return renderLeads();
   if (state.route === "dashboard") return renderDashboardRemote();
   if (state.route === "analytics") return renderAnalytics();
   if (state.route === "customers") return renderCustomers();
@@ -2187,6 +2193,14 @@ async function saveCustomer(id) {var _document$getElementB6, _document$getElemen
     return;
   }
   try {
+    if (!id && state.leadsCapability && state.leadsCapability.active) {
+      const membership = await leadRequest("lookup", { phone: payload.phone });
+      if (membership.location === "other") throw new Error("该客户已在其他销售名下，只有管理员可以修改所属。请在客户管理中处理。");
+      if (membership.location === "public") {
+        if (!confirm("该号码在公海，是否纳入本人名下并关联正式客户？将占用一个私海名额。")) return;
+        payload.claimPublic = true;
+      }
+    }
     const response = await apiFetch(id ? `/api/customers/${encodeURIComponent(id)}` : "/api/customers", {
       method: id ? "PATCH" : "POST",
       headers: { "content-type": "application/json" },
@@ -3276,6 +3290,8 @@ async function loadBootstrap() {var _state$user9, _activeSalesUsers$2;
   const data = await response.json();
   state.user = data.user;
   salesUsers = data.users || [];
+  state.leadsCapability = data.leads || { enabled: false, active: false };
+  if (typeof resetLeads === "function") resetLeads();
   customers = [];
   products = [];
   orders = [];
@@ -3458,6 +3474,7 @@ async function loadOrders() {
 
 async function loadRouteData(route, force = false) {
   try {
+    if (route === "leads") return await loadLeads();
     if (route === "dashboard") return await loadDashboard(force);
     if (route === "analytics") return await loadAnalytics(force);
     if (route === "customers") await loadCustomers();

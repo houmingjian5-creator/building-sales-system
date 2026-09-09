@@ -4,6 +4,10 @@ const fs = require("fs");
 const path = require("path");
 const crypto = require("crypto");
 const XlsxPopulate = require("xlsx-populate");
+const leadModule = require("./leads")({
+  readDb, writeDb, normalizeCustomerPhone, customerOrderMatchesCustomer, customerStatsPayload,
+  preserveCustomerOrderSnapshots, requireUser, readBody, sendJson, sendError, enqueueDbMutation, appendAuditLog,
+});
 
 const ROOT = __dirname;
 const PUBLIC_DIR = path.join(ROOT, "public");
@@ -4182,6 +4186,7 @@ function serveStatic(req, res) {
 async function handleApi(req, res) {
   const url = new URL(req.url, `http://${req.headers.host}`);
   const method = req.method;
+  if (await leadModule.handle(req, res, url)) return;
 
   if (method === "GET" && url.pathname === "/api/health") {
     return sendJson(res, 200, {
@@ -4372,6 +4377,7 @@ async function handleApi(req, res) {
       Object.keys(categoryMap).forEach((key) => categoryMap[key].sort((a, b) => a.localeCompare(b, "zh-CN")));
       return sendJson(res, 200, {
         user: sanitizeUser(user),
+        leads: leadModule.capability(user),
         users: db.users.map(sanitizeUser),
         categories: categoryMap,
         counts: {
@@ -5106,6 +5112,7 @@ async function handleApi(req, res) {
 function isSerializedMutation(req) {
   if (["GET", "HEAD", "OPTIONS"].includes(req.method)) return false;
   const pathname = new URL(req.url, `http://${req.headers.host || "localhost"}`).pathname;
+  if (pathname.startsWith("/api/leads/")) return false;
   if (pathname.startsWith("/api/assistant/")) return false;
   if (pathname.startsWith("/api/ai/")) return false;
   if (pathname === "/api/logout") return false;
@@ -5189,6 +5196,7 @@ if (require.main === module) {
 }
 
 module.exports = server;
+module.exports.isSerializedMutation = isSerializedMutation;
 module.exports.matchProductCandidates = matchProductCandidates;
 module.exports.fallbackParseOrderText = fallbackParseOrderText;
 module.exports.parseAiSourcePart = parseAiSourcePart;

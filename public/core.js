@@ -34,6 +34,7 @@ async function apiFetch(input, options = {}) {
     if (response.status === 401 && path.indexOf("/api/login") < 0 && state.user) {
       if (typeof persistCart === "function") persistCart(state.orderType, true);
       state.user = null;
+      if (typeof resetLeads === "function") resetLeads();
       state.route = "dashboard";
       state.auditItems = [];
       state.toast = "登录状态已失效，请重新登录";
