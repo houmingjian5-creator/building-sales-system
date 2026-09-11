@@ -280,5 +280,22 @@ module.exports = function service(db, secrets, legacy) {
     const offset = Math.max(0, Math.min(100000, (parseInt(page, 10) || 1) - 1)) * 50;
     return { items: await q("SELECT id,request_id,actor_id,action,lead_id,created_at FROM lead_audit ORDER BY created_at DESC,id DESC LIMIT 50 OFFSET " + offset) };
   }
-  return { ready, list, detail, move, follow, lookup, dial, saveCustomer, recover, migration, stats, audits, insert, audit, payloadPhone };
+  async function doNotCall(user, page) {
+    if (!D.admin(user)) D.fail(403, "只有管理员可以查看拒绝联系名单");
+    await ready();
+    const currentPage = Math.max(1, Math.min(2000, parseInt(page, 10) || 1));
+    const size = 50, offset = (currentPage - 1) * size;
+    const count = await q("SELECT COUNT(*) AS n FROM lead_do_not_call");
+    const rows = await q("SELECT d.reason,d.actor_id,d.created_at,r.id AS lead_id,r.phone_mask,r.name,r.owner_id FROM lead_do_not_call d LEFT JOIN lead_resources r ON r.phone_key=d.phone_key ORDER BY d.created_at DESC,d.phone_key LIMIT " + size + " OFFSET " + offset);
+    const users = legacy.readDb().users;
+    function userName(userId) {
+      const found = users.find(u => u.id === userId);
+      return found ? found.name : userId || "未知";
+    }
+    return {
+      items: rows.map(r => ({ leadId: r.lead_id, phone: r.phone_mask || "资源已不存在", name: r.name || "未关联资源", reason: r.reason || "未填写", actorName: userName(r.actor_id), ownerName: r.owner_id ? userName(r.owner_id) : "公海", createdAt: r.created_at })),
+      total: Number(count[0].n), page: currentPage, pageSize: size
+    };
+  }
+  return { ready, list, detail, move, follow, lookup, dial, saveCustomer, recover, migration, stats, audits, doNotCall, insert, audit, payloadPhone };
 };
