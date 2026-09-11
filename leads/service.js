@@ -65,7 +65,13 @@ module.exports = function service(db, secrets, legacy) {
     const size = 20;
     const scope = params.get("scope") || "public";
     const where = [], args = [];
-    if (scope === "public") where.push("r.owner_id IS NULL");
+    if (scope === "public") {
+      where.push("r.owner_id IS NULL");
+      // The public pool is an actionable claim queue. Keep do-not-call records
+      // available to administrators in the global view, but never offer them
+      // to salespeople (or include them in a batch claim).
+      where.push("NOT EXISTS(SELECT 1 FROM lead_do_not_call d WHERE d.phone_key=r.phone_key)");
+    }
     else if (scope === "all" && D.admin(user)) { /* admin global list */ }
     else { where.push("r.owner_id=?"); args.push(user.id); }
     ["source", "region", "intent"].forEach(key => { if (params.get(key)) { where.push("r." + key + "=?"); args.push(D.text(params.get(key), 160)); } });
