@@ -16,7 +16,14 @@ module.exports = function imports(db, vault, service, legacy) {
       let settled = false;
       const timer = setTimeout(() => finish(new Error("文件解析超时，请拆分文件")), 30000);
       function finish(error, data) { if (settled) return; settled = true; clearTimeout(timer); parsing = false; child.kill(); if (error) reject(error); else resolve(data); }
-      child.on("message", message => finish(message.error ? new Error(message.error) : null, message.result));
+      child.on("message", message => {
+        let error = null;
+        if (message.error) {
+          error = new Error(D.text(message.error, 500) || "文件解析失败，请检查文件格式");
+          error.status = 400;
+        }
+        finish(error, message.result);
+      });
       child.on("error", error => finish(error));
       child.on("exit", () => finish(new Error("文件解析进程结束，请缩小文件后重试")));
       child.send(input);
