@@ -3,10 +3,17 @@ const crypto = require("crypto");
 const LIMIT = 500;
 const INTENTS = ["unknown", "low", "medium", "high", "invalid"];
 const RESULTS = ["connected", "no_answer", "busy", "invalid", "do_not_call", "other"];
+const TAGS = ["装修公司负责人/工长", "工人", "业主", "其他"];
 function fail(status, message) { const error = new Error(message); error.status = status; throw error; }
 function admin(user) { return Boolean(user && ["管理员", "超级管理员"].indexOf(user.role) >= 0); }
 function allowed(user) { return admin(user) || Boolean(user && user.role === "销售人员"); }
 function blocked(value) { return value === true || Number(value) === 1; }
+function tag(value, normalizeUnknown) {
+  const result = text(value, 80);
+  if (!result || TAGS.indexOf(result) >= 0) return result;
+  if (normalizeUnknown) return "其他";
+  fail(400, "请选择有效的资源标签");
+}
 function own(user, lead) { if (!admin(user) && lead.owner_id !== user.id) fail(403, "无权访问该私海资源"); }
 function text(value, max) {
   const result = String(value == null ? "" : value).trim();
@@ -59,4 +66,4 @@ function publicLead(row, user, secrets) {
   return result;
 }
 function safeCategory(value) { return /[\d+]/.test(String(value || "")) ? "已隐藏" : String(value || ""); }
-module.exports = { LIMIT, INTENTS, RESULTS, fail, admin, allowed, blocked, own, text, phone, date, vault, publicLead };
+module.exports = { LIMIT, INTENTS, RESULTS, TAGS, fail, admin, allowed, blocked, tag, own, text, phone, date, vault, publicLead };

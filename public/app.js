@@ -2195,9 +2195,17 @@ async function saveCustomer(id) {var _document$getElementB6, _document$getElemen
   try {
     if (!id && state.leadsCapability && state.leadsCapability.active) {
       const membership = await leadRequest("lookup", { phone: payload.phone });
-      if (membership.location === "other") throw new Error("该客户已在其他销售名下，只有管理员可以修改所属。请在客户管理中处理。");
+      if (membership.blocked) throw new Error("该号码已禁止联系，不能新增正式客户。");
+      if (membership.location === "mine") {
+        if (!confirm("该号码已在您的私海，是否关联为本人正式客户？")) return;
+      }
+      if (membership.location === "other") {
+        if (!isAdmin()) throw new Error("该号码已在其他销售私海，请联系管理员先在外呼管理中调配资源。");
+        if (membership.ownerId !== payload.ownerId) throw new Error("该号码属于其他负责人，请先在外呼管理的全部资源中完成调配。");
+        if (!confirm("该号码已在所选负责人的私海，是否关联为正式客户？")) return;
+      }
       if (membership.location === "public") {
-        if (!confirm("该号码在公海，是否纳入本人名下并关联正式客户？将占用一个私海名额。")) return;
+        if (!confirm(isAdmin() ? "该号码在公海，是否纳入所选负责人名下并关联正式客户？将占用一个私海名额。" : "该号码在公海，是否纳入本人名下并关联正式客户？将占用一个私海名额。")) return;
         payload.claimPublic = true;
       }
     }

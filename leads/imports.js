@@ -71,7 +71,8 @@ module.exports = function imports(db, vault, service, legacy) {
         let status = "ready", message = "";
         try {
           item.phone = service.payloadPhone(item.phone);
-          fields.filter(k => k !== "phone").forEach(k => D.text(item[k], ["address", "tags"].indexOf(k) >= 0 ? 500 : 160));
+          fields.filter(k => k !== "phone" && k !== "tags").forEach(k => D.text(item[k], k === "address" ? 500 : 160));
+          item.tags = D.tag(item.tags, true);
           if (seen.has(item.phone)) { status = "duplicate"; message = "文件内重复"; }
           else if (customers.has(item.phone)) { status = "duplicate"; message = "已存在正式客户，不覆盖"; }
           else if (existing.has(vault.hash(item.phone))) { status = "duplicate"; message = "资源库已存在，不覆盖"; }

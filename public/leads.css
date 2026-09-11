@@ -14,4 +14,10 @@
 .lead-mapping select { width:100%; }
 .lead-note { color:#536277; line-height:1.6; }
 .lead-phone { font-size:20px; font-variant-numeric:tabular-nums; }
+.lead-owner-filter { flex-basis:100%; }
+.lead-detail-head { display:flex; align-items:flex-start; justify-content:space-between; gap:16px; }
+.lead-detail-head h2 { margin-bottom:8px; }
+.lead-fixed-tag { width:min(240px,48%); font-weight:600; }
+.lead-add-drawer { max-width:480px; }
+@media(max-width:720px) { .lead-detail-head { display:block; } .lead-fixed-tag { width:100%; margin-top:12px; } }
 @media(max-width:600px) { .lead-grid { grid-template-columns:minmax(0,1fr); } .lead-drawer { padding:16px; } .lead-actions .btn { flex:1 1 auto; } }

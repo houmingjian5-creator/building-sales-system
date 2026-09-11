@@ -1,12 +1,13 @@
 /* No phone data is persisted in browser storage. */
 let leadsState;
-function resetLeads() { leadsState = { tab: "public", page: 1, items: [], selected: [], detail: null, total: 0, error: "", filters: {}, imports: [], batch: null, mapping: null, stats: null, blocked: [], busy: false }; }
+function resetLeads() { leadsState = { tab: "public", page: 1, items: [], selected: [], detail: null, adding: false, total: 0, error: "", filters: {}, imports: [], batch: null, mapping: null, stats: null, blocked: [], busy: false }; }
 resetLeads();
-const leadLabels = { unknown: "未判断", low: "低意向", medium: "中意向", high: "高意向", invalid: "无效", connected: "有效接通", no_answer: "未接", busy: "占线", do_not_call: "拒绝联系", other: "其他", claim: "领取", return: "退回", assign: "分配", recycle: "回收", convert_customer: "转客户", update_customer: "更新客户", migrate_customer: "历史客户关联", unlink_customer: "解除客户关联", ready: "待导入", success: "成功", duplicate: "重复", raw: "未映射", processing: "处理中", preview: "已预览", mapping: "待映射", done: "完成" };
+const leadTags = ["装修公司负责人/工长", "工人", "业主", "其他"];
+const leadLabels = { unknown: "未判断", low: "低意向", medium: "中意向", high: "高意向", invalid: "无效", connected: "有效接通", no_answer: "未接", busy: "占线", do_not_call: "拒绝联系", other: "其他", claim: "领取", return: "退回", assign: "分配", recycle: "回收", manual_create: "手工新增", manual_claim: "手工领取", update_tag: "修改标签", convert_customer: "转客户", update_customer: "更新客户", migrate_customer: "历史客户关联", unlink_customer: "解除客户关联", ready: "待导入", success: "成功", duplicate: "重复", raw: "未映射", processing: "处理中", preview: "已预览", mapping: "待映射", done: "完成" };
 function leadTime(value) { return value ? new Date(value).toLocaleString("zh-CN", { timeZone: "Asia/Shanghai" }) : "未设置"; }
-async function leadRequest(path, payload, key) {
+async function leadRequest(path, payload, key, method) {
   const actor = state.user && state.user.id;
-  const options = payload === undefined ? {} : { method: "POST", headers: { "content-type": "application/json", "x-idempotency-key": key || Array.from(crypto.getRandomValues(new Uint8Array(16))).map(v => v.toString(16).padStart(2, "0")).join("") }, body: JSON.stringify(payload), timeoutMs: 60000 };
+  const options = payload === undefined ? {} : { method: method || "POST", headers: { "content-type": "application/json", "x-idempotency-key": key || Array.from(crypto.getRandomValues(new Uint8Array(16))).map(v => v.toString(16).padStart(2, "0")).join("") }, body: JSON.stringify(payload), timeoutMs: 60000 };
   const response = await apiFetch("/api/leads/" + path, options);
   const data = await response.json();
   if (!state.user || state.user.id !== actor) throw new Error("登录账号已变化，请重新打开资源页面");
@@ -43,13 +44,16 @@ async function loadLeads() {
 }
 function leadTab(tab) { leadsState.tab = tab; leadsState.page = 1; leadsState.selected = []; leadsState.detail = null; leadsState.filters = {}; loadLeads(); }
 function leadFilter() {
-  ["source", "region", "tag", "intent", "due"].forEach(key => { const el = document.getElementById("lead-filter-" + key); leadsState.filters[key] = el ? el.value : ""; });
+  ["tag", "intent", "due", "followed"].forEach(key => { const el = document.getElementById("lead-filter-" + key); leadsState.filters[key] = el ? el.value : ""; });
   ["from", "to"].forEach(key => { const value = document.getElementById("lead-filter-" + key).value; leadsState.filters[key] = value ? new Date(value + (key === "from" ? "T00:00:00+08:00" : "T23:59:59+08:00")).toISOString() : ""; });
   leadsState.page = 1; leadsState.selected = []; loadLeads();
 }
+function leadOwnerFilter(value) { leadsState.filters.owner = value; leadsState.page = 1; leadsState.selected = []; loadLeads(); }
 function leadSelect(id, checked) { leadsState.selected = checked ? Array.from(new Set(leadsState.selected.concat(id))) : leadsState.selected.filter(x => x !== id); }
 function leadPage(delta) { leadsState.page = Math.max(1, leadsState.page + delta); leadsState.selected = []; loadLeads(); }
 function leadOptions(keys, selected) { return keys.map(k => `<option value="${k}" ${k === selected ? "selected" : ""}>${leadLabels[k]}</option>`).join(""); }
+function leadTagOptions(selected, allLabel) { return `<option value="">${allLabel || "未设置"}</option>` + leadTags.map(tag => `<option value="${html(tag)}" ${tag === selected ? "selected" : ""}>${html(tag)}</option>`).join(""); }
+function leadFilterTagOptions(selected) { return `<option value="">全部标签</option><option value="unset" ${selected === "unset" ? "selected" : ""}>未设置</option>` + leadTags.map(tag => `<option value="${html(tag)}" ${tag === selected ? "selected" : ""}>${html(tag)}</option>`).join(""); }
 function renderLeads() {
   if (!state.leadsCapability || !state.leadsCapability.enabled) return "<p>没有外呼资源权限</p>";
   const tabs = [["public", "公海池"], ["mine", "我的私海"], ["tasks", "跟进任务"]].concat(isAdmin() ? [["all", "全部资源"], ["imports", "资源导入"], ["blocked", "拒绝联系"], ["stats", "外呼数据"], ["audit", "外呼日志"]] : []);
@@ -63,12 +67,13 @@ function renderLeads() {
   else if (leadsState.tab === "audit") body = renderLeadAudit();
   else {
     const f = leadsState.filters;
-    body = `<div class="lead-toolbar">${["source", "region", "tag"].map((k, i) => `<input class="input" id="lead-filter-${k}" value="${html(f[k] || "")}" placeholder="${["来源（精确）", "地区（精确）", "标签（单个）"][i]}" aria-label="筛选${k}">`).join("")}<select class="select" id="lead-filter-intent"><option value="">全部意向</option>${leadOptions(["unknown", "low", "medium", "high", "invalid"], f.intent)}</select><select class="select" id="lead-filter-due"><option value="">全部跟进</option><option value="scheduled" ${f.due === "scheduled" ? "selected" : ""}>已设任务</option><option value="overdue" ${f.due === "overdue" ? "selected" : ""}>逾期未跟进</option></select><label>创建起日<input class="input" type="date" id="lead-filter-from"></label><label>创建止日<input class="input" type="date" id="lead-filter-to"></label><button class="btn" onclick="leadFilter()">筛选</button></div>
-      <div class="lead-actions">${leadsState.tab === "public" ? '<button class="btn primary" onclick="leadMove(\'claim\')">领取选中资源</button>' : '<button class="btn" onclick="leadMove(\'return\')">退回选中资源</button>'}${isAdmin() ? `<select class="select" id="lead-assign-owner"><option value="">选择负责人</option>${salesUsers.filter(u => ["销售人员", "管理员", "超级管理员"].indexOf(u.role) >= 0 && u.status === "启用").map(u => `<option value="${html(u.id)}">${html(u.name)}</option>`).join("")}</select><button class="btn" onclick="leadMove('assign')">分配选中</button><button class="btn" onclick="leadMove('recycle')">回收选中</button>` : ""}</div>
+    const ownerOptions = salesUsers.filter(u => ["销售人员", "管理员", "超级管理员"].indexOf(u.role) >= 0 && u.status === "启用").map(u => `<option value="${html(u.id)}" ${f.owner === u.id ? "selected" : ""}>${html(u.name)}</option>`).join("");
+    body = `<div class="lead-toolbar">${leadsState.tab === "all" && isAdmin() ? `<select class="select lead-owner-filter" id="lead-filter-owner" onchange="leadOwnerFilter(this.value)"><option value="">全部负责人</option>${ownerOptions}</select>` : ""}<select class="select" id="lead-filter-tag">${leadFilterTagOptions(f.tag)}</select><select class="select" id="lead-filter-followed"><option value="">全部跟进记录</option><option value="yes" ${f.followed === "yes" ? "selected" : ""}>有跟进记录</option><option value="no" ${f.followed === "no" ? "selected" : ""}>无跟进记录</option></select><select class="select" id="lead-filter-intent"><option value="">全部意向</option>${leadOptions(["unknown", "low", "medium", "high", "invalid"], f.intent)}</select><select class="select" id="lead-filter-due"><option value="">全部跟进时间</option><option value="scheduled" ${f.due === "scheduled" ? "selected" : ""}>已设任务</option><option value="overdue" ${f.due === "overdue" ? "selected" : ""}>逾期未跟进</option></select><label>创建起日<input class="input" type="date" id="lead-filter-from" value="${html((f.from || "").slice(0, 10))}"></label><label>创建止日<input class="input" type="date" id="lead-filter-to" value="${html((f.to || "").slice(0, 10))}"></label><button class="btn" onclick="leadFilter()">筛选</button></div>
+      <div class="lead-actions">${leadsState.tab === "mine" ? '<button class="btn primary" onclick="leadAddOpen()">添加资源</button>' : ""}${leadsState.tab === "public" ? '<button class="btn primary" onclick="leadMove(\'claim\')">领取选中资源</button>' : '<button class="btn" onclick="leadMove(\'return\')">退回选中资源</button>'}${isAdmin() ? `<select class="select" id="lead-assign-owner"><option value="">分配给负责人</option>${ownerOptions}</select><button class="btn" onclick="leadMove('assign')">分配选中</button><button class="btn" onclick="leadMove('recycle')">回收选中</button>` : ""}</div>
       <p class="lead-note">私海上限500条，正式客户计入容量。公海仅显示脱敏信息；正式客户所属在客户管理中由管理员调整。</p>
-      <div class="lead-grid">${leadsState.items.map(r => `<article class="lead-card"><label><input type="checkbox" ${leadsState.selected.indexOf(r.id) >= 0 ? "checked" : ""} onchange="leadSelect('${r.id}',this.checked)"> ${html(r.name)}</label><p class="lead-phone">${html(r.phone)}</p><p>${html(leadLabels[r.intent] || r.intent)} · ${html(r.region || "未标注地区")}</p><p>下次跟进：${html(leadTime(r.nextFollowupAt))}</p>${isAdmin() || r.ownerId === state.user.id ? `<button class="btn" onclick="leadDetail('${r.id}')">详情 / 跟进</button>` : "领取后查看完整信息"}</article>`).join("") || "<p>暂无符合条件的资源</p>"}</div><div class="lead-actions"><button class="btn" onclick="leadPage(-1)" ${leadsState.page <= 1 ? "disabled" : ""}>上一页</button><span>第${leadsState.page}页，共${leadsState.total}条</span><button class="btn" onclick="leadPage(1)" ${leadsState.page * 20 >= leadsState.total ? "disabled" : ""}>下一页</button></div>`;
+      <div class="lead-grid">${leadsState.items.map(r => `<article class="lead-card"><label><input type="checkbox" ${leadsState.selected.indexOf(r.id) >= 0 ? "checked" : ""} onchange="leadSelect('${r.id}',this.checked)"> ${html(r.name)}</label><p class="lead-phone">${html(r.phone)}</p><p>${html(leadLabels[r.intent] || r.intent)} · ${html(r.region || "未标注地区")}</p><p>标签：${html(r.tags || "未设置")}</p><p>下次跟进：${html(leadTime(r.nextFollowupAt))}</p>${isAdmin() || r.ownerId === state.user.id ? `<button class="btn" onclick="leadDetail('${r.id}')">详情 / 跟进</button>` : "领取后查看完整信息"}</article>`).join("") || "<p>暂无符合条件的资源</p>"}</div><div class="lead-actions"><button class="btn" onclick="leadPage(-1)" ${leadsState.page <= 1 ? "disabled" : ""}>上一页</button><span>第${leadsState.page}页，共${leadsState.total}条</span><button class="btn" onclick="leadPage(1)" ${leadsState.page * 20 >= leadsState.total ? "disabled" : ""}>下一页</button></div>`;
   }
-  return `<section class="lead-module"><h2>外呼管理</h2><div class="lead-tabs">${tabs.map(t => `<button class="btn ${leadsState.tab === t[0] ? "primary" : ""}" onclick="leadTab('${t[0]}')">${t[1]}</button>`).join("")}</div>${leadsState.error ? `<p role="alert">${html(leadsState.error)}</p>${isAdmin() ? '<button class="btn" onclick="leadRecover()">恢复待完成的客户同步</button>' : ""}` : ""}${body}${leadsState.detail ? renderLeadDetail() : ""}</section>`;
+  return `<section class="lead-module"><h2>外呼管理</h2><div class="lead-tabs">${tabs.map(t => `<button class="btn ${leadsState.tab === t[0] ? "primary" : ""}" onclick="leadTab('${t[0]}')">${t[1]}</button>`).join("")}</div>${leadsState.error ? `<p role="alert">${html(leadsState.error)}</p>${isAdmin() ? '<button class="btn" onclick="leadRecover()">恢复待完成的客户同步</button>' : ""}` : ""}${body}${leadsState.detail ? renderLeadDetail() : ""}${leadsState.adding ? renderLeadAdd() : ""}</section>`;
 }
 function leadMove(action) { leadAction(async () => {
   if (!leadsState.selected.length) throw new Error("请先选择资源");
@@ -77,31 +82,51 @@ function leadMove(action) { leadAction(async () => {
   await leadRequest("move", { action, ids: leadsState.selected, ownerId: owner ? owner.value : "" });
   leadsState.selected = []; await loadLeads();
 }); }
+function leadAddOpen() { leadsState.adding = true; render(); }
+function renderLeadAdd() {
+  return `<div class="lead-overlay"><section class="lead-drawer lead-add-drawer" role="dialog" aria-modal="true" aria-label="添加私海资源"><button class="btn" onclick="leadsState.adding=false;render()">关闭</button><h2>添加私海资源</h2><p class="lead-note">这里只添加外呼资源，不会在客户管理中创建正式客户。</p><label>姓名（必填）<input class="input" id="lead-add-name" maxlength="160"></label><label>电话（必填）<input class="input" id="lead-add-phone" maxlength="50" inputmode="tel"></label><label>标签（可选）<select class="select" id="lead-add-tag">${leadTagOptions("", "未设置")}</select></label><button class="btn primary" onclick="leadAddSave()">保存到我的私海</button></section></div>`;
+}
+function leadAddSave() { leadAction(async () => {
+  const name = document.getElementById("lead-add-name").value.trim(), phone = document.getElementById("lead-add-phone").value.trim(), tag = document.getElementById("lead-add-tag").value;
+  if (!name || !phone) throw new Error("姓名和电话必填");
+  const membership = await leadRequest("lookup", { phone });
+  if (membership.blocked) throw new Error("该号码已禁止联系，不能添加或领取。");
+  if (membership.location === "mine") {
+    leadsState.adding = false;
+    leadsState.detail = await leadRequest("resources/" + membership.resourceId);
+    return;
+  }
+  if (membership.location === "other") throw new Error("该号码已在其他销售私海，请联系管理员调配");
+  const claimPublic = membership.location === "public";
+  if (claimPublic && !confirm("该号码已在公海，是否领取到我的私海？公海原信息将保留。")) return;
+  const result = await leadRequest("resources", { name, phone, tag, claimPublic });
+  leadsState.adding = false;
+  await loadLeads();
+  leadsState.detail = await leadRequest("resources/" + result.resourceId);
+}); }
 async function leadDetail(id, page) { await leadAction(async () => {
   const actor = state.user.id, data = await leadRequest("resources/" + id + "?page=" + (page || 1));
   if (state.user && state.user.id === actor && state.route === "leads") leadsState.detail = data;
 }); }
 function renderLeadDetail() {
   const d = leadsState.detail, r = d.resource;
-  return `<div class="lead-overlay"><section class="lead-drawer" role="dialog" aria-modal="true" aria-label="资源详情"><button class="btn" onclick="leadsState.detail=null;render()">关闭</button><h2>${html(r.name)}</h2><p class="lead-phone">${html(r.phone)}</p><p>${html(r.address || "")}</p><p>来源：${html(r.source || "未填写")} · 授权状态：${html(r.consentStatus === "unknown" || !r.consentStatus ? "待核实" : r.consentStatus)}</p><div class="lead-actions">${r.canContact ? `<a class="btn primary" href="tel:${html(r.phone)}" onclick="event.preventDefault();leadDial()">调起电话</a>` : "禁止联系"}${!r.customerId ? '<button class="btn" onclick="leadConvert()">转正式客户</button>' : '<span>已关联正式客户</span>'}</div><p class="lead-note">调起电话不代表已接通。以下结果由销售手工填写。</p>
-    <label>跟进结果<select class="select" id="lead-result">${leadOptions(["connected", "no_answer", "busy", "invalid", "do_not_call", "other"])}</select></label><label>意向<select class="select" id="lead-intent">${leadOptions(["unknown", "low", "medium", "high", "invalid"], r.intent)}</select></label><label>标签（逗号分隔）<input class="input" id="lead-tags" maxlength="500" value="${html(r.tags || "")}"></label><label>跟进内容<textarea class="input" id="lead-content" maxlength="4000"></textarea></label><label>下次跟进（北京时间）<input class="input" id="lead-next" type="datetime-local"></label><button class="btn primary" onclick="leadFollow()">保存跟进</button>
+  return `<div class="lead-overlay"><section class="lead-drawer" role="dialog" aria-modal="true" aria-label="资源详情"><button class="btn" onclick="leadsState.detail=null;render()">关闭</button><div class="lead-detail-head"><div><h2>${html(r.name)}</h2><p class="lead-phone">${html(r.phone)}</p></div><label class="lead-fixed-tag">固定标签<select class="select" id="lead-fixed-tag" onchange="leadTagSave(this)">${leadTagOptions(r.tags, "未设置")}</select></label></div><p>${html(r.address || "")}</p><p>来源：${html(r.source || "未填写")} · 授权状态：${html(r.consentStatus === "unknown" || !r.consentStatus ? "待核实" : r.consentStatus)}</p><div class="lead-actions">${r.canContact ? `<a class="btn primary" href="tel:${html(r.phone)}" onclick="event.preventDefault();leadDial()">调起电话</a>` : "禁止联系"}${r.customerId ? '<span>已关联正式客户</span>' : '<span>正式客户请在客户管理中新增</span>'}</div><p class="lead-note">调起电话不代表已接通。以下结果由销售手工填写。</p>
+    <label>跟进结果<select class="select" id="lead-result">${leadOptions(["connected", "no_answer", "busy", "invalid", "do_not_call", "other"])}</select></label><label>意向<select class="select" id="lead-intent">${leadOptions(["unknown", "low", "medium", "high", "invalid"], r.intent)}</select></label><label>跟进内容<textarea class="input" id="lead-content" maxlength="4000"></textarea></label><label>下次跟进（北京时间）<input class="input" id="lead-next" type="datetime-local"></label><button class="btn primary" onclick="leadFollow()">保存跟进</button>
     <h3>跟进历史</h3>${d.followups.map(f => `<div class="lead-history"><b>${html(f.actor_name)}</b> · ${html(leadTime(f.created_at))}<p>${html(leadLabels[f.result] || f.result)}</p><p>${html(f.content)}</p></div>`).join("") || "暂无记录"}<h3>流转历史</h3>${d.movements.map(m => `<p>${html(leadTime(m.created_at))} ${html(m.actor_name)}：${html(leadLabels[m.action] || m.action)}</p>`).join("")}<h3>关联订单摘要（${d.orderTotal}）</h3>${d.orders.map(o => `<p>${html(o.no || o.id)} · ${html(o.status)} · ${html(o.date)} · ¥${html(String(o.amount || 0))}</p>`).join("") || "暂无关联订单"}<div class="lead-actions"><button class="btn" ${d.historyPage <= 1 ? "disabled" : ""} onclick="leadDetail('${r.id}',${d.historyPage - 1})">上一页历史</button><span>第${d.historyPage}页</span><button class="btn" ${Math.max(d.followups.length, d.movements.length, d.orders.length) < 50 ? "disabled" : ""} onclick="leadDetail('${r.id}',${d.historyPage + 1})">下一页历史</button></div></section></div>`;
 }
+function leadTagSave(select) { leadAction(async () => {
+  const r = leadsState.detail.resource;
+  select.disabled = true;
+  const result = await leadRequest("resources/" + r.id, { tag: select.value, version: r.version }, null, "PATCH");
+  r.tags = result.tag; r.version = result.version;
+  leadsState.items.forEach(item => { if (item.id === r.id) item.tags = result.tag; });
+  showToast("资源标签已更新");
+}); }
 function leadFollow() { leadAction(async () => {
   const r = leadsState.detail.resource, time = document.getElementById("lead-next").value;
-  await leadRequest("resources/" + r.id + "/followups", { result: document.getElementById("lead-result").value, intent: document.getElementById("lead-intent").value, content: document.getElementById("lead-content").value, tags: document.getElementById("lead-tags").value, nextFollowupAt: time ? new Date(time + ":00+08:00").toISOString() : null });
+  await leadRequest("resources/" + r.id + "/followups", { result: document.getElementById("lead-result").value, intent: document.getElementById("lead-intent").value, content: document.getElementById("lead-content").value, nextFollowupAt: time ? new Date(time + ":00+08:00").toISOString() : null });
   leadsState.detail = await leadRequest("resources/" + r.id); await loadLeads();
 }); }
-function leadConvert() {
-  const r = leadsState.detail.resource;
-  if (!r.ownerId) return alert("请先领取资源再转客户");
-  if (!confirm("将此资源转为正式客户？已有资源不会重复占用名额。")) return;
-  leadAction(async () => {
-    const response = await apiFetch("/api/customers", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ name: r.name, phone: r.phone, contact: r.contact, address: r.address, ownerId: r.ownerId }) });
-    const data = await response.json(); if (!response.ok) throw new Error(data.error);
-    leadsState.detail = await leadRequest("resources/" + r.id); await loadLeads();
-  });
-}
 function leadRecover() { leadAction(async () => { if (confirm("按已记录的客户修改恢复同步？")) { await leadRequest("recover", {}); await loadLeads(); } }); }
 function leadInitialize() { leadAction(async () => {
   if (!confirm("请先确认维护窗口内已暂停客户修改，且已审阅核对报告。现在在MySQL补建现有客户资源？原客户数据不会修改。")) return;

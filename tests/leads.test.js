@@ -13,6 +13,10 @@ async function run() {
   assert.strictEqual(D.date("2026-09-09T12:00:00+08:00").toISOString(), "2026-09-09T04:00:00.000Z");
   assert.strictEqual(D.allowed({ role: "财务" }), false);
   assert.strictEqual(D.allowed({ role: "unknown" }), false);
+  assert.deepStrictEqual(D.TAGS, ["装修公司负责人/工长", "工人", "业主", "其他"]);
+  assert.strictEqual(D.tag("业主"), "业主");
+  assert.strictEqual(D.tag("旧分类", true), "其他");
+  assert.throws(() => D.tag("旧分类"));
   assert.throws(() => D.own(b, { owner_id: "a" }));
   const encrypted = secrets.encrypt("13800000001");
   assert.strictEqual(secrets.decrypt(encrypted), "13800000001");
@@ -38,6 +42,15 @@ async function run() {
   // on the legacy JSON queue; customer changes continue using that queue.
   assert.strictEqual(server.isSerializedMutation({ method: "POST", url: "/api/leads/move", headers: {} }), false);
   assert.strictEqual(server.isSerializedMutation({ method: "POST", url: "/api/customers", headers: {} }), true);
+  const ui = require("fs").readFileSync(require("path").join(__dirname, "..", "public", "leads.js"), "utf8");
+  const customerUi = require("fs").readFileSync(require("path").join(__dirname, "..", "public", "app.js"), "utf8");
+  assert(!ui.includes('id="lead-filter-source"') && !ui.includes('id="lead-filter-region"'));
+  assert(ui.includes('id="lead-filter-tag"') && ui.includes('id="lead-filter-followed"'));
+  assert(ui.includes('id="lead-filter-owner"') && ui.includes('id="lead-assign-owner"'), "owner filter and assignment target stay separate");
+  assert(ui.includes("leadAddSave") && ui.includes("leadTagSave"));
+  assert(ui.includes('null, "PATCH"'), "fixed tag must call the PATCH endpoint");
+  assert(!ui.includes("leadConvert("), "lead details must not convert formal customers");
+  assert(customerUi.includes("该号码已在您的私海") && customerUi.includes("该号码在公海") && customerUi.includes("该号码已在其他销售私海"));
   console.log("lead privacy, normalization, import and routing tests passed");
 }
 run().catch(error => { console.error(error); process.exitCode = 1; });

@@ -41,7 +41,7 @@ module.exports = function service(db, secrets, legacy) {
     const number = payloadPhone(input.phone);
     const leadId = id();
     await q("INSERT INTO lead_resources (id,phone_key,phone_cipher,phone_mask,name,contact,address,source,region,tags,owner_id,customer_id,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,UTC_TIMESTAMP(),UTC_TIMESTAMP())",
-      [leadId, secrets.hash(number), secrets.encrypt(number), number.slice(0, 3) + "****" + number.slice(-4), D.text(input.name || "未命名", 160), D.text(input.contact, 160), D.text(input.address, 500), D.text(input.source, 160), D.text(input.region, 160), D.text(input.tags, 500), owner || null, customerId || null], c);
+      [leadId, secrets.hash(number), secrets.encrypt(number), number.slice(0, 3) + "****" + number.slice(-4), D.text(input.name || "未命名", 160), D.text(input.contact, 160), D.text(input.address, 500), D.text(input.source, 160), D.text(input.region, 160), D.tag(input.tags, true), owner || null, customerId || null], c);
     return leadId;
   }
   async function mutate(user, requestId, payload, task) {
@@ -64,7 +64,9 @@ module.exports = function service(db, secrets, legacy) {
     const page = Math.max(1, Math.min(2500, parseInt(params.get("page"), 10) || 1));
     const size = 20;
     const scope = params.get("scope") || "public";
+    const owner = params.get("owner");
     const where = [], args = [];
+    if (owner && !D.admin(user)) D.fail(403, "只有管理员可以按负责人筛选");
     if (scope === "public") {
       where.push("r.owner_id IS NULL");
       // The public pool is an actionable claim queue. Keep do-not-call records
@@ -72,10 +74,15 @@ module.exports = function service(db, secrets, legacy) {
       // to salespeople (or include them in a batch claim).
       where.push("NOT EXISTS(SELECT 1 FROM lead_do_not_call d WHERE d.phone_key=r.phone_key)");
     }
-    else if (scope === "all" && D.admin(user)) { /* admin global list */ }
+    else if (scope === "all" && D.admin(user)) {
+      if (owner) { where.push("r.owner_id=?"); args.push(D.text(owner, 64)); }
+    }
     else { where.push("r.owner_id=?"); args.push(user.id); }
-    ["source", "region", "intent"].forEach(key => { if (params.get(key)) { where.push("r." + key + "=?"); args.push(D.text(params.get(key), 160)); } });
-    if (params.get("tag")) { where.push("FIND_IN_SET(?,r.tags)>0"); args.push(D.text(params.get("tag"), 80)); }
+    if (params.get("intent")) { where.push("r.intent=?"); args.push(D.text(params.get("intent"), 32)); }
+    if (params.get("tag") === "unset") where.push("(r.tags IS NULL OR TRIM(r.tags)='')");
+    else if (params.get("tag")) { where.push("r.tags=?"); args.push(D.tag(params.get("tag"))); }
+    if (params.get("followed") === "yes") where.push("EXISTS(SELECT 1 FROM lead_followups f WHERE f.lead_id=r.id)");
+    if (params.get("followed") === "no") where.push("NOT EXISTS(SELECT 1 FROM lead_followups f WHERE f.lead_id=r.id)");
     if (params.get("due") === "overdue") where.push("r.next_followup_at<UTC_TIMESTAMP()");
     if (params.get("due") === "scheduled") where.push("r.next_followup_at IS NOT NULL");
     ["from", "to"].forEach(key => { if (params.get(key)) { where.push("r.created_at" + (key === "from" ? ">=?" : "<=?")); args.push(D.date(params.get(key))); } });
@@ -96,6 +103,47 @@ module.exports = function service(db, secrets, legacy) {
     const current = await row(null, leadId, user);
     if (current.version !== r.version) D.fail(409, "资源已变化，请重新打开详情");
     return { resource: D.publicLead(r, user, secrets), followups, movements, orders: orders.slice(offset, offset + 50), orderTotal: orders.length, historyPage: offset / 50 + 1 };
+  }
+  async function addResource(user, requestId, input) {
+    const name = D.text(input.name, 160), number = payloadPhone(input.phone), tag = D.tag(input.tag);
+    if (!name) D.fail(400, "姓名和电话必填");
+    const payload = { name, phone: number, tag, claimPublic: Boolean(input.claimPublic) };
+    return mutate(user, requestId, payload, async c => {
+      const key = secrets.hash(number);
+      const matches = await q("SELECT r.*, EXISTS(SELECT 1 FROM lead_do_not_call d WHERE d.phone_key=r.phone_key) AS blocked FROM lead_resources r WHERE r.phone_key=? FOR UPDATE", [key], c);
+      if (matches.length) {
+        const existing = matches[0];
+        if (D.blocked(existing.blocked)) D.fail(409, "该号码已禁止联系，不能添加或领取");
+        if (existing.owner_id === user.id) return { status: "existing", resourceId: existing.id };
+        if (existing.owner_id) D.fail(409, "该号码已在其他销售私海，请联系管理员调配");
+        if (!input.claimPublic) D.fail(409, "该号码在公海，请确认领取");
+        if (existing.customer_id) D.fail(409, "正式客户归属请由管理员调整");
+        await capacity(c, user.id, existing.id);
+        const update = await q("UPDATE lead_resources SET owner_id=?,next_followup_at=NULL,version=version+1,updated_at=UTC_TIMESTAMP() WHERE id=? AND version=?", [user.id, existing.id, existing.version], c);
+        if (update.affectedRows !== 1) D.fail(409, "资源状态已变化，请重试");
+        await history(c, user, "claim", existing, user.id, "手工添加时领取公海同号码资源");
+        await audit(c, user, "manual_claim", existing.id, requestId);
+        return { status: "claimed", resourceId: existing.id };
+      }
+      if (legacy.readDb().customers.some(x => legacy.normalizeCustomerPhone(x.phone) === number)) D.fail(409, "该号码已是正式客户，请联系管理员核对关联");
+      await capacity(c, user.id);
+      const leadId = await insert(c, { name, phone: number, tags: tag }, user.id);
+      await history(c, user, "manual_create", { id: leadId }, user.id, "销售手工添加私海资源");
+      await audit(c, user, "manual_create", leadId, requestId);
+      return { status: "created", resourceId: leadId };
+    });
+  }
+  async function updateTag(user, requestId, leadId, input) {
+    const tag = D.tag(input.tag), version = Number(input.version);
+    if (!Number.isInteger(version) || version < 1) D.fail(400, "资源版本无效，请重新打开详情");
+    return mutate(user, requestId, { leadId, tag, version }, async c => {
+      const r = await row(c, leadId, user);
+      if (Number(r.version) !== version) D.fail(409, "资源已变化，请重新打开详情");
+      const update = await q("UPDATE lead_resources SET tags=?,version=version+1,updated_at=UTC_TIMESTAMP() WHERE id=? AND version=?", [tag, r.id, r.version], c);
+      if (update.affectedRows !== 1) D.fail(409, "资源已变化，请重新打开详情");
+      await audit(c, user, "update_tag", r.id, requestId);
+      return { ok: true, tag, version: version + 1 };
+    });
   }
   async function move(user, requestId, input) {
     const ids = Array.from(new Set(input.ids || [])).sort();
@@ -137,7 +185,7 @@ module.exports = function service(db, secrets, legacy) {
       const next = D.date(input.nextFollowupAt);
       if ((D.blocked(r.blocked) || input.result === "do_not_call") && next) D.fail(400, "禁止联系资源不能设置联系任务");
       await q("INSERT INTO lead_followups VALUES (?,?,?,?,?,?,?,?,?,UTC_TIMESTAMP())", [id(), r.id, user.id, user.name, "manual", input.result, content, input.intent, next], c);
-      await q("UPDATE lead_resources SET intent=?,tags=?,next_followup_at=?,version=version+1,updated_at=UTC_TIMESTAMP() WHERE id=?", [input.intent, D.text(input.tags, 500), next, r.id], c);
+      await q("UPDATE lead_resources SET intent=?,next_followup_at=?,version=version+1,updated_at=UTC_TIMESTAMP() WHERE id=?", [input.intent, next, r.id], c);
       if (input.result === "do_not_call") await q("INSERT INTO lead_do_not_call VALUES (?,?,?,UTC_TIMESTAMP()) ON DUPLICATE KEY UPDATE reason=VALUES(reason),actor_id=VALUES(actor_id)", [r.phone_key, "销售跟进标记拒绝联系", user.id], c);
       await audit(c, user, "followup", r.id, requestId);
       return { ok: true };
@@ -146,7 +194,7 @@ module.exports = function service(db, secrets, legacy) {
   async function lookup(user, number) {
     await ready();
     const normalized = payloadPhone(number);
-    const rows = await q("SELECT id,owner_id,customer_id FROM lead_resources WHERE phone_key=?", [secrets.hash(normalized)]);
+    const rows = await q("SELECT r.id,r.owner_id,r.customer_id,EXISTS(SELECT 1 FROM lead_do_not_call d WHERE d.phone_key=r.phone_key) AS blocked FROM lead_resources r WHERE r.phone_key=?", [secrets.hash(normalized)]);
     if (!rows.length) {
       if (legacy.readDb().customers.some(x => legacy.normalizeCustomerPhone(x.phone) === normalized)) D.fail(409, "现有客户关联缺失，请联系管理员核对");
       return { location: "new" };
@@ -154,7 +202,7 @@ module.exports = function service(db, secrets, legacy) {
     const r = rows[0];
     const location = !r.owner_id ? "public" : r.owner_id === user.id ? "mine" : "other";
     // A lookup discloses only the membership state, never another salesperson's details.
-    return { location, resourceId: location === "other" && !D.admin(user) ? undefined : r.id };
+    return { location, blocked: D.blocked(r.blocked), resourceId: location === "other" && !D.admin(user) ? undefined : r.id, ownerId: D.admin(user) ? r.owner_id : undefined };
   }
   async function dial(user, leadId, requestId) {
     return db.transaction(async c => {
@@ -198,16 +246,13 @@ module.exports = function service(db, secrets, legacy) {
     const duplicate = data.customers.find(x => x.id !== customer.id && legacy.normalizeCustomerPhone(x.phone) === legacy.normalizeCustomerPhone(customer.phone));
     if (!deleting && duplicate) D.fail(409, duplicate.ownerId === user.id ? "该客户已在本人名下，请打开原记录" : "客户已在其他人员名下，只有管理员可以调整所属");
     const operation = await db.transaction(async c => {
-      const found = await q("SELECT * FROM lead_resources WHERE customer_id=? OR phone_key=? FOR UPDATE", [customer.id, secrets.hash(customer.phone)], c);
+      const found = await q("SELECT r.*,EXISTS(SELECT 1 FROM lead_do_not_call d WHERE d.phone_key=r.phone_key) AS blocked FROM lead_resources r WHERE r.customer_id=? OR r.phone_key=? FOR UPDATE", [customer.id, secrets.hash(customer.phone)], c);
       if (found.length > 1) D.fail(409, "新号码已属于另一资源，不能合并覆盖");
       let r = found[0];
       if (r && r.customer_id && r.customer_id !== customer.id) D.fail(409, "号码已关联其他客户");
+      if (r && !old && D.blocked(r.blocked)) D.fail(409, "该号码已禁止联系，不能新增正式客户");
       if (r && !old && r.owner_id && r.owner_id !== customer.ownerId) D.fail(409, "资源已在其他人员名下，只有管理员可以先调整所属");
       if (r && !old && !r.owner_id && !input.claimPublic) D.fail(409, "客户在公海，请确认纳入本人名下");
-      if (r && !old && !r.owner_id) {
-        const blocked = await q("SELECT phone_key FROM lead_do_not_call WHERE phone_key=?", [r.phone_key], c);
-        if (blocked.length) D.fail(409, "禁止联系资源不能纳入");
-      }
       if (!deleting) await capacity(c, customer.ownerId, r && r.id);
       if (!r) {
         if (old) D.fail(409, "现有客户尚未关联资源，请先核对迁移");
@@ -297,5 +342,5 @@ module.exports = function service(db, secrets, legacy) {
       total: Number(count[0].n), page: currentPage, pageSize: size
     };
   }
-  return { ready, list, detail, move, follow, lookup, dial, saveCustomer, recover, migration, stats, audits, doNotCall, insert, audit, payloadPhone };
+  return { ready, list, detail, addResource, updateTag, move, follow, lookup, dial, saveCustomer, recover, migration, stats, audits, doNotCall, insert, audit, payloadPhone };
 };
