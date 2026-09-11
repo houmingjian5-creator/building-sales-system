@@ -21,7 +21,9 @@ async function run() {
   assert.throws(() => secrets.decrypt(tampered.join(":")));
   const row = { id: "r", phone_cipher: encrypted, phone_key: secrets.hash("13800000001"), phone_mask: "138****0001", owner_id: null, name: "13800000001", source: "13800000001", tags: "13800000001" };
   assert(!JSON.stringify(D.publicLead(row, a, secrets)).includes("13800000001"));
-  assert.strictEqual(D.publicLead(Object.assign({}, row, { owner_id: a.id }), a, secrets).phone, "13800000001");
+  assert.strictEqual(D.publicLead(Object.assign({}, row, { owner_id: a.id, blocked: "0" }), a, secrets).phone, "13800000001");
+  assert.strictEqual(D.publicLead(Object.assign({}, row, { owner_id: a.id, blocked: "0" }), a, secrets).canContact, true);
+  assert.strictEqual(D.publicLead(Object.assign({}, row, { owner_id: a.id, blocked: "1" }), a, secrets).canContact, false);
   assert.deepStrictEqual(worker.csv('姓名,电话\r\n"甲,乙",13800000001\r\n"带""引号",13800000002'), [["姓名", "电话"], ["甲,乙", "13800000001"], ['带"引号', "13800000002"]]);
   assert.throws(() => worker.csv('a\n"unfinished'));
   const workbook = await require("xlsx-populate").fromBlankAsync();

@@ -108,7 +108,7 @@ module.exports = function service(db, secrets, legacy) {
         let owner = null;
         if (input.action === "claim") {
           if (r.owner_id) D.fail(409, "资源已被领取，请刷新列表");
-          if (r.blocked) D.fail(409, "禁止联系资源不能领取");
+          if (D.blocked(r.blocked)) D.fail(409, "禁止联系资源不能领取");
           if (r.customer_id) D.fail(409, "正式客户归属请由管理员调整");
           owner = user.id;
         } else if (input.action === "return") {
@@ -135,7 +135,7 @@ module.exports = function service(db, secrets, legacy) {
       const content = D.text(input.content, 4000);
       if (!content) D.fail(400, "请填写跟进内容");
       const next = D.date(input.nextFollowupAt);
-      if ((r.blocked || input.result === "do_not_call") && next) D.fail(400, "禁止联系资源不能设置联系任务");
+      if ((D.blocked(r.blocked) || input.result === "do_not_call") && next) D.fail(400, "禁止联系资源不能设置联系任务");
       await q("INSERT INTO lead_followups VALUES (?,?,?,?,?,?,?,?,?,UTC_TIMESTAMP())", [id(), r.id, user.id, user.name, "manual", input.result, content, input.intent, next], c);
       await q("UPDATE lead_resources SET intent=?,tags=?,next_followup_at=?,version=version+1,updated_at=UTC_TIMESTAMP() WHERE id=?", [input.intent, D.text(input.tags, 500), next, r.id], c);
       if (input.result === "do_not_call") await q("INSERT INTO lead_do_not_call VALUES (?,?,?,UTC_TIMESTAMP()) ON DUPLICATE KEY UPDATE reason=VALUES(reason),actor_id=VALUES(actor_id)", [r.phone_key, "销售跟进标记拒绝联系", user.id], c);
@@ -159,7 +159,7 @@ module.exports = function service(db, secrets, legacy) {
   async function dial(user, leadId, requestId) {
     return db.transaction(async c => {
       const r = await row(c, leadId, user);
-      if (r.blocked) D.fail(403, "该资源已禁止联系");
+      if (D.blocked(r.blocked)) D.fail(403, "该资源已禁止联系");
       await audit(c, user, "dial_intent", r.id, requestId);
       return { phone: secrets.decrypt(r.phone_cipher) };
     });

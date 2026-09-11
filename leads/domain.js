@@ -6,6 +6,7 @@ const RESULTS = ["connected", "no_answer", "busy", "invalid", "do_not_call", "ot
 function fail(status, message) { const error = new Error(message); error.status = status; throw error; }
 function admin(user) { return Boolean(user && ["管理员", "超级管理员"].indexOf(user.role) >= 0); }
 function allowed(user) { return admin(user) || Boolean(user && user.role === "销售人员"); }
+function blocked(value) { return value === true || Number(value) === 1; }
 function own(user, lead) { if (!admin(user) && lead.owner_id !== user.id) fail(403, "无权访问该私海资源"); }
 function text(value, max) {
   const result = String(value == null ? "" : value).trim();
@@ -53,9 +54,9 @@ function publicLead(row, user, secrets) {
   const result = { id: row.id, name: full ? row.name : "电话资源", phone: full ? secrets.decrypt(row.phone_cipher) : row.phone_mask,
     source: full ? row.source : safeCategory(row.source), region: full ? row.region : safeCategory(row.region), tags: full ? row.tags : safeCategory(row.tags),
     ownerId: row.owner_id, intent: row.intent, nextFollowupAt: row.next_followup_at,
-    createdAt: row.created_at, version: row.version, canContact: full && !row.blocked };
+    createdAt: row.created_at, version: row.version, canContact: full && !blocked(row.blocked) };
   if (full) { result.customerId = row.customer_id; result.contact = row.contact; result.address = row.address; result.consentStatus = row.consent_status; }
   return result;
 }
 function safeCategory(value) { return /[\d+]/.test(String(value || "")) ? "已隐藏" : String(value || ""); }
-module.exports = { LIMIT, INTENTS, RESULTS, fail, admin, allowed, own, text, phone, date, vault, publicLead };
+module.exports = { LIMIT, INTENTS, RESULTS, fail, admin, allowed, blocked, own, text, phone, date, vault, publicLead };
