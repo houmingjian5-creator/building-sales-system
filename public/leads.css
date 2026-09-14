@@ -19,5 +19,20 @@
 .lead-detail-head h2 { margin-bottom:8px; }
 .lead-fixed-tag { width:min(240px,48%); font-weight:600; }
 .lead-add-drawer { max-width:480px; }
+.lead-tier { margin:18px 0; padding:16px; border:1px solid #dbe2ea; border-radius:14px; background:#f8fafc; }
+.lead-tier-head { display:flex; align-items:flex-start; justify-content:space-between; flex-wrap:wrap; gap:12px; margin-bottom:14px; }
+.lead-tier-head h3 { display:flex; align-items:center; gap:9px; margin:4px 0; }
+.lead-tier-icon { width:14px; height:14px; border-radius:50%; display:inline-block; border:1px solid rgba(15,23,42,.12); }
+.lead-tier-priority .lead-tier-icon { background:#f59e0b; }
+.lead-tier-medium .lead-tier-icon { background:#eab308; }
+.lead-tier-pending .lead-tier-icon { background:#86efac; }
+.lead-tier-count { padding:2px 8px; border-radius:999px; background:#e8eef7; color:#475569; font-size:13px; font-weight:600; }
+.lead-tier-help { max-width:660px; color:#475569; }
+.lead-tier-help summary { cursor:pointer; color:#3153c8; font-weight:600; }
+.lead-tier-help p { margin:8px 0 0; line-height:1.6; }
+.lead-task-card { border-left:4px solid #cbd5e1; }
+.lead-tier-priority .lead-task-card { border-left-color:#f59e0b; }
+.lead-tier-medium .lead-task-card { border-left-color:#eab308; }
+.lead-tier-pending .lead-task-card { border-left-color:#86efac; }
 @media(max-width:720px) { .lead-detail-head { display:block; } .lead-fixed-tag { width:100%; margin-top:12px; } }
 @media(max-width:600px) { .lead-grid { grid-template-columns:minmax(0,1fr); } .lead-drawer { padding:16px; } .lead-actions .btn { flex:1 1 auto; } }

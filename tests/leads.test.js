@@ -48,9 +48,16 @@ async function run() {
   assert(ui.includes('id="lead-filter-tag"') && ui.includes('id="lead-filter-followed"'));
   assert(ui.includes('id="lead-filter-owner"') && ui.includes('id="lead-assign-owner"'), "owner filter and assignment target stay separate");
   assert(ui.includes("leadAddSave") && ui.includes("leadTagSave"));
+  assert(ui.includes('leadRequest("tasks?"'), "follow-up tasks must use the automatic task endpoint");
+  assert(ui.includes("重点跟进客户") && ui.includes("中等跟进客户") && ui.includes("待跟进客户"));
+  assert(ui.includes("为什么这些客户会进入此等级") && ui.includes("<details"), "tier explanations are collapsed by default");
+  const leadCss = require("fs").readFileSync(require("path").join(__dirname, "..", "public", "leads.css"), "utf8");
+  assert(leadCss.includes("lead-tier-priority") && leadCss.includes("lead-tier-medium") && leadCss.includes("lead-tier-pending"));
   assert(ui.includes('null, "PATCH"'), "fixed tag must call the PATCH endpoint");
   assert(!ui.includes("leadConvert("), "lead details must not convert formal customers");
   assert(customerUi.includes("该号码已在您的私海") && customerUi.includes("该号码在公海") && customerUi.includes("该号码已在其他销售私海"));
+  const indexUi = require("fs").readFileSync(require("path").join(__dirname, "..", "public", "index.html"), "utf8");
+  assert(indexUi.includes("20260914-tasks-1"), "lead assets must have a new cache version");
   console.log("lead privacy, normalization, import and routing tests passed");
 }
 run().catch(error => { console.error(error); process.exitCode = 1; });

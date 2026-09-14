@@ -1,6 +1,6 @@
 /* No phone data is persisted in browser storage. */
 let leadsState;
-function resetLeads() { leadsState = { tab: "public", page: 1, items: [], selected: [], detail: null, adding: false, total: 0, error: "", filters: {}, imports: [], batch: null, mapping: null, stats: null, blocked: [], busy: false }; }
+function resetLeads() { leadsState = { tab: "public", page: 1, items: [], tasks: null, taskPages: { priority: 1, medium: 1, pending: 1 }, selected: [], detail: null, adding: false, total: 0, error: "", filters: {}, imports: [], batch: null, mapping: null, stats: null, blocked: [], busy: false }; }
 resetLeads();
 const leadTags = ["装修公司负责人/工长", "工人", "业主", "其他"];
 const leadLabels = { unknown: "未判断", low: "低意向", medium: "中意向", high: "高意向", invalid: "无效", connected: "有效接通", no_answer: "未接", busy: "占线", do_not_call: "拒绝联系", other: "其他", claim: "领取", return: "退回", assign: "分配", recycle: "回收", manual_create: "手工新增", manual_claim: "手工领取", update_tag: "修改标签", convert_customer: "转客户", update_customer: "更新客户", migrate_customer: "历史客户关联", unlink_customer: "解除客户关联", ready: "待导入", success: "成功", duplicate: "重复", raw: "未映射", processing: "处理中", preview: "已预览", mapping: "待映射", done: "完成" };
@@ -30,30 +30,49 @@ async function loadLeads() {
     else if (tab === "blocked") data = await leadRequest("do-not-call?page=" + page);
     else if (tab === "stats") data = await leadRequest("stats");
     else if (tab === "audit") data = await leadRequest("audit?page=" + page);
-    else data = await leadRequest("resources?" + new URLSearchParams(Object.assign({}, leadsState.filters, { scope: tab === "tasks" ? "mine" : tab, due: tab === "tasks" ? leadsState.filters.due || "scheduled" : leadsState.filters.due || "", page })).toString());
+    else if (tab === "tasks") data = await leadRequest("tasks?" + new URLSearchParams(Object.assign({}, leadsState.filters, { priorityPage: leadsState.taskPages.priority, mediumPage: leadsState.taskPages.medium, pendingPage: leadsState.taskPages.pending })).toString());
+    else data = await leadRequest("resources?" + new URLSearchParams(Object.assign({}, leadsState.filters, { scope: tab, page })).toString());
     if (!state.user || state.user.id !== owner || leadsState.tab !== tab || leadsState.page !== page) return;
     if (!state.leadsCapability.active) leadsState.setup = data;
     else if (tab === "imports") leadsState.imports = data.batches;
     else if (tab === "blocked") { leadsState.blocked = data.items; leadsState.total = data.total; }
     else if (tab === "stats") leadsState.stats = data;
     else if (tab === "audit") leadsState.audits = data.items;
+    else if (tab === "tasks") leadsState.tasks = data.groups;
     else { leadsState.items = data.items; leadsState.total = data.total; }
     leadsState.error = "";
   } catch (error) { leadsState.error = error.message; }
   if (state.user && state.route === "leads") render();
 }
-function leadTab(tab) { leadsState.tab = tab; leadsState.page = 1; leadsState.selected = []; leadsState.detail = null; leadsState.filters = {}; loadLeads(); }
+function leadTab(tab) { leadsState.tab = tab; leadsState.page = 1; leadsState.taskPages = { priority: 1, medium: 1, pending: 1 }; leadsState.selected = []; leadsState.detail = null; leadsState.filters = {}; loadLeads(); }
 function leadFilter() {
   ["tag", "intent", "due", "followed"].forEach(key => { const el = document.getElementById("lead-filter-" + key); leadsState.filters[key] = el ? el.value : ""; });
   ["from", "to"].forEach(key => { const value = document.getElementById("lead-filter-" + key).value; leadsState.filters[key] = value ? new Date(value + (key === "from" ? "T00:00:00+08:00" : "T23:59:59+08:00")).toISOString() : ""; });
-  leadsState.page = 1; leadsState.selected = []; loadLeads();
+  leadsState.page = 1; leadsState.taskPages = { priority: 1, medium: 1, pending: 1 }; leadsState.selected = []; loadLeads();
 }
 function leadOwnerFilter(value) { leadsState.filters.owner = value; leadsState.page = 1; leadsState.selected = []; loadLeads(); }
 function leadSelect(id, checked) { leadsState.selected = checked ? Array.from(new Set(leadsState.selected.concat(id))) : leadsState.selected.filter(x => x !== id); }
 function leadPage(delta) { leadsState.page = Math.max(1, leadsState.page + delta); leadsState.selected = []; loadLeads(); }
+function leadTaskPage(tier, delta) { leadsState.taskPages[tier] = Math.max(1, leadsState.taskPages[tier] + delta); leadsState.selected = []; loadLeads(); }
 function leadOptions(keys, selected) { return keys.map(k => `<option value="${k}" ${k === selected ? "selected" : ""}>${leadLabels[k]}</option>`).join(""); }
 function leadTagOptions(selected, allLabel) { return `<option value="">${allLabel || "未设置"}</option>` + leadTags.map(tag => `<option value="${html(tag)}" ${tag === selected ? "selected" : ""}>${html(tag)}</option>`).join(""); }
 function leadFilterTagOptions(selected) { return `<option value="">全部标签</option><option value="unset" ${selected === "unset" ? "selected" : ""}>未设置</option>` + leadTags.map(tag => `<option value="${html(tag)}" ${tag === selected ? "selected" : ""}>${html(tag)}</option>`).join(""); }
+function renderLeadTaskFilters() {
+  const f = leadsState.filters;
+  return `<div class="lead-toolbar"><select class="select" id="lead-filter-tag">${leadFilterTagOptions(f.tag)}</select><select class="select" id="lead-filter-followed"><option value="">全部跟进记录</option><option value="yes" ${f.followed === "yes" ? "selected" : ""}>有跟进记录</option><option value="no" ${f.followed === "no" ? "selected" : ""}>无跟进记录</option></select><select class="select" id="lead-filter-intent"><option value="">全部意向</option>${leadOptions(["unknown", "low", "medium", "high", "invalid"], f.intent)}</select><select class="select" id="lead-filter-due"><option value="">全部跟进时间</option><option value="scheduled" ${f.due === "scheduled" ? "selected" : ""}>已设任务</option><option value="overdue" ${f.due === "overdue" ? "selected" : ""}>逾期未跟进</option></select><label>创建起日<input class="input" type="date" id="lead-filter-from" value="${html((f.from || "").slice(0, 10))}"></label><label>创建止日<input class="input" type="date" id="lead-filter-to" value="${html((f.to || "").slice(0, 10))}"></label><button class="btn" onclick="leadFilter()">筛选</button></div>`;
+}
+const leadTierInfo = {
+  priority: { title: "重点跟进客户", color: "橙色", help: "已关联正式客户且有有效订单；最近有效订单已满20天，订单后仍没有跟进。完成一次跟进后会进入中等跟进。" },
+  medium: { title: "中等跟进客户", color: "黄色", help: "包括最近有效订单已满10天但不足20天且订单后未跟进的客户；重点客户首次跟进后也会进入本级。再次跟进后暂时隐藏，20天没有新订单或新跟进时重新出现。" },
+  pending: { title: "待跟进客户", color: "淡绿色", help: "包括新进入本人私海且进入后从未跟进的普通资源，以及没有有效订单的正式客户。跟进后暂时隐藏，20天未再次跟进时重新出现。" }
+};
+function renderLeadTaskGroup(tier) {
+  const group = leadsState.tasks && leadsState.tasks[tier] || { items: [], total: 0, page: 1, pageSize: 20 }, info = leadTierInfo[tier];
+  return `<section class="lead-tier lead-tier-${tier}"><div class="lead-tier-head"><h3><span class="lead-tier-icon" aria-label="${info.color}标识"></span>${info.title}<span class="lead-tier-count">${group.total}条</span></h3><details class="lead-tier-help"><summary>为什么这些客户会进入此等级</summary><p>${info.help}</p><p>手工设置的跟进时间到期时，有有效订单的客户进入中等跟进，无有效订单的资源进入待跟进；未来预约时间未到时不会提前显示。</p></details></div><div class="lead-grid">${group.items.map(r => `<article class="lead-card lead-task-card"><label><input type="checkbox" ${leadsState.selected.indexOf(r.id) >= 0 ? "checked" : ""} onchange="leadSelect('${r.id}',this.checked)"> ${html(r.name)}</label><p class="lead-phone">${html(r.phone)}</p><p><b>${html(r.reason)}</b></p><p>${html(leadLabels[r.intent] || r.intent)} · 标签：${html(r.tags || "未设置")}</p><p>最近订单：${html(r.lastOrderAt || "无有效订单")} · 最近跟进：${html(leadTime(r.lastFollowupAt))}</p><p>下次跟进：${html(leadTime(r.scheduledAt))}</p><button class="btn" onclick="leadDetail('${r.id}')">详情 / 跟进</button></article>`).join("") || "<p>本等级暂无需要跟进的资源</p>"}</div><div class="lead-actions"><button class="btn" onclick="leadTaskPage('${tier}',-1)" ${group.page <= 1 ? "disabled" : ""}>上一页</button><span>第${group.page}页，共${group.total}条</span><button class="btn" onclick="leadTaskPage('${tier}',1)" ${group.page * group.pageSize >= group.total ? "disabled" : ""}>下一页</button></div></section>`;
+}
+function renderLeadTasks() {
+  return `${renderLeadTaskFilters()}<div class="lead-actions"><button class="btn" onclick="leadMove('return')">退回选中资源</button></div><p class="lead-note">系统根据有效订单、进入私海时间、跟进记录和预约时间自动计算；每个等级可展开查看入选规则。</p>${["priority", "medium", "pending"].map(renderLeadTaskGroup).join("")}`;
+}
 function renderLeads() {
   if (!state.leadsCapability || !state.leadsCapability.enabled) return "<p>没有外呼资源权限</p>";
   const tabs = [["public", "公海池"], ["mine", "我的私海"], ["tasks", "跟进任务"]].concat(isAdmin() ? [["all", "全部资源"], ["imports", "资源导入"], ["blocked", "拒绝联系"], ["stats", "外呼数据"], ["audit", "外呼日志"]] : []);
@@ -65,6 +84,7 @@ function renderLeads() {
   else if (leadsState.tab === "blocked") body = renderLeadBlocked();
   else if (leadsState.tab === "stats") body = renderLeadStats();
   else if (leadsState.tab === "audit") body = renderLeadAudit();
+  else if (leadsState.tab === "tasks") body = renderLeadTasks();
   else {
     const f = leadsState.filters;
     const ownerOptions = salesUsers.filter(u => ["销售人员", "管理员", "超级管理员"].indexOf(u.role) >= 0 && u.status === "启用").map(u => `<option value="${html(u.id)}" ${f.owner === u.id ? "selected" : ""}>${html(u.name)}</option>`).join("");

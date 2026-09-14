@@ -21,6 +21,9 @@ function fixture() {
     if (sql.startsWith("SELECT * FROM lead_requests")) return clone(state.requests.filter(x => x.request_key === args[0]));
     if (sql.startsWith("SELECT COUNT(*) AS n FROM lead_resources r")) return [{ n: 0 }];
     if (sql.startsWith("SELECT COUNT(*) AS n FROM lead_resources")) return [{ n: state.rows.filter(x => x.owner_id === args[0] && x.id !== args[1]).length }];
+    if (sql.startsWith("SELECT r.*, 0 AS blocked FROM lead_resources r")) return clone(state.rows.filter(x => x.owner_id === args[0] && state.blocked.indexOf(x.phone_key) < 0).map(x => Object.assign({}, x, { blocked: 0 })));
+    if (sql.startsWith("SELECT f.lead_id,f.created_at FROM lead_followups")) return [];
+    if (sql.startsWith("SELECT h.lead_id,MAX(h.created_at) AS entered_at")) return [];
     if (sql.startsWith("SELECT r.*,EXISTS") && sql.indexOf("r.customer_id=?") >= 0) return clone(state.rows.filter(x => x.customer_id === args[0] || x.phone_key === args[1]).map(x => Object.assign({}, x, { blocked: state.blocked.indexOf(x.phone_key) >= 0 ? "1" : "0" })));
     if (sql.startsWith("SELECT r.*") && sql.indexOf("r.phone_key=?") >= 0) return clone(state.rows.filter(x => x.phone_key === args[0]).map(x => Object.assign({}, x, { blocked: state.blocked.indexOf(x.phone_key) >= 0 ? "1" : "0" })));
     if (sql.startsWith("SELECT r.*") && sql.indexOf("r.id=?") >= 0) return clone(state.rows.filter(x => x.id === args[0]).map(x => Object.assign({}, x, { blocked: state.blocked.indexOf(x.phone_key) >= 0 ? "1" : "0" })));
@@ -57,7 +60,8 @@ function fixture() {
       try { return await task({}); } catch (error) { state = before; throw error; }
     }); chain = run.catch(() => {}); return run;
   } };
-  const legacy = { readDb: () => clone(business), writeDb: data => { if (failWrite) throw new Error("simulated disk interruption"); business = clone(data); }, normalizeCustomerPhone: normalize };
+  const legacy = { readDb: () => clone(business), writeDb: data => { if (failWrite) throw new Error("simulated disk interruption"); business = clone(data); }, normalizeCustomerPhone: normalize,
+    customerOrderMatchesCustomer: (data, order, customer) => order.customerId === customer.id };
   return { service: createService(db, secrets, legacy), state: () => state, business: () => business, queries: () => queries,
     failWrite: value => { failWrite = value; }, add: function (id, owner, number) { state.rows.push({ id, owner_id: owner || null, phone_key: secrets.hash(number || "13800000001"), phone_cipher: secrets.encrypt(number || "13800000001"), phone_mask: "138****0001", version: 1, customer_id: null }); } };
 }
@@ -130,6 +134,12 @@ async function run() {
   const unsetSql = f.queries().filter(x => x.sql.startsWith("SELECT r.*")).pop();
   assert(unsetSql.sql.indexOf("TRIM(r.tags)=''" ) >= 0);
   await assert.rejects(f.service.list(users[0], new URLSearchParams({ scope: "mine", owner: "b" })));
+  f = fixture(); f.add("task-own", "a", "13800000007"); f.add("task-other", "b", "13800000008"); f.add("task-blocked", "a", "13800000009");
+  f.state().blocked.push(secrets.hash("13800000009"));
+  const tasks = await f.service.tasks(users[0], new URLSearchParams());
+  assert.deepStrictEqual(tasks.groups.pending.items.map(x => x.id), ["task-own"], "tasks only expose the current owner's contactable resources");
+  const taskSql = f.queries().find(x => x.sql.startsWith("SELECT r.*, 0 AS blocked"));
+  assert(taskSql.sql.indexOf("r.owner_id=?") >= 0 && taskSql.sql.indexOf("lead_do_not_call") >= 0);
   console.log("lead service concurrency model, quota, ownership and interrupted-customer recovery tests passed");
 }
 run().catch(error => { console.error(error); process.exitCode = 1; });

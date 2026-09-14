@@ -1,6 +1,7 @@
 "use strict";
 const crypto = require("crypto");
 const D = require("./domain");
+const Tasks = require("./tasks");
 const id = () => crypto.randomBytes(16).toString("hex");
 module.exports = function service(db, secrets, legacy) {
   const q = db.query;
@@ -90,6 +91,43 @@ module.exports = function service(db, secrets, legacy) {
     const count = await q("SELECT COUNT(*) AS n FROM lead_resources r" + sql, args);
     const rows = await q("SELECT r.*, EXISTS(SELECT 1 FROM lead_do_not_call d WHERE d.phone_key=r.phone_key) AS blocked FROM lead_resources r" + sql + " ORDER BY r.created_at DESC,r.id DESC LIMIT " + size + " OFFSET " + ((page - 1) * size), args);
     return { items: rows.map(r => D.publicLead(r, user, secrets)), total: Number(count[0].n), page, pageSize: size };
+  }
+  async function tasks(user, params) {
+    await ready();
+    const where = ["r.owner_id=?", "NOT EXISTS(SELECT 1 FROM lead_do_not_call d WHERE d.phone_key=r.phone_key)"], args = [user.id];
+    if (params.get("intent")) { where.push("r.intent=?"); args.push(D.text(params.get("intent"), 32)); }
+    if (params.get("tag") === "unset") where.push("(r.tags IS NULL OR TRIM(r.tags)='')");
+    else if (params.get("tag")) { where.push("r.tags=?"); args.push(D.tag(params.get("tag"))); }
+    if (params.get("followed") === "yes") where.push("EXISTS(SELECT 1 FROM lead_followups f WHERE f.lead_id=r.id)");
+    if (params.get("followed") === "no") where.push("NOT EXISTS(SELECT 1 FROM lead_followups f WHERE f.lead_id=r.id)");
+    if (params.get("due") === "overdue") where.push("r.next_followup_at<UTC_TIMESTAMP()");
+    if (params.get("due") === "scheduled") where.push("r.next_followup_at IS NOT NULL");
+    ["from", "to"].forEach(function (key) { if (params.get(key)) { where.push("r.created_at" + (key === "from" ? ">=?" : "<=?")); args.push(D.date(params.get(key))); } });
+    const sql = " WHERE " + where.join(" AND ");
+    const rows = await q("SELECT r.*, 0 AS blocked FROM lead_resources r" + sql, args);
+    const followups = await q("SELECT f.lead_id,f.created_at FROM lead_followups f JOIN lead_resources r ON r.id=f.lead_id WHERE r.owner_id=? ORDER BY f.lead_id,f.created_at,f.id", [user.id]);
+    const entries = await q("SELECT h.lead_id,MAX(h.created_at) AS entered_at FROM lead_assignment_history h JOIN lead_resources r ON r.id=h.lead_id WHERE r.owner_id=? AND h.to_owner=? GROUP BY h.lead_id", [user.id, user.id]);
+    const followByLead = {}, entryByLead = {};
+    followups.forEach(function (item) { (followByLead[item.lead_id] || (followByLead[item.lead_id] = [])).push(item); });
+    entries.forEach(function (item) { entryByLead[item.lead_id] = item.entered_at; });
+    const data = legacy.readDb(), customers = {};
+    (data.customers || []).forEach(function (customer) { customers[customer.id] = customer; });
+    const groups = { priority: [], medium: [], pending: [] };
+    rows.forEach(function (r) {
+      const customer = customers[r.customer_id];
+      const orders = customer ? (data.orders || []).filter(function (order) { return legacy.customerOrderMatchesCustomer(data, order, customer); }) : [];
+      const task = Tasks.classify({ resource: r, followups: followByLead[r.id] || [], enteredAt: entryByLead[r.id] || r.created_at, customer: customer, orders: orders });
+      if (!task) return;
+      groups[task.tier].push(Object.assign(D.publicLead(r, user, secrets), task));
+    });
+    Object.keys(groups).forEach(function (tier) { groups[tier].sort(Tasks.compare); });
+    return {
+      groups: {
+        priority: Object.assign({ tier: "priority" }, Tasks.page(groups.priority, params.get("priorityPage"))),
+        medium: Object.assign({ tier: "medium" }, Tasks.page(groups.medium, params.get("mediumPage"))),
+        pending: Object.assign({ tier: "pending" }, Tasks.page(groups.pending, params.get("pendingPage")))
+      }
+    };
   }
   async function detail(user, leadId, page) {
     await ready();
@@ -342,5 +380,5 @@ module.exports = function service(db, secrets, legacy) {
       total: Number(count[0].n), page: currentPage, pageSize: size
     };
   }
-  return { ready, list, detail, addResource, updateTag, move, follow, lookup, dial, saveCustomer, recover, migration, stats, audits, doNotCall, insert, audit, payloadPhone };
+  return { ready, list, tasks, detail, addResource, updateTag, move, follow, lookup, dial, saveCustomer, recover, migration, stats, audits, doNotCall, insert, audit, payloadPhone };
 };

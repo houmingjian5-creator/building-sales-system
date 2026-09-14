@@ -43,6 +43,7 @@ module.exports = function createLeads(legacy, env) {
           const customerId = url.pathname === "/api/customers" ? null : decodeURIComponent(url.pathname.split("/").pop());
           result = await service.saveCustomer(user, body, customerId, req.requestId, method === "DELETE");
         } else if (action === "resources" && method === "GET") result = await service.list(user, url.searchParams);
+        else if (action === "tasks" && method === "GET") result = await service.tasks(user, url.searchParams);
         else if (action === "resources" && method === "POST") result = await service.addResource(user, req.headers["x-idempotency-key"], await legacy.readBody(req));
         else if (/^resources\/[^/]+$/.test(action) && method === "GET") result = await service.detail(user, action.split("/")[1], url.searchParams.get("page"));
         else if (/^resources\/[^/]+$/.test(action) && method === "PATCH") result = await service.updateTag(user, req.headers["x-idempotency-key"], action.split("/")[1], await legacy.readBody(req));
