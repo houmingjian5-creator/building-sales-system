@@ -26,7 +26,7 @@ const db = {
     { id: "a1", no: "ORD-A1", customerId: "c1", salesUserId: "sales-a", date: "2026/9/1", status: "已确认", amount: 100, items: [] },
     { id: "a2", no: "ORD-A2", customerId: "c1", salesUserId: "sales-a", date: "2026/9/2", status: "已完成", amount: 200, actualPaidAmount: 150, items: [] },
     { id: "a3", no: "ORD-A3", customerId: "c2", salesUserId: "sales-a", date: "2026/9/2", status: "已确认", amount: 50, items: [] },
-    { id: "ar", no: "TH-A", type: "return", customerId: "c1", salesUserId: "sales-a", date: "2026/9/2", status: "已退货", amount: 20, items: [{ quantity: 1, price: 20 }] },
+    { id: "ar", no: "TH-A", type: "return", customerId: "c1", salesUserId: "sales-a", date: "2026/9/2", status: "已退货", amount: 20, actualReturnAmount: -15, items: [{ quantity: 1, price: 20 }] },
     { id: "pending", no: "ORD-P", customerId: "c1", salesUserId: "sales-a", date: "2026/9/2", status: "待确认", amount: 1000, items: [] },
     { id: "b1", no: "ORD-B1", customerId: "c3", salesUserId: "sales-b", date: "2026/9/2", status: "已完成", amount: 500, items: [] },
   ],
@@ -49,9 +49,9 @@ const salesA = server.analyticsPayload(db, db.users[2], {
   monthCount: 6,
 });
 assert.deepStrictEqual(salesA.salesFilters, ["sales-a"], "销售人员必须被服务端固定为本人范围");
-assert.strictEqual(salesA.summary.netSales.value, 280, "销售额应使用实际收款并扣除退货");
+assert.strictEqual(salesA.summary.netSales.value, 285, "销售额应使用实际收款并按调整后的实际退款扣除退货");
 assert.strictEqual(salesA.summary.orderCount.value, 3, "销售订单数不得计入退货和待确认订单");
-assert.strictEqual(salesA.returns.amount, 20);
+assert.strictEqual(salesA.returns.amount, 15);
 assert.strictEqual(salesA.returns.count, 1);
 assert.strictEqual(salesA.customers.counts.ordering, 2);
 assert.strictEqual(salesA.customers.counts.new, 1, "第一次有效下单发生在本期才是新客户");
@@ -59,7 +59,7 @@ assert.strictEqual(salesA.customers.counts.repeat, 1, "本期两张以上有效�
 assert(salesA.customers.previews.inactive.some((row) => row.id === "c4" && row.neverOrdered), "从未下单客户必须进入待跟进名单");
 
 const adminAll = server.analyticsPayload(db, db.users[0], { dateFrom: "2026-09-01", dateTo: "2026-09-02" });
-assert.strictEqual(adminAll.summary.netSales.value, 780, "管理员默认查看公司整体数据");
+assert.strictEqual(adminAll.summary.netSales.value, 785, "管理员默认查看公司整体数据");
 assert.strictEqual(adminAll.summary.orderCount.value, 4);
 
 const financeFiltered = server.analyticsPayload(db, db.users[1], {

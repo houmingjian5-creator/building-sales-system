@@ -54,7 +54,7 @@ const testOrder = {
   items: []
 };
 const renderDocumentWithoutCustomers = new Function(
-  "orderForDocument", "byId", "salesUsers", "orderCustomerForDisplay", "getDisplayRows", "html", "svgIcon", "money", "orderAddressForDisplay", "amountToChinese",
+  "orderForDocument", "byId", "salesUsers", "orderCustomerForDisplay", "getDisplayRows", "html", "svgIcon", "money", "orderAddressForDisplay", "amountToChinese", "effectiveOrderAmount",
   `${documentModalSource}; return documentModal;`
 )(
   (id) => id === testOrder.id ? testOrder : null,
@@ -66,7 +66,8 @@ const renderDocumentWithoutCustomers = new Function(
   () => "<svg></svg>",
   (value) => `¥${Number(value || 0)}`,
   (order, customer) => order.address || customer.address || "",
-  () => "壹佰元整"
+  () => "壹佰元整",
+  (order) => Number(order.amount || 0)
 );
 assert(
   renderDocumentWithoutCustomers(testOrder.id).includes("订单快照客户"),

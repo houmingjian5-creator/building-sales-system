@@ -2495,6 +2495,7 @@ function documentModal(id) {
   const title = order.no.startsWith("TH") || order.status === "已退货" ? "退货单" : "销售订单";
   const rows = getDisplayRows(order);
   const mobileRows = rows.filter((row) => !row.empty);
+  const totalAmount = effectiveOrderAmount(order);
   return `
     <div class="modal-backdrop">
       <div class="modal order-document-modal">
@@ -2503,7 +2504,7 @@ function documentModal(id) {
           <section class="order-document-mobile-view">
             <div class="order-document-mobile-summary">
               <div class="order-document-mobile-title"><div><span>订单编号</span><strong>${html(order.no)}</strong></div><b>${html(order.status || "-")}</b></div>
-              <div class="order-document-mobile-total"><span>订单金额</span><strong>${money(order.amount)}</strong><small>共 ${mobileRows.length} 种商品</small></div>
+              <div class="order-document-mobile-total"><span>订单金额</span><strong>${money(totalAmount)}</strong><small>共 ${mobileRows.length} 种商品</small></div>
               <div class="order-document-mobile-meta">
                 <span><b>客户</b>${html(c.name || "-")}</span><span><b>日期</b>${html(order.date || "-")}</span>
                 <span><b>销售</b>${html((s === null || s === void 0 ? void 0 : s.name) || "-")}</span><span><b>电话</b>${html(order.phone || c.phone || "-")}</span>
@@ -2540,8 +2541,8 @@ function documentModal(id) {
             <table><thead><tr><th>编号</th><th>商品名称</th><th>单位</th><th>数量</th><th>单价</th><th>金额</th></tr></thead><tbody>${rows.map((row) => row.empty ? `<tr><td>${row.index}</td><td></td><td></td><td></td><td></td><td></td></tr>` : `<tr><td>${row.index}</td><td>${html(row.name)}</td><td>${html(row.unit)}</td><td>${row.quantity}</td><td>${money(row.price)}</td><td>${money(row.amount)}</td></tr>`).join("")}</tbody></table>
             <div class="order-document-mobile-items">${rows.filter((row) => !row.empty).map((row) => `<article><span class="document-item-index">${row.index}</span><div><strong>${html(row.name)}</strong><small>${html(row.spec || "无规格")} · ${html(row.unit || "-")}</small><span>数量 ${html(row.quantity)} × ${money(row.price)}</span></div><b>${money(row.amount)}</b></article>`).join("")}</div>
             <div class="doc-bottom">
-              <div><strong>合计大写：</strong>${amountToChinese(order.amount)}<br /><strong>销售电话：</strong>${html((s === null || s === void 0 ? void 0 : s.phone) || "-")}</div>
-              <div class="doc-total"><span>此单合计金额：</span><strong>${money(order.amount)}</strong></div>
+              <div><strong>合计大写：</strong>${amountToChinese(totalAmount)}<br /><strong>销售电话：</strong>${html((s === null || s === void 0 ? void 0 : s.phone) || "-")}</div>
+              <div class="doc-total"><span>此单合计金额：</span><strong>${money(totalAmount)}</strong></div>
             </div>
             <div class="doc-remark"><strong>备注：</strong><span>${html(String(order.remark || "").trim() || "无")}</span></div>
           </div>
@@ -2772,6 +2773,7 @@ function downloadBlob(filename, mimeType, content) {
 function downloadOrderHtml(orderId) {
   const { order, customer, title, rows } = getOrderDoc(orderId);
   const sales = byId(salesUsers, order.salesUserId);
+  const totalAmount = effectiveOrderAmount(order);
   const displayRows = getDisplayRows(order);
   const rowsHtml = displayRows.map((row) => row.empty ? `
     <tr><td>${row.index}</td><td></td><td></td><td></td><td></td><td></td></tr>
@@ -2827,8 +2829,8 @@ function downloadOrderHtml(orderId) {
       <tbody>${rowsHtml}</tbody>
     </table>
     <section class="bottom">
-      <div><strong>合计大写：</strong>${amountToChinese(order.amount)}<br /><strong>销售电话：</strong>${html((sales === null || sales === void 0 ? void 0 : sales.phone) || "-")}</div>
-      <div class="total">此单合计金额：${money(order.amount)}</div>
+      <div><strong>合计大写：</strong>${amountToChinese(totalAmount)}<br /><strong>销售电话：</strong>${html((sales === null || sales === void 0 ? void 0 : sales.phone) || "-")}</div>
+      <div class="total">此单合计金额：${money(totalAmount)}</div>
     </section>
     <section class="remark"><strong>备注：</strong>${html(String(order.remark || "").trim() || "无")}</section>
   </main>
@@ -2843,6 +2845,7 @@ function downloadOrderImage(orderId, deliveryOnly = false) {
   const { order, customer } = documentData;
   const title = deliveryOnly ? "送货单" : documentData.title;
   const sales = byId(salesUsers, order.salesUserId);
+  const totalAmount = effectiveOrderAmount(order);
   const rows = getOrderRows(order);
   const rowCount = Math.max(rows.length, 8);
   const tableY = 414;
@@ -2941,10 +2944,10 @@ function downloadOrderImage(orderId, deliveryOnly = false) {
     ctx.font = "400 23px Microsoft YaHei, Arial";
     ctx.fillText("合计大写：", 57, summaryY);
     ctx.font = "700 23px Microsoft YaHei, Arial";
-    ctx.fillText(amountToChinese(order.amount), 165, summaryY);
+    ctx.fillText(amountToChinese(totalAmount), 165, summaryY);
     ctx.textAlign = "right";
     ctx.font = "400 23px Microsoft YaHei, Arial";
-    ctx.fillText(`此单合计金额：${money(order.amount)}`, width - 57, summaryY);
+    ctx.fillText(`此单合计金额：${money(totalAmount)}`, width - 57, summaryY);
     ctx.textAlign = "left";
     ctx.font = "700 23px Microsoft YaHei, Arial";
     ctx.fillText(`销售电话：${(sales === null || sales === void 0 ? void 0 : sales.phone) || "-"}`, 57, summaryY + 50);
@@ -3681,8 +3684,16 @@ function actualPaidAmount(order) {
   return Number.isFinite(value) && value >= 0 ? value : null;
 }
 
+function actualReturnAmount(order) {
+  if (!order || order.actualReturnAmount === undefined || order.actualReturnAmount === null || order.actualReturnAmount === "") {
+    return null;
+  }
+  const value = Number(order.actualReturnAmount);
+  return Number.isFinite(value) ? value : null;
+}
+
 function effectiveOrderAmount(order) {
-  const actualAmount = actualPaidAmount(order);
+  const actualAmount = isReturnOrder(order) ? actualReturnAmount(order) : actualPaidAmount(order);
   return actualAmount === null ? Number((order === null || order === void 0 ? void 0 : order.amount) || 0) : actualAmount;
 }
 
@@ -3692,6 +3703,8 @@ function isPerformanceOrder(order) {
 
 function performanceOrderAmount(order) {
   if (!isReturnOrder(order)) return effectiveOrderAmount(order);
+  const adjustedAmount = actualReturnAmount(order);
+  if (adjustedAmount !== null) return adjustedAmount;
   if (!(order.items || []).length) return -Math.abs(Number(order.amount || 0));
   return order.items.reduce((sum, item) => {
     const amount = Math.abs(Number(item.quantity || 0) * Number(item.price || 0));
@@ -4328,15 +4341,18 @@ async function patchOrder(id, payload, successText) {
 
 function paymentAmountModal(orderId) {
   const order = byId(orders, orderId);
-  if (!order || isReturnOrder(order)) return "";
+  if (!order) return "";
+  const isReturn = isReturnOrder(order);
   const originalAmount = Number(order.amount || 0);
-  const currentAmount = actualPaidAmount(order);
+  const currentAmount = isReturn ? actualReturnAmount(order) : actualPaidAmount(order);
+  const actionLabel = isReturn ? "实际退款金额" : "实际收款金额";
+  const reasonLabel = isReturn ? "退款金额调整原因" : "优惠或抹零原因";
   return `
     <div class="modal-backdrop">
       <div class="modal payment-amount-modal" role="dialog" aria-modal="true" aria-labelledby="paymentAmountTitle">
         <div class="modal-head">
           <div>
-            <h3 id="paymentAmountTitle">修改实际收款金额</h3>
+            <h3 id="paymentAmountTitle">修改${actionLabel}</h3>
             <div class="hint">订单 ${html(order.no || "")}</div>
           </div>
           <button type="button" class="icon-btn" aria-label="关闭" onclick="closeModal()">×</button>
@@ -4347,19 +4363,19 @@ function paymentAmountModal(orderId) {
             <strong>${money(originalAmount)}</strong>
           </div>
           <label class="field">
-            <span>实际收款金额</span>
+            <span>${actionLabel}</span>
             <div class="payment-input-wrap">
               <span>¥</span>
-              <input id="actualPaidAmountInput" class="input" type="number" min="0" step="0.01"
+              <input id="actualPaidAmountInput" class="input" type="number" ${isReturn ? "" : 'min="0"'} step="0.01"
                 value="${html(currentAmount === null ? originalAmount : currentAmount)}"
                 inputmode="decimal" autocomplete="off" />
             </div>
           </label>
           <label class="field">
-            <span>优惠或抹零原因</span>
+            <span>${reasonLabel}</span>
             <input id="paymentAdjustmentReasonInput" class="input" maxlength="100"
-              placeholder="金额不一致时必填，例如：客户优惠、抹零"
-              value="${html(order.paymentAdjustmentReason || "")}" />
+              placeholder="金额不一致时必填，例如：${isReturn ? "退款调整、费用抵扣" : "客户优惠、抹零"}"
+              value="${html(isReturn ? order.returnAdjustmentReason || "" : order.paymentAdjustmentReason || "")}" />
           </label>
           <p class="payment-amount-note">金额与商品合计一致时，将恢复显示原订单金额并清除调整原因。</p>
         </div>
@@ -4380,13 +4396,19 @@ async function saveActualPaymentAmount(orderId) {
   const amount = Number(amountInput.value);
   const reason = String((reasonInput === null || reasonInput === void 0 ? void 0 : reasonInput.value) || "").trim();
   const originalAmount = Number(order.amount || 0);
-  if (!Number.isFinite(amount) || amount < 0 || Math.abs(amount * 100 - Math.round(amount * 100)) > 1e-8) {
-    alert("实际收款金额必须大于等于 0，且最多保留两位小数");
+  const isReturn = isReturnOrder(order);
+  if (!Number.isFinite(amount) || (!isReturn && amount < 0) || Math.abs(amount * 100 - Math.round(amount * 100)) > 1e-8) {
+    alert(isReturn ? "实际退款金额必须是有效金额，且最多保留两位小数" : "实际收款金额必须大于等于 0，且最多保留两位小数");
+    amountInput.focus();
+    return;
+  }
+  if (isReturn && ((originalAmount < 0 && amount > 0) || (originalAmount > 0 && amount < 0))) {
+    alert("实际退款金额必须与商品合计保持相同的正负方向");
     amountInput.focus();
     return;
   }
   if (Math.round(amount * 100) !== Math.round(originalAmount * 100) && !reason) {
-    alert("实际收款金额与订单金额不一致时，请填写优惠或抹零原因");
+    alert(isReturn ? "实际退款金额与商品合计不一致时，请填写退款金额调整原因" : "实际收款金额与订单金额不一致时，请填写优惠或抹零原因");
     reasonInput === null || reasonInput === void 0 || reasonInput.focus();
     return;
   }
@@ -4394,17 +4416,17 @@ async function saveActualPaymentAmount(orderId) {
   const response = await apiFetch(`/api/orders/${encodeURIComponent(orderId)}`, {
     method: "PATCH",
     headers: { "content-type": "application/json" },
-    body: JSON.stringify({ actualPaidAmount: amount, paymentAdjustmentReason: reason })
+    body: JSON.stringify(isReturn ? { actualReturnAmount: amount, returnAdjustmentReason: reason } : { actualPaidAmount: amount, paymentAdjustmentReason: reason })
   });
   const data = await response.json().catch(() => ({}));
   if (!response.ok) {
-    alert(data.error || "修改实际收款金额失败");
+    alert(data.error || (isReturn ? "修改实际退款金额失败" : "修改实际收款金额失败"));
     return;
   }
   const index = orders.findIndex((item) => item.id === orderId);
   if (index >= 0) orders[index] = data.order;
   state.modal = null;
-  showToast("实际收款金额已更新");
+  showToast(isReturn ? "实际退款金额已更新" : "实际收款金额已更新");
   render();
 }
 
@@ -6025,7 +6047,7 @@ async function deleteOrder(orderId) {
     return alert(((_state$user12 = state.user) === null || _state$user12 === void 0 ? void 0 : _state$user12.role) === "销售人员" ? "销售人员只能删除自己名下的待确认订单" : "无权删除该订单");
   }
   const customer = orderCustomerForDisplay(order || {});
-  if (!order || !confirm(`确定删除订单 ${order.no} 吗？\n客户：${customer.name || "-"}\n金额：${money(order.amount)}\n\n删除后订单将从业务页面和统计中隐藏。`)) return;
+  if (!order || !confirm(`确定删除订单 ${order.no} 吗？\n客户：${customer.name || "-"}\n金额：${money(effectiveOrderAmount(order))}\n\n删除后订单将从业务页面和统计中隐藏。`)) return;
   const response = await apiFetch(`/api/orders/${encodeURIComponent(orderId)}`, { method: "DELETE" });
   const data = await response.json().catch(() => ({}));
   if (!response.ok) return alert(data.error || "删除订单失败");
@@ -6044,18 +6066,18 @@ function orderCard(order) {
   const isReturn = order.type === "return" || String(order.no || "").startsWith("TH");
   const orderTypeLabel = isReturn ? "退货单" : "销售单";
   const currentActualAmount = actualPaidAmount(order);
-  const displayedAmount = isReturn ? Number(order.amount || 0) : effectiveOrderAmount(order);
+  const currentAdjustedAmount = isReturn ? actualReturnAmount(order) : currentActualAmount;
+  const displayedAmount = effectiveOrderAmount(order);
   const hasAdjustedAmount =
-  !isReturn &&
-  currentActualAmount !== null &&
-  Math.round(currentActualAmount * 100) !== Math.round(Number(order.amount || 0) * 100);
-  const amountMarkup = isReturn ?
-  `<strong class="order-amount">${money(displayedAmount)}</strong>` :
+  currentAdjustedAmount !== null &&
+  Math.round(currentAdjustedAmount * 100) !== Math.round(Number(order.amount || 0) * 100);
+  const amountActionLabel = isReturn ? "实际退款金额" : "实际收款金额";
+  const amountMarkup =
   `<button
       type="button"
       class="order-amount order-amount-button${hasAdjustedAmount ? " adjusted" : ""}"
-      title="修改实际收款金额"
-      aria-label="修改订单 ${html(order.no)} 的实际收款金额"
+      title="修改${amountActionLabel}"
+      aria-label="修改订单 ${html(order.no)} 的${amountActionLabel}"
       onclick="openModal('paymentAmount',${jsArg(order.id)})"
     >
       <strong>${money(displayedAmount)}</strong>

@@ -214,7 +214,8 @@ function compactAuditEntity(collection, item) {
       id: item.id, no: item.no, type: item.type, customerId: item.customerId,
       customerName: item.customerName, salesUserId: item.salesUserId, date: item.date,
       status: item.status, payStatus: item.payStatus, amount: item.amount,
-      actualPaidAmount: item.actualPaidAmount, deletedAt: item.deletedAt,
+      actualPaidAmount: item.actualPaidAmount, actualReturnAmount: item.actualReturnAmount,
+      deletedAt: item.deletedAt,
       itemCount: Array.isArray(item.items) ? item.items.length : 0,
       items: (Array.isArray(item.items) ? item.items : []).slice(0, 40).map((line) => ({
         productId: line.productId, name: line.name, quantity: line.quantity, price: line.price,
@@ -308,7 +309,7 @@ function auditDatabaseChanges(beforeDb, afterDb, user, req) {
       if (collection === "orders" && before && after) {
         if (!before.deletedAt && after.deletedAt) action = "删除";
         else if (before.status !== after.status) action = "状态修改";
-        else if (before.payStatus !== after.payStatus || before.actualPaidAmount !== after.actualPaidAmount) action = "回款修改";
+        else if (before.payStatus !== after.payStatus || before.actualPaidAmount !== after.actualPaidAmount || before.actualReturnAmount !== after.actualReturnAmount) action = dashboardIsReturn(rawAfter) ? "退款修改" : "回款修改";
         else if (before.materialCost !== after.materialCost || before.transportCost !== after.transportCost || before.reconciliationStatus !== after.reconciliationStatus || JSON.stringify(before.suppliers) !== JSON.stringify(after.suppliers) || before.deliveryPerson !== after.deliveryPerson || before.remark !== after.remark) action = "成本修改";
       }
       changes.push({ collection, entityType: collectionNames[collection], entityId: id, action, before, after, passwordChanged });
@@ -510,6 +511,8 @@ function dashboardIsPerformanceOrder(order) {
 
 function dashboardPerformanceAmount(order) {
   if (!dashboardIsReturn(order)) return effectiveOrderAmount(order);
+  const actualReturnAmount = orderActualReturnAmount(order);
+  if (actualReturnAmount !== null) return actualReturnAmount;
   if (!Array.isArray(order.items) || !order.items.length) return -Math.abs(Number(order.amount || 0));
   return order.items.reduce((sum, item) => {
     const amount = Math.abs(Number(item.quantity || 0) * Number(item.price || 0));
@@ -1423,8 +1426,16 @@ function orderActualPaidAmount(order) {
   return Number.isFinite(value) && value >= 0 ? value : null;
 }
 
+function orderActualReturnAmount(order) {
+  if (!order || order.actualReturnAmount === undefined || order.actualReturnAmount === null || order.actualReturnAmount === '') {
+    return null;
+  }
+  const value = Number(order.actualReturnAmount);
+  return Number.isFinite(value) ? value : null;
+}
+
 function effectiveOrderAmount(order) {
-  const actualAmount = orderActualPaidAmount(order);
+  const actualAmount = dashboardIsReturn(order) ? orderActualReturnAmount(order) : orderActualPaidAmount(order);
   return actualAmount === null ? Number((order && order.amount) || 0) : actualAmount;
 }
 
@@ -1539,7 +1550,9 @@ function publicOrder(order, db) {
   const normalizedItems = isReturn ? normalizeReturnItems(order.items) : Array.isArray(order.items) ? order.items : [];
   const items = normalizedItems.map(publicOrderItem);
   const actualPaidAmount = isReturn ? null : orderActualPaidAmount(order);
+  const actualReturnAmount = isReturn ? orderActualReturnAmount(order) : null;
   const amount = isReturn ? orderAmount(items) : Number(order.amount || 0);
+  const adjustedAmount = isReturn ? actualReturnAmount : actualPaidAmount;
   return {
     id: order.id,
     type: isReturn ? 'return' : order.type || 'sale',
@@ -1558,10 +1571,14 @@ function publicOrder(order, db) {
     items,
     amount,
     actualPaidAmount,
-    effectiveAmount: actualPaidAmount === null ? amount : actualPaidAmount,
+    actualReturnAmount,
+    effectiveAmount: adjustedAmount === null ? amount : adjustedAmount,
     paymentAdjustmentReason: actualPaidAmount === null ? '' : String(order.paymentAdjustmentReason || ''),
     paymentAmountUpdatedAt: actualPaidAmount === null ? '' : String(order.paymentAmountUpdatedAt || ''),
     paymentAmountUpdatedBy: actualPaidAmount === null ? '' : String(order.paymentAmountUpdatedBy || ''),
+    returnAdjustmentReason: actualReturnAmount === null ? '' : String(order.returnAdjustmentReason || ''),
+    returnAmountUpdatedAt: actualReturnAmount === null ? '' : String(order.returnAmountUpdatedAt || ''),
+    returnAmountUpdatedBy: actualReturnAmount === null ? '' : String(order.returnAmountUpdatedBy || ''),
   };
 }
 
@@ -2364,7 +2381,10 @@ function assistantIsPerformanceOrder(order) {
 
 function assistantOrderAmount(order) {
   const normalized = publicOrder(order);
-  if (normalized.type === 'return') return Number(normalized.amount || orderAmount(normalized.items));
+  if (normalized.type === 'return') {
+    const actualReturnAmount = orderActualReturnAmount(order);
+    return actualReturnAmount === null ? Number(normalized.amount || orderAmount(normalized.items)) : actualReturnAmount;
+  }
   return effectiveOrderAmount(order);
 }
 
@@ -5101,6 +5121,48 @@ async function handleApi(req, res) {
           delete order.paymentAmountUpdatedBy;
         }
       }
+      if (payload.actualReturnAmount !== undefined) {
+        const isReturn = order.type === "return" || String(order.no || "").startsWith("TH");
+        if (!isReturn) return sendError(res, 400, "销售单不能设置实际退款金额");
+        const actualReturnAmount = Number(payload.actualReturnAmount);
+        if (!Number.isFinite(actualReturnAmount) || Math.abs(actualReturnAmount * 100 - Math.round(actualReturnAmount * 100)) > 1e-8) {
+          return sendError(res, 400, "实际退款金额必须是有效且最多保留两位小数的金额");
+        }
+        const originalAmount = Number(order.amount || 0);
+        if ((originalAmount < 0 && actualReturnAmount > 0) || (originalAmount > 0 && actualReturnAmount < 0)) {
+          return sendError(res, 400, "实际退款金额必须与商品合计保持相同的正负方向");
+        }
+        const differs = Math.round(actualReturnAmount * 100) !== Math.round(originalAmount * 100);
+        const reason = String(payload.returnAdjustmentReason || "").trim();
+        if (differs && !reason) return sendError(res, 400, "实际退款金额与商品合计不一致时，请填写退款金额调整原因");
+        if (reason.length > 100) return sendError(res, 400, "退款金额调整原因不能超过 100 个字");
+
+        const previousAmount = orderActualReturnAmount(order);
+        const previousReason = String(order.returnAdjustmentReason || "");
+        order.returnAmountHistory = Array.isArray(order.returnAmountHistory) ? order.returnAmountHistory : [];
+        order.returnAmountHistory.push({
+          originalAmount,
+          previousAmount,
+          actualReturnAmount: differs ? actualReturnAmount : null,
+          previousReason,
+          reason: differs ? reason : "",
+          updatedAt: new Date().toISOString(),
+          updatedBy: user.id || user.name || "",
+        });
+        order.returnAmountHistory = order.returnAmountHistory.slice(-20);
+
+        if (differs) {
+          order.actualReturnAmount = actualReturnAmount;
+          order.returnAdjustmentReason = reason;
+          order.returnAmountUpdatedAt = new Date().toISOString();
+          order.returnAmountUpdatedBy = user.id || user.name || "";
+        } else {
+          delete order.actualReturnAmount;
+          delete order.returnAdjustmentReason;
+          delete order.returnAmountUpdatedAt;
+          delete order.returnAmountUpdatedBy;
+        }
+      }
       writeDb(db);
       return sendJson(res, 200, { order: publicOrder(order, db) });
     }
@@ -5255,7 +5317,9 @@ module.exports.canExportProductWorkbook = canExportProductWorkbook;
 module.exports.publicOrder = publicOrder;
 module.exports.publicOrderItem = publicOrderItem;
 module.exports.orderActualPaidAmount = orderActualPaidAmount;
+module.exports.orderActualReturnAmount = orderActualReturnAmount;
 module.exports.effectiveOrderAmount = effectiveOrderAmount;
+module.exports.dashboardPerformanceAmount = dashboardPerformanceAmount;
 module.exports.canDeleteOrder = canDeleteOrder;
 module.exports.isCostControlOrder = isCostControlOrder;
 module.exports.normalizeCostControl = normalizeCostControl;
