@@ -5,6 +5,7 @@ const alerts = [];
 const context = vm.createContext({
   console: console, URLSearchParams: URLSearchParams, setTimeout: function () {},
   alert: function (message) { alerts.push(message); }, render: function () {},
+  html: function (value) { return String(value == null ? "" : value); },
   document: { querySelectorAll: function () { return []; }, getElementById: function () { return null; } },
   state: { user: { id: "a" }, route: "leads", leadsCapability: { enabled: false } }
 });
@@ -36,5 +37,9 @@ vm.runInContext("leadsState.selected=['kept']; leadOwnerFilter('b')", context);
 assert.strictEqual(vm.runInContext("leadsState.selected.length", context), 0, "owner filter changes clear selection");
 vm.runInContext("leadTab('mine')", context);
 assert.strictEqual(vm.runInContext("leadsState.selected.length", context), 0, "tab changes clear selection");
+const mineList = vm.runInContext("renderLeadMineList([{id:'mine-1',name:'王师傅',phone:'13800000001',tags:'工人',intent:'high',lastFollowupAt:'2026-09-14T00:00:00Z',lastFollowupContent:'确认明天下午送样',followupCount:3,createdAt:'2026-09-01T00:00:00Z'}])", context);
+assert(mineList.includes("lead-list-mine") && mineList.includes("确认明天下午送样") && mineList.includes("3 次"));
+const taskList = vm.runInContext("renderLeadTaskList([{id:'task-1',name:'陈经理',phone:'13900000001',reason:'最近有效订单距今26天，订单后尚未跟进',reasonShort:'订单后26天未跟进',tags:'装修公司负责人/工长',orderAmount:12860,orderCount:3,lastOrderAt:'2026/8/19',lastFollowupAt:null,lastFollowupContent:'',followupCount:0}],'priority')", context);
+assert(taskList.includes("lead-list-tasks") && taskList.includes("订单后26天未跟进") && taskList.includes("¥12,860.00") && taskList.includes("暂无跟进内容"));
 
 console.log("lead cross-page selection and 100-item limit tests passed");

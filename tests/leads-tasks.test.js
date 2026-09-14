@@ -57,6 +57,9 @@ assert.deepStrictEqual(sorted("followed_desc"), ["newer", "older", "never"]);
 assert.deepStrictEqual(sorted("followed_asc"), ["older", "newer", "never"], "never-followed resources always sort last");
 assert.deepStrictEqual(sorted("count_desc"), ["older", "newer", "never"]);
 assert.deepStrictEqual(sorted("count_asc"), ["never", "newer", "older"]);
+assert.strictEqual(Tasks.shortReason("最近有效订单距今46天，订单后尚未跟进"), "订单后46天未跟进");
+assert.strictEqual(Tasks.shortReason("最近一次跟进距今25天，且没有更新订单"), "跟进后25天未下单");
+assert.strictEqual(Tasks.shortReason("新进入私海，进入后尚未跟进"), "新进入私海");
 const paged = Tasks.page(Array.from({ length: 45 }, function (_, i) { return i; }), 3);
 assert.strictEqual(paged.total, 45); assert.strictEqual(paged.page, 3); assert.deepStrictEqual(paged.items, [40, 41, 42, 43, 44]);
 

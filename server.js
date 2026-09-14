@@ -6,7 +6,7 @@ const crypto = require("crypto");
 const XlsxPopulate = require("xlsx-populate");
 const leadModule = require("./leads")({
   readDb, writeDb, normalizeCustomerPhone, customerOrderMatchesCustomer, customerStatsPayload,
-  preserveCustomerOrderSnapshots, requireUser, readBody, sendJson, sendError, enqueueDbMutation, appendAuditLog,
+  preserveCustomerOrderSnapshots, effectiveOrderAmount, requireUser, readBody, sendJson, sendError, enqueueDbMutation, appendAuditLog,
 });
 
 const ROOT = __dirname;

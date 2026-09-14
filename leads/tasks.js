@@ -102,4 +102,19 @@ function page(items, requested, size) {
   return { total: total, page: current, pageSize: pageSize, items: items.slice((current - 1) * pageSize, current * pageSize) };
 }
 
-module.exports = { VALID_ORDER_STATUSES, timestamp, beijingDay, validOrder, classify, compare, page };
+function shortReason(reason) {
+  const value = String(reason || "");
+  let match = value.match(/^最近有效订单距今(\d+)天，订单后尚未跟进$/);
+  if (match) return "订单后" + match[1] + "天未跟进";
+  match = value.match(/^最近一次跟进距今(\d+)天，且没有更新订单$/);
+  if (match) return "跟进后" + match[1] + "天未下单";
+  match = value.match(/^无有效订单，最近一次跟进距今(\d+)天$/);
+  if (match) return "已" + match[1] + "天未跟进";
+  if (value.indexOf("重点客户已完成首次跟进") === 0) return "重点客户已首次跟进";
+  if (value.indexOf("新进入私海") === 0) return "新进入私海";
+  if (value.indexOf("正式客户暂无有效订单") === 0) return "无订单且尚未跟进";
+  if (value === "已到手工设置的跟进时间") return "预约跟进已到期";
+  return value.length > 16 ? value.slice(0, 16) + "…" : value;
+}
+
+module.exports = { VALID_ORDER_STATUSES, timestamp, beijingDay, validOrder, classify, compare, page, shortReason };

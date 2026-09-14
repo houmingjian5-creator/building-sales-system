@@ -28,6 +28,9 @@ async function run() {
   assert.strictEqual(D.publicLead(Object.assign({}, row, { owner_id: a.id, blocked: "0" }), a, secrets).phone, "13800000001");
   assert.strictEqual(D.publicLead(Object.assign({}, row, { owner_id: a.id, blocked: "0" }), a, secrets).canContact, true);
   assert.strictEqual(D.publicLead(Object.assign({}, row, { owner_id: a.id, blocked: "1" }), a, secrets).canContact, false);
+  const enriched = D.publicLead(Object.assign({}, row, { owner_id: a.id, blocked: "0", last_followup_at: "2026-09-14T00:00:00Z", last_followup_content: "确认材料报价", followup_count: "3" }), a, secrets);
+  assert.strictEqual(enriched.lastFollowupContent, "确认材料报价");
+  assert.strictEqual(enriched.followupCount, 3);
   assert.deepStrictEqual(worker.csv('姓名,电话\r\n"甲,乙",13800000001\r\n"带""引号",13800000002'), [["姓名", "电话"], ["甲,乙", "13800000001"], ['带"引号', "13800000002"]]);
   assert.throws(() => worker.csv('a\n"unfinished'));
   const workbook = await require("xlsx-populate").fromBlankAsync();
@@ -54,8 +57,11 @@ async function run() {
   assert(ui.includes('leadRequest("tasks?"'), "follow-up tasks must use the automatic task endpoint");
   assert(ui.includes("重点跟进客户") && ui.includes("中等跟进客户") && ui.includes("待跟进客户"));
   assert(ui.includes("为什么这些客户会进入此等级") && ui.includes("<details"), "tier explanations are collapsed by default");
+  assert(ui.includes('class="lead-list lead-list-mine"') && ui.includes('class="lead-list lead-list-tasks"'), "private sea and tasks must use one-row resource lists");
+  ["客户 / 电话", "最近跟进内容", "跟进次数", "录入时间", "入级原因", "下单金额", "下单笔数", "最近订单"].forEach(function (column) { assert(ui.includes(column), "missing lead list column: " + column); });
   const leadCss = require("fs").readFileSync(require("path").join(__dirname, "..", "public", "leads.css"), "utf8");
   assert(leadCss.includes("lead-tier-priority") && leadCss.includes("lead-tier-medium") && leadCss.includes("lead-tier-pending"));
+  assert(leadCss.includes(".lead-list-mine") && leadCss.includes(".lead-list-tasks") && leadCss.includes("text-overflow:ellipsis"));
   assert(ui.includes('null, "PATCH"'), "fixed tag must call the PATCH endpoint");
   assert(!ui.includes("leadConvert("), "lead details must not convert formal customers");
   assert(customerUi.includes("该号码已在您的私海") && customerUi.includes("该号码在公海") && customerUi.includes("该号码已在其他销售私海"));

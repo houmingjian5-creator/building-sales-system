@@ -99,7 +99,7 @@ module.exports = function service(db, secrets, legacy) {
     ["from", "to"].forEach(key => { if (params.get(key)) { where.push("r.created_at" + (key === "from" ? ">=?" : "<=?")); args.push(D.date(params.get(key))); } });
     const sql = where.length ? " WHERE " + where.join(" AND ") : "";
     const count = await q("SELECT COUNT(*) AS n FROM lead_resources r" + sql, args);
-    const rows = await q("SELECT r.*,fm.last_followup_at,COALESCE(fm.followup_count,0) AS followup_count,EXISTS(SELECT 1 FROM lead_do_not_call d WHERE d.phone_key=r.phone_key) AS blocked FROM lead_resources r LEFT JOIN (SELECT lead_id,MAX(created_at) AS last_followup_at,COUNT(*) AS followup_count FROM lead_followups GROUP BY lead_id) fm ON fm.lead_id=r.id" + sql + " ORDER BY " + SORTS[sort] + " LIMIT " + size + " OFFSET " + ((page - 1) * size), args);
+    const rows = await q("SELECT r.*,fm.last_followup_at,COALESCE(fm.followup_count,0) AS followup_count,(SELECT f.content FROM lead_followups f WHERE f.lead_id=r.id ORDER BY f.created_at DESC,f.id DESC LIMIT 1) AS last_followup_content,EXISTS(SELECT 1 FROM lead_do_not_call d WHERE d.phone_key=r.phone_key) AS blocked FROM lead_resources r LEFT JOIN (SELECT lead_id,MAX(created_at) AS last_followup_at,COUNT(*) AS followup_count FROM lead_followups GROUP BY lead_id) fm ON fm.lead_id=r.id" + sql + " ORDER BY " + SORTS[sort] + " LIMIT " + size + " OFFSET " + ((page - 1) * size), args);
     return { items: rows.map(r => D.publicLead(r, user, secrets)), total: Number(count[0].n), page, pageSize: size };
   }
   async function tasks(user, params) {
@@ -116,7 +116,7 @@ module.exports = function service(db, secrets, legacy) {
     ["from", "to"].forEach(function (key) { if (params.get(key)) { where.push("r.created_at" + (key === "from" ? ">=?" : "<=?")); args.push(D.date(params.get(key))); } });
     const sql = " WHERE " + where.join(" AND ");
     const rows = await q("SELECT r.*, 0 AS blocked FROM lead_resources r" + sql, args);
-    const followups = await q("SELECT f.lead_id,f.created_at FROM lead_followups f JOIN lead_resources r ON r.id=f.lead_id WHERE r.owner_id=? ORDER BY f.lead_id,f.created_at,f.id", [user.id]);
+    const followups = await q("SELECT f.lead_id,f.content,f.created_at FROM lead_followups f JOIN lead_resources r ON r.id=f.lead_id WHERE r.owner_id=? ORDER BY f.lead_id,f.created_at,f.id", [user.id]);
     const entries = await q("SELECT h.lead_id,MAX(h.created_at) AS entered_at FROM lead_assignment_history h JOIN lead_resources r ON r.id=h.lead_id WHERE r.owner_id=? AND h.to_owner=? GROUP BY h.lead_id", [user.id, user.id]);
     const followByLead = {}, entryByLead = {};
     followups.forEach(function (item) { (followByLead[item.lead_id] || (followByLead[item.lead_id] = [])).push(item); });
@@ -127,9 +127,18 @@ module.exports = function service(db, secrets, legacy) {
     rows.forEach(function (r) {
       const customer = customers[r.customer_id];
       const orders = customer ? (data.orders || []).filter(function (order) { return legacy.customerOrderMatchesCustomer(data, order, customer); }) : [];
-      const task = Tasks.classify({ resource: r, followups: followByLead[r.id] || [], enteredAt: entryByLead[r.id] || r.created_at, customer: customer, orders: orders });
+      const resourceFollowups = followByLead[r.id] || [];
+      const validOrders = orders.filter(Tasks.validOrder);
+      const task = Tasks.classify({ resource: r, followups: resourceFollowups, enteredAt: entryByLead[r.id] || r.created_at, customer: customer, orders: orders });
       if (!task) return;
-      groups[task.tier].push(Object.assign(D.publicLead(r, user, secrets), task, { followupCount: (followByLead[r.id] || []).length }));
+      const latestFollowup = resourceFollowups.length ? resourceFollowups[resourceFollowups.length - 1] : null;
+      groups[task.tier].push(Object.assign(D.publicLead(r, user, secrets), task, {
+        reasonShort: Tasks.shortReason(task.reason),
+        lastFollowupContent: latestFollowup ? String(latestFollowup.content || "") : "",
+        followupCount: resourceFollowups.length,
+        orderAmount: Math.round(validOrders.reduce(function (sum, order) { return sum + Number(legacy.effectiveOrderAmount(order) || 0); }, 0) * 100) / 100,
+        orderCount: validOrders.length
+      }));
     });
     Object.keys(groups).forEach(function (tier) { groups[tier].sort(function (a, b) { return Tasks.compare(a, b, sort); }); });
     return {

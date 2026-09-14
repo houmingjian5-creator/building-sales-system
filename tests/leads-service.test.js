@@ -22,7 +22,7 @@ function fixture() {
     if (sql.startsWith("SELECT COUNT(*) AS n FROM lead_resources r")) return [{ n: 0 }];
     if (sql.startsWith("SELECT COUNT(*) AS n FROM lead_resources")) return [{ n: state.rows.filter(x => x.owner_id === args[0] && x.id !== args[1]).length }];
     if (sql.startsWith("SELECT r.*, 0 AS blocked FROM lead_resources r")) return clone(state.rows.filter(x => x.owner_id === args[0] && state.blocked.indexOf(x.phone_key) < 0).map(x => Object.assign({}, x, { blocked: 0 })));
-    if (sql.startsWith("SELECT f.lead_id,f.created_at FROM lead_followups")) return [];
+    if (sql.startsWith("SELECT f.lead_id,f.content,f.created_at FROM lead_followups")) return clone(state.followups.filter(function (item) { return item && !Array.isArray(item) && item.owner_id === args[0]; }));
     if (sql.startsWith("SELECT h.lead_id,MAX(h.created_at) AS entered_at")) return [];
     if (sql.startsWith("SELECT r.*,EXISTS") && sql.indexOf("r.customer_id=?") >= 0) return clone(state.rows.filter(x => x.customer_id === args[0] || x.phone_key === args[1]).map(x => Object.assign({}, x, { blocked: state.blocked.indexOf(x.phone_key) >= 0 ? "1" : "0" })));
     if (sql.startsWith("SELECT r.*") && sql.indexOf("r.phone_key=?") >= 0) return clone(state.rows.filter(x => x.phone_key === args[0]).map(x => Object.assign({}, x, { blocked: state.blocked.indexOf(x.phone_key) >= 0 ? "1" : "0" })));
@@ -61,9 +61,11 @@ function fixture() {
     }); chain = run.catch(() => {}); return run;
   } };
   const legacy = { readDb: () => clone(business), writeDb: data => { if (failWrite) throw new Error("simulated disk interruption"); business = clone(data); }, normalizeCustomerPhone: normalize,
-    customerOrderMatchesCustomer: (data, order, customer) => order.customerId === customer.id };
+    customerOrderMatchesCustomer: (data, order, customer) => order.customerId === customer.id,
+    effectiveOrderAmount: order => Number(order.actualPaidAmount != null ? order.actualPaidAmount : order.amount || 0) };
   return { service: createService(db, secrets, legacy), state: () => state, business: () => business, queries: () => queries,
-    failWrite: value => { failWrite = value; }, add: function (id, owner, number) { state.rows.push({ id, owner_id: owner || null, phone_key: secrets.hash(number || "13800000001"), phone_cipher: secrets.encrypt(number || "13800000001"), phone_mask: "138****0001", version: 1, customer_id: null }); } };
+    failWrite: value => { failWrite = value; }, setBusiness: value => { business = clone(value); },
+    add: function (id, owner, number) { state.rows.push({ id, owner_id: owner || null, phone_key: secrets.hash(number || "13800000001"), phone_cipher: secrets.encrypt(number || "13800000001"), phone_mask: "138****0001", name: id, tags: "", intent: "unknown", created_at: "2026-08-01T00:00:00.000Z", version: 1, customer_id: null }); } };
 }
 async function run() {
   let f = fixture(); f.add("shared");
@@ -149,6 +151,15 @@ async function run() {
   assert.deepStrictEqual(tasks.groups.pending.items.map(x => x.id), ["task-own"], "tasks only expose the current owner's contactable resources");
   const taskSql = f.queries().find(x => x.sql.startsWith("SELECT r.*, 0 AS blocked"));
   assert(taskSql.sql.indexOf("r.owner_id=?") >= 0 && taskSql.sql.indexOf("lead_do_not_call") >= 0);
+  f = fixture(); f.add("task-order", "a", "13800000010"); f.state().rows[0].customer_id = "customer-task";
+  f.state().followups.push({ lead_id: "task-order", owner_id: "a", content: "最近沟通了报价与送货时间", created_at: "2026-08-20T00:00:00.000Z" });
+  f.setBusiness({ users, customers: [{ id: "customer-task", ownerId: "a", name: "任务客户", phone: "13800000010" }], orders: [{ id: "order-task", customerId: "customer-task", no: "XS001", date: "2026/7/1", status: "已完成", amount: 1000, actualPaidAmount: 888.5 }] });
+  const orderTasks = await f.service.tasks(users[0], new URLSearchParams());
+  const orderTask = orderTasks.groups.medium.items[0];
+  assert.strictEqual(orderTask.orderAmount, 888.5);
+  assert.strictEqual(orderTask.orderCount, 1);
+  assert.strictEqual(orderTask.lastFollowupContent, "最近沟通了报价与送货时间");
+  assert(orderTask.reasonShort && orderTask.reasonShort.length <= 16);
   console.log("lead service concurrency model, quota, ownership and interrupted-customer recovery tests passed");
 }
 run().catch(error => { console.error(error); process.exitCode = 1; });

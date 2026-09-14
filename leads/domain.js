@@ -62,7 +62,12 @@ function publicLead(row, user, secrets) {
     source: full ? row.source : safeCategory(row.source), region: full ? row.region : safeCategory(row.region), tags: full ? row.tags : safeCategory(row.tags),
     ownerId: row.owner_id, intent: row.intent, nextFollowupAt: row.next_followup_at,
     createdAt: row.created_at, version: row.version, canContact: full && !blocked(row.blocked) };
-  if (full) { result.customerId = row.customer_id; result.contact = row.contact; result.address = row.address; result.consentStatus = row.consent_status; }
+  if (full) {
+    result.customerId = row.customer_id; result.contact = row.contact; result.address = row.address; result.consentStatus = row.consent_status;
+    result.lastFollowupAt = row.last_followup_at || null;
+    result.lastFollowupContent = String(row.last_followup_content || "");
+    result.followupCount = Number(row.followup_count || 0);
+  }
   return result;
 }
 function safeCategory(value) { return /[\d+]/.test(String(value || "")) ? "已隐藏" : String(value || ""); }
