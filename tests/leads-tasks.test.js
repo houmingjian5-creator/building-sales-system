@@ -45,12 +45,18 @@ assert.strictEqual(classify({ resource: resource({ next_followup_at: "2026-09-15
 assert.strictEqual(classify({ resource: resource({ next_followup_at: "2026-09-14T00:00:00.000Z" }), customer: {}, orders: [order("2026/9/12")] }).tier, "medium", "有订单的到期预约进入中等");
 assert.strictEqual(classify({ resource: resource({ next_followup_at: "2026-09-14T00:00:00.000Z" }), enteredAt: "2026-09-01T00:00:00.000Z", followups: [follow("2026-09-13T00:00:00.000Z")] }).tier, "pending", "无订单的到期预约进入待跟进");
 
-const sorted = [
-  { id: "less", staleDays: 10, scheduledAt: null, createdAt: "2026-01-01T00:00:00Z" },
-  { id: "most", staleDays: 30, scheduledAt: null, createdAt: "2026-01-02T00:00:00Z" },
-  { id: "due", staleDays: 1, scheduledAt: "2026-09-13T00:00:00Z", createdAt: "2026-01-03T00:00:00Z" }
-].sort(Tasks.compare);
-assert.deepStrictEqual(sorted.map(function (item) { return item.id; }), ["due", "most", "less"]);
+const sortable = [
+  { id: "never", createdAt: "2026-01-03T00:00:00Z", lastFollowupAt: null, followupCount: 0 },
+  { id: "newer", createdAt: "2026-01-02T00:00:00Z", lastFollowupAt: "2026-09-10T00:00:00Z", followupCount: 2 },
+  { id: "older", createdAt: "2026-01-01T00:00:00Z", lastFollowupAt: "2026-08-10T00:00:00Z", followupCount: 5 }
+];
+function sorted(mode) { return sortable.slice().sort(function (a, b) { return Tasks.compare(a, b, mode); }).map(function (item) { return item.id; }); }
+assert.deepStrictEqual(sorted("created_desc"), ["never", "newer", "older"]);
+assert.deepStrictEqual(sorted("created_asc"), ["older", "newer", "never"]);
+assert.deepStrictEqual(sorted("followed_desc"), ["newer", "older", "never"]);
+assert.deepStrictEqual(sorted("followed_asc"), ["older", "newer", "never"], "never-followed resources always sort last");
+assert.deepStrictEqual(sorted("count_desc"), ["older", "newer", "never"]);
+assert.deepStrictEqual(sorted("count_asc"), ["never", "newer", "older"]);
 const paged = Tasks.page(Array.from({ length: 45 }, function (_, i) { return i; }), 3);
 assert.strictEqual(paged.total, 45); assert.strictEqual(paged.page, 3); assert.deepStrictEqual(paged.items, [40, 41, 42, 43, 44]);
 

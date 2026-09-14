@@ -46,6 +46,9 @@ async function run() {
   const customerUi = require("fs").readFileSync(require("path").join(__dirname, "..", "public", "app.js"), "utf8");
   assert(!ui.includes('id="lead-filter-source"') && !ui.includes('id="lead-filter-region"'));
   assert(ui.includes('id="lead-filter-tag"') && ui.includes('id="lead-filter-followed"'));
+  assert(ui.includes('id="lead-filter-sort"') && ui.includes("录入系统时间近→远") && ui.includes("跟进次数少→多"));
+  assert(ui.includes("leadSelectPage") && ui.includes("全选本页") && ui.includes("已选择 ${leadsState.selected.length} 条"));
+  assert(ui.includes("merged.length > 100") && ui.includes("leadPage(delta) { leadsState.page") && !ui.includes("leadPage(delta) { leadsState.page = Math.max(1, leadsState.page + delta); leadsState.selected = []"));
   assert(ui.includes('id="lead-filter-owner"') && ui.includes('id="lead-assign-owner"'), "owner filter and assignment target stay separate");
   assert(ui.includes("leadAddSave") && ui.includes("leadTagSave"));
   assert(ui.includes('leadRequest("tasks?"'), "follow-up tasks must use the automatic task endpoint");
@@ -57,7 +60,7 @@ async function run() {
   assert(!ui.includes("leadConvert("), "lead details must not convert formal customers");
   assert(customerUi.includes("该号码已在您的私海") && customerUi.includes("该号码在公海") && customerUi.includes("该号码已在其他销售私海"));
   const indexUi = require("fs").readFileSync(require("path").join(__dirname, "..", "public", "index.html"), "utf8");
-  assert(indexUi.includes("20260914-tasks-1"), "lead assets must have a new cache version");
+  assert(indexUi.includes("20260914-sort-select-1"), "lead assets must have a new cache version");
   console.log("lead privacy, normalization, import and routing tests passed");
 }
 run().catch(error => { console.error(error); process.exitCode = 1; });

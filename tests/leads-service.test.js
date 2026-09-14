@@ -134,6 +134,15 @@ async function run() {
   const unsetSql = f.queries().filter(x => x.sql.startsWith("SELECT r.*")).pop();
   assert(unsetSql.sql.indexOf("TRIM(r.tags)=''" ) >= 0);
   await assert.rejects(f.service.list(users[0], new URLSearchParams({ scope: "mine", owner: "b" })));
+  const orderFragments = { created_desc: "r.created_at DESC", created_asc: "r.created_at ASC", followed_desc: "fm.last_followup_at DESC", followed_asc: "fm.last_followup_at ASC", count_desc: "followup_count,0) DESC", count_asc: "followup_count,0) ASC" };
+  for (const mode of Object.keys(orderFragments)) {
+    await f.service.list(users[0], new URLSearchParams({ scope: "mine", sort: mode }));
+    const sortedSql = f.queries().filter(x => x.sql.startsWith("SELECT r.*,fm.last_followup_at")).pop().sql;
+    assert(sortedSql.indexOf(orderFragments[mode]) >= 0, mode + " must use its whitelisted server sort");
+  }
+  await f.service.list(users[0], new URLSearchParams({ scope: "mine", sort: "r.created_at;DROP TABLE lead_resources" }));
+  const safeSortSql = f.queries().filter(x => x.sql.startsWith("SELECT r.*,fm.last_followup_at")).pop().sql;
+  assert(safeSortSql.indexOf("DROP TABLE") < 0 && safeSortSql.indexOf("r.created_at DESC") >= 0, "unknown sort falls back safely");
   f = fixture(); f.add("task-own", "a", "13800000007"); f.add("task-other", "b", "13800000008"); f.add("task-blocked", "a", "13800000009");
   f.state().blocked.push(secrets.hash("13800000009"));
   const tasks = await f.service.tasks(users[0], new URLSearchParams());

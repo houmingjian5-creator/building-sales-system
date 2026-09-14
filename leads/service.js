@@ -3,6 +3,14 @@ const crypto = require("crypto");
 const D = require("./domain");
 const Tasks = require("./tasks");
 const id = () => crypto.randomBytes(16).toString("hex");
+const SORTS = {
+  created_desc: "r.created_at DESC,r.id DESC",
+  created_asc: "r.created_at ASC,r.id ASC",
+  followed_desc: "fm.last_followup_at IS NULL ASC,fm.last_followup_at DESC,r.created_at DESC,r.id DESC",
+  followed_asc: "fm.last_followup_at IS NULL ASC,fm.last_followup_at ASC,r.created_at DESC,r.id DESC",
+  count_desc: "COALESCE(fm.followup_count,0) DESC,r.created_at DESC,r.id DESC",
+  count_asc: "COALESCE(fm.followup_count,0) ASC,r.created_at DESC,r.id DESC"
+};
 module.exports = function service(db, secrets, legacy) {
   const q = db.query;
   function customerFingerprint() {
@@ -38,6 +46,7 @@ module.exports = function service(db, secrets, legacy) {
     return rows[0];
   }
   function payloadPhone(value) { return D.phone(value, legacy.normalizeCustomerPhone); }
+  function sortMode(params) { const value = params.get("sort") || "created_desc"; return SORTS[value] ? value : "created_desc"; }
   async function insert(c, input, owner, customerId) {
     const number = payloadPhone(input.phone);
     const leadId = id();
@@ -64,6 +73,7 @@ module.exports = function service(db, secrets, legacy) {
     await ready();
     const page = Math.max(1, Math.min(2500, parseInt(params.get("page"), 10) || 1));
     const size = 20;
+    const sort = sortMode(params);
     const scope = params.get("scope") || "public";
     const owner = params.get("owner");
     const where = [], args = [];
@@ -89,11 +99,12 @@ module.exports = function service(db, secrets, legacy) {
     ["from", "to"].forEach(key => { if (params.get(key)) { where.push("r.created_at" + (key === "from" ? ">=?" : "<=?")); args.push(D.date(params.get(key))); } });
     const sql = where.length ? " WHERE " + where.join(" AND ") : "";
     const count = await q("SELECT COUNT(*) AS n FROM lead_resources r" + sql, args);
-    const rows = await q("SELECT r.*, EXISTS(SELECT 1 FROM lead_do_not_call d WHERE d.phone_key=r.phone_key) AS blocked FROM lead_resources r" + sql + " ORDER BY r.created_at DESC,r.id DESC LIMIT " + size + " OFFSET " + ((page - 1) * size), args);
+    const rows = await q("SELECT r.*,fm.last_followup_at,COALESCE(fm.followup_count,0) AS followup_count,EXISTS(SELECT 1 FROM lead_do_not_call d WHERE d.phone_key=r.phone_key) AS blocked FROM lead_resources r LEFT JOIN (SELECT lead_id,MAX(created_at) AS last_followup_at,COUNT(*) AS followup_count FROM lead_followups GROUP BY lead_id) fm ON fm.lead_id=r.id" + sql + " ORDER BY " + SORTS[sort] + " LIMIT " + size + " OFFSET " + ((page - 1) * size), args);
     return { items: rows.map(r => D.publicLead(r, user, secrets)), total: Number(count[0].n), page, pageSize: size };
   }
   async function tasks(user, params) {
     await ready();
+    const sort = sortMode(params);
     const where = ["r.owner_id=?", "NOT EXISTS(SELECT 1 FROM lead_do_not_call d WHERE d.phone_key=r.phone_key)"], args = [user.id];
     if (params.get("intent")) { where.push("r.intent=?"); args.push(D.text(params.get("intent"), 32)); }
     if (params.get("tag") === "unset") where.push("(r.tags IS NULL OR TRIM(r.tags)='')");
@@ -118,9 +129,9 @@ module.exports = function service(db, secrets, legacy) {
       const orders = customer ? (data.orders || []).filter(function (order) { return legacy.customerOrderMatchesCustomer(data, order, customer); }) : [];
       const task = Tasks.classify({ resource: r, followups: followByLead[r.id] || [], enteredAt: entryByLead[r.id] || r.created_at, customer: customer, orders: orders });
       if (!task) return;
-      groups[task.tier].push(Object.assign(D.publicLead(r, user, secrets), task));
+      groups[task.tier].push(Object.assign(D.publicLead(r, user, secrets), task, { followupCount: (followByLead[r.id] || []).length }));
     });
-    Object.keys(groups).forEach(function (tier) { groups[tier].sort(Tasks.compare); });
+    Object.keys(groups).forEach(function (tier) { groups[tier].sort(function (a, b) { return Tasks.compare(a, b, sort); }); });
     return {
       groups: {
         priority: Object.assign({ tier: "priority" }, Tasks.page(groups.priority, params.get("priorityPage"))),

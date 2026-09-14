@@ -31,6 +31,8 @@
 .lead-tier-help summary { cursor:pointer; color:#3153c8; font-weight:600; }
 .lead-tier-help p { margin:8px 0 0; line-height:1.6; }
 .lead-task-card { border-left:4px solid #cbd5e1; }
+.lead-page-select { display:inline-flex; align-items:center; gap:6px; padding:0 4px; font-weight:600; }
+.lead-selected-count { color:#3153c8; font-weight:600; align-self:center; }
 .lead-tier-priority .lead-task-card { border-left-color:#f59e0b; }
 .lead-tier-medium .lead-task-card { border-left-color:#eab308; }
 .lead-tier-pending .lead-task-card { border-left-color:#86efac; }

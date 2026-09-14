@@ -77,16 +77,21 @@ function classify(input) {
   return null;
 }
 
-function compare(a, b) {
-  const aDue = timestamp(a.scheduledAt), bDue = timestamp(b.scheduledAt);
-  if (aDue !== null || bDue !== null) {
-    if (aDue === null) return 1;
-    if (bDue === null) return -1;
-    if (aDue !== bDue) return aDue - bDue;
-  }
-  if (a.staleDays !== b.staleDays) return b.staleDays - a.staleDays;
-  const created = (timestamp(a.createdAt || a.created_at) || 0) - (timestamp(b.createdAt || b.created_at) || 0);
-  return created || String(a.id).localeCompare(String(b.id));
+function compare(a, b, sort) {
+  const mode = sort || "created_desc";
+  const createdA = timestamp(a.createdAt || a.created_at) || 0, createdB = timestamp(b.createdAt || b.created_at) || 0;
+  const followedA = timestamp(a.lastFollowupAt || a.last_followup_at), followedB = timestamp(b.lastFollowupAt || b.last_followup_at);
+  let value = 0;
+  if (mode === "followed_desc" || mode === "followed_asc") {
+    if (followedA === null && followedB !== null) return 1;
+    if (followedA !== null && followedB === null) return -1;
+    if (followedA !== followedB) value = mode === "followed_desc" ? followedB - followedA : followedA - followedB;
+  } else if (mode === "count_desc" || mode === "count_asc") {
+    value = mode === "count_desc" ? Number(b.followupCount || 0) - Number(a.followupCount || 0) : Number(a.followupCount || 0) - Number(b.followupCount || 0);
+  } else if (createdA !== createdB) value = mode === "created_asc" ? createdA - createdB : createdB - createdA;
+  if (value) return value;
+  if (createdA !== createdB) return createdB - createdA;
+  return mode === "created_asc" ? String(a.id).localeCompare(String(b.id)) : String(b.id).localeCompare(String(a.id));
 }
 
 function page(items, requested, size) {
