@@ -27,6 +27,8 @@ function fixture() {
     if (sql.startsWith("SELECT r.*,EXISTS") && sql.indexOf("r.customer_id=?") >= 0) return clone(state.rows.filter(x => x.customer_id === args[0] || x.phone_key === args[1]).map(x => Object.assign({}, x, { blocked: state.blocked.indexOf(x.phone_key) >= 0 ? "1" : "0" })));
     if (sql.startsWith("SELECT r.*") && sql.indexOf("r.phone_key=?") >= 0) return clone(state.rows.filter(x => x.phone_key === args[0]).map(x => Object.assign({}, x, { blocked: state.blocked.indexOf(x.phone_key) >= 0 ? "1" : "0" })));
     if (sql.startsWith("SELECT r.*") && sql.indexOf("r.id=?") >= 0) return clone(state.rows.filter(x => x.id === args[0]).map(x => Object.assign({}, x, { blocked: state.blocked.indexOf(x.phone_key) >= 0 ? "1" : "0" })));
+    if (sql.startsWith("SELECT r.id FROM lead_resources")) return clone(state.rows.filter(x => x.phone_key === args[0] && x.id !== args[1]).map(x => ({ id: x.id })));
+    if (sql.startsWith("SELECT phone_key FROM lead_do_not_call")) return state.blocked.indexOf(args[0]) >= 0 ? [{ phone_key: args[0] }] : [];
     if (sql.startsWith("SELECT r.*")) return [];
     if (sql.startsWith("INSERT INTO lead_requests")) { state.requests.push({ request_key: args[0], payload_key: args[1], result_json: args[2] }); return {}; }
     if (sql.startsWith("INSERT INTO lead_assignment_history")) { state.history.push(clone(args)); return {}; }
@@ -44,8 +46,14 @@ function fixture() {
     if (sql.startsWith("INSERT INTO lead_do_not_call")) { state.blocked.push(args[0]); return {}; }
     if (sql.startsWith("SELECT r.id,r.owner_id,r.customer_id")) return clone(state.rows.filter(x => x.phone_key === args[0]).map(x => Object.assign({}, x, { blocked: state.blocked.indexOf(x.phone_key) >= 0 ? "1" : "0" })));
     if (sql.startsWith("INSERT INTO lead_resources")) { state.rows.push({ id: args[0], phone_key: args[1], phone_cipher: args[2], phone_mask: args[3], name: args[4], contact: args[5], address: args[6], source: args[7], region: args[8], tags: args[9], owner_id: args[10], customer_id: args[11], version: 1 }); return {}; }
+    if (sql.startsWith("UPDATE lead_resources SET name=?,phone_key=?")) {
+      const r = state.rows.find(x => x.id === args[4] && x.version === args[5]);
+      if (!r) return { affectedRows: 0 };
+      Object.assign(r, { name: args[0], phone_key: args[1], phone_cipher: args[2], phone_mask: args[3], version: r.version + 1 }); return { affectedRows: 1 };
+    }
     if (sql.startsWith("UPDATE lead_resources SET name")) {
-      Object.assign(state.rows.find(x => x.id === args[8]), { name: args[0], contact: args[1], address: args[2], phone_key: args[3], phone_cipher: args[4], phone_mask: args[5], customer_id: args[6], owner_id: args[7] }); return {};
+      const r = state.rows.find(x => x.id === args[8]);
+      Object.assign(r, { name: args[0], contact: args[1], address: args[2], phone_key: args[3], phone_cipher: args[4], phone_mask: args[5], customer_id: args[6], owner_id: args[7], version: r.version + 1 }); return {};
     }
     if (sql.startsWith("INSERT INTO lead_customer_operations")) { state.operations.push({ id: args[0], lead_id: args[1], customer_id: args[2], payload_cipher: args[3], status: "pending" }); return {}; }
     if (sql.startsWith("UPDATE lead_customer_operations")) { state.operations.find(x => x.id === args[0]).status = "done"; return {}; }
@@ -102,6 +110,14 @@ async function run() {
   await f.service.saveCustomer(users[2], { ownerId: "b", name: "更新名称" }, c.id, "customer-4");
   assert.strictEqual(f.business().customers[0].ownerId, "b");
   assert.strictEqual(f.state().rows[0].owner_id, "b"); assert.strictEqual(f.state().rows[0].name, "更新名称");
+  const linkedVersion = f.state().rows[0].version;
+  const linkedRenamed = await f.service.updateResource(users[1], "linked-edit-name-01", f.state().rows[0].id, { name: "销售同步改名", version: linkedVersion });
+  assert.strictEqual(linkedRenamed.name, "销售同步改名");
+  assert.strictEqual(f.business().customers[0].name, "销售同步改名", "linked resource name must stay synchronized with the formal customer");
+  const linkedPhone = await f.service.updateResource(users[2], "linked-edit-phone-1", f.state().rows[0].id, { name: "管理员同步修改", phone: "13800000022", version: linkedRenamed.version });
+  assert.strictEqual(linkedPhone.phone, "13800000022");
+  assert.strictEqual(f.business().customers[0].phone, "13800000022", "admin phone edit must stay synchronized with the formal customer");
+  assert.strictEqual(f.state().rows[0].phone_key, secrets.hash("13800000022"));
   f = fixture();
   const created = await f.service.addResource(users[0], "request-manual-0001", { name: "手工资源", phone: "13800000003", tag: "业主" });
   assert.strictEqual(created.status, "created");
@@ -128,6 +144,17 @@ async function run() {
   await assert.rejects(f.service.updateTag(users[1], "request-tag-0002", created.resourceId, { tag: "工人", version: tagged.version }));
   await f.service.follow(users[0], "request-follow-tag-0001", created.resourceId, { result: "connected", intent: "high", content: "已联系" });
   assert.strictEqual(f.state().rows[0].tags, "装修公司负责人/工长", "follow-up must not change the fixed tag");
+  const renamed = await f.service.updateResource(users[0], "request-edit-name-01", created.resourceId, { name: "销售修改姓名", version: f.state().rows[0].version });
+  assert.strictEqual(renamed.name, "销售修改姓名");
+  assert.strictEqual(f.state().rows[0].phone_key, secrets.hash("13800000003"));
+  await assert.rejects(f.service.updateResource(users[0], "request-edit-phone-01", created.resourceId, { name: "越权", phone: "13800000012", version: renamed.version }), /无权修改资源电话/);
+  await assert.rejects(f.service.updateResource(users[1], "request-edit-other-01", created.resourceId, { name: "越权姓名", version: renamed.version }), /无权访问/);
+  f.add("duplicate-edit", "b", "13800000012");
+  await assert.rejects(f.service.updateResource(users[2], "request-edit-duplicate", created.resourceId, { name: "管理员修改", phone: "13800000012", version: renamed.version }), /已属于另一条资源/);
+  const adminEdited = await f.service.updateResource(users[2], "request-edit-admin-01", created.resourceId, { name: "管理员修改", phone: "13800000013", version: renamed.version });
+  assert.strictEqual(adminEdited.phone, "13800000013");
+  assert.strictEqual(f.state().rows[0].phone_key, secrets.hash("13800000013"));
+  await assert.rejects(f.service.updateResource(users[2], "request-edit-stale-01", created.resourceId, { name: "旧版本", phone: "13800000014", version: renamed.version }), /资源已变化/);
   const params = new URLSearchParams({ scope: "all", owner: "a", tag: "业主", followed: "yes" });
   await f.service.list(users[2], params);
   const listSql = f.queries().filter(x => x.sql.startsWith("SELECT r.*")).pop();

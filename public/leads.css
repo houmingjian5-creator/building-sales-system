@@ -19,6 +19,10 @@
 .lead-detail-head { display:flex; align-items:flex-start; justify-content:space-between; gap:16px; }
 .lead-detail-head h2 { margin-bottom:8px; }
 .lead-fixed-tag { width:min(240px,48%); font-weight:600; }
+.lead-profile-edit { flex:1 1 320px; min-width:0; }
+.lead-profile-edit label { display:block; font-weight:600; }
+.lead-profile-edit .lead-note { margin:0 0 8px; font-size:13px; }
+.lead-edit-resource { margin-top:2px; }
 .lead-add-drawer { max-width:480px; }
 .lead-tier { margin:18px 0; padding:16px; border:1px solid #dbe2ea; border-radius:14px; background:#f8fafc; }
 .lead-tier-head { display:flex; align-items:flex-start; justify-content:space-between; flex-wrap:wrap; gap:12px; margin-bottom:14px; }
@@ -34,6 +38,9 @@
 .lead-task-card { border-left:4px solid #cbd5e1; }
 .lead-page-select { display:inline-flex; align-items:center; gap:6px; padding:0 4px; font-weight:600; }
 .lead-selected-count { color:#3153c8; font-weight:600; align-self:center; }
+.lead-page-jump { display:inline-flex; align-items:center; gap:6px; }
+.lead-page-jump .input { width:72px; min-width:72px; margin:0; padding:8px; text-align:center; }
+.lead-page-jump .btn { padding:8px 12px; }
 .lead-tier-priority .lead-task-card { border-left-color:#f59e0b; }
 .lead-tier-medium .lead-task-card { border-left-color:#eab308; }
 .lead-tier-pending .lead-task-card { border-left-color:#86efac; }
@@ -75,5 +82,5 @@
 .lead-list-tier-medium { border-left:4px solid #eab308; padding-left:12px; }
 .lead-list-tier-pending { border-left:4px solid #86efac; padding-left:12px; }
 @media(max-width:1100px) { .lead-task-list-shell { overflow-x:auto; } .lead-list-tasks { min-width:1080px; } }
-@media(max-width:720px) { .lead-detail-head { display:block; } .lead-fixed-tag { width:100%; margin-top:12px; } }
+@media(max-width:720px) { .lead-detail-head { display:block; } .lead-fixed-tag { width:100%; margin-top:12px; } .lead-page-jump { width:100%; } }
 @media(max-width:600px) { .lead-grid { grid-template-columns:minmax(0,1fr); } .lead-drawer { padding:16px; } .lead-actions .btn { flex:1 1 auto; } }

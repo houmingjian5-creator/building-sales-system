@@ -216,6 +216,38 @@ module.exports = function service(db, secrets, legacy) {
       return { ok: true, tag, version: version + 1 };
     });
   }
+  async function updateResource(user, requestId, leadId, input) {
+    const version = Number(input.version), name = D.text(input.name, 160);
+    const hasPhone = Object.prototype.hasOwnProperty.call(input, "phone");
+    if (!Number.isInteger(version) || version < 1) D.fail(400, "资源版本无效，请重新打开详情");
+    if (!name) D.fail(400, "客户姓名必填");
+    if (hasPhone && !D.admin(user)) D.fail(403, "销售人员无权修改资源电话");
+    const initial = await row(null, leadId, user);
+    if (Number(initial.version) !== version) D.fail(409, "资源已变化，请重新打开详情");
+    const number = hasPhone ? payloadPhone(input.phone) : secrets.decrypt(initial.phone_cipher);
+    if (initial.customer_id) {
+      const customerInput = { name: name };
+      if (hasPhone) customerInput.phone = number;
+      await saveCustomer(user, customerInput, initial.customer_id, requestId, false, version);
+      const current = await row(null, leadId, user);
+      return { ok: true, name: current.name, phone: secrets.decrypt(current.phone_cipher), version: Number(current.version) };
+    }
+    return mutate(user, requestId, { leadId: leadId, name: name, phone: number, version: version }, async function (c) {
+      const r = await row(c, leadId, user);
+      if (Number(r.version) !== version) D.fail(409, "资源已变化，请重新打开详情");
+      const phoneKey = secrets.hash(number);
+      if (phoneKey !== r.phone_key) {
+        const duplicates = await q("SELECT r.id FROM lead_resources r WHERE r.phone_key=? AND r.id<>? FOR UPDATE", [phoneKey, r.id], c);
+        if (duplicates.length) D.fail(409, "该电话号码已属于另一条资源");
+        const blocked = await q("SELECT phone_key FROM lead_do_not_call WHERE phone_key=? LIMIT 1", [phoneKey], c);
+        if (blocked.length) D.fail(409, "该电话号码已禁止联系，不能用于资源");
+      }
+      const update = await q("UPDATE lead_resources SET name=?,phone_key=?,phone_cipher=?,phone_mask=?,version=version+1,updated_at=UTC_TIMESTAMP() WHERE id=? AND version=?", [name, phoneKey, secrets.encrypt(number), number.slice(0, 3) + "****" + number.slice(-4), r.id, r.version], c);
+      if (update.affectedRows !== 1) D.fail(409, "资源已变化，请重新打开详情");
+      await audit(c, user, "update_resource", r.id, requestId);
+      return { ok: true, name: name, phone: number, version: version + 1 };
+    });
+  }
   async function move(user, requestId, input) {
     const ids = Array.from(new Set(input.ids || [])).sort();
     if (!ids.length || ids.length > 100 || ids.some(v => typeof v !== "string" || v.length > 40)) D.fail(400, "每次请选择1至100条资源");
@@ -302,7 +334,7 @@ module.exports = function service(db, secrets, legacy) {
     return payload.deleted ? { ok: true, customerId: operation.customer_id } : { customer: payload.customer };
   }
   // Caller must hold the legacy mutation queue, including recovery and conversion.
-  async function saveCustomer(user, input, customerId, requestId, deleting) {
+  async function saveCustomer(user, input, customerId, requestId, deleting, expectedLeadVersion) {
     if (!D.allowed(user)) D.fail(403, "没有客户资源操作权限");
     const data = legacy.readDb();
     const old = customerId ? data.customers.find(x => x.id === customerId) : null;
@@ -320,10 +352,16 @@ module.exports = function service(db, secrets, legacy) {
       const found = await q("SELECT r.*,EXISTS(SELECT 1 FROM lead_do_not_call d WHERE d.phone_key=r.phone_key) AS blocked FROM lead_resources r WHERE r.customer_id=? OR r.phone_key=? FOR UPDATE", [customer.id, secrets.hash(customer.phone)], c);
       if (found.length > 1) D.fail(409, "新号码已属于另一资源，不能合并覆盖");
       let r = found[0];
+      if (r && expectedLeadVersion !== undefined && Number(r.version) !== Number(expectedLeadVersion)) D.fail(409, "资源已变化，请重新打开详情");
       if (r && r.customer_id && r.customer_id !== customer.id) D.fail(409, "号码已关联其他客户");
       if (r && !old && D.blocked(r.blocked)) D.fail(409, "该号码已禁止联系，不能新增正式客户");
       if (r && !old && r.owner_id && r.owner_id !== customer.ownerId) D.fail(409, "资源已在其他人员名下，只有管理员可以先调整所属");
       if (r && !old && !r.owner_id && !input.claimPublic) D.fail(409, "客户在公海，请确认纳入本人名下");
+      const customerPhoneKey = secrets.hash(customer.phone);
+      if (!deleting && (!r || r.phone_key !== customerPhoneKey)) {
+        const blockedPhone = await q("SELECT phone_key FROM lead_do_not_call WHERE phone_key=? LIMIT 1", [customerPhoneKey], c);
+        if (blockedPhone.length) D.fail(409, "该号码已禁止联系，不能用于正式客户");
+      }
       if (!deleting) await capacity(c, customer.ownerId, r && r.id);
       if (!r) {
         if (old) D.fail(409, "现有客户尚未关联资源，请先核对迁移");
@@ -413,5 +451,5 @@ module.exports = function service(db, secrets, legacy) {
       total: Number(count[0].n), page: currentPage, pageSize: size
     };
   }
-  return { ready, list, tasks, detail, addResource, updateTag, move, follow, lookup, dial, saveCustomer, recover, migration, stats, audits, doNotCall, insert, audit, payloadPhone };
+  return { ready, list, tasks, detail, addResource, updateTag, updateResource, move, follow, lookup, dial, saveCustomer, recover, migration, stats, audits, doNotCall, insert, audit, payloadPhone };
 };

@@ -28,6 +28,13 @@ vm.runInContext("leadsState.selected=['cross-page']; leadPage(1)", context);
 assert.deepStrictEqual(Array.from(vm.runInContext("leadsState.selected", context)), ["cross-page"], "ordinary paging preserves selection");
 vm.runInContext("leadTaskPage('priority',1)", context);
 assert.deepStrictEqual(Array.from(vm.runInContext("leadsState.selected", context)), ["cross-page"], "task group paging preserves selection");
+vm.runInContext("jumpInput={value:'7'}; document.getElementById=id=>jumpInput; leadsState.page=1; leadPageJump(12)", context);
+assert.strictEqual(vm.runInContext("leadsState.page", context), 7, "ordinary page jump accepts an arbitrary valid page");
+vm.runInContext("jumpInput.value='3'; leadsState.taskPages.priority=1; leadTaskPageJump('priority',5)", context);
+assert.strictEqual(vm.runInContext("leadsState.taskPages.priority", context), 3, "task tier page jump updates that tier only");
+vm.runInContext("jumpInput.value='9'; leadsState.taskPages.priority=3; leadTaskPageJump('priority',5)", context);
+assert.strictEqual(vm.runInContext("leadsState.taskPages.priority", context), 3, "out-of-range page jump changes nothing");
+assert(alerts.some(function (message) { return message.indexOf("1至5") >= 0; }));
 vm.runInContext("pageBox={dataset:{leadPageIds:'p1,p2'},checked:false,indeterminate:false}; rowBox={dataset:{leadId:'p1'},checked:false}; document.querySelectorAll=s=>s==='[data-lead-page-select]'?[pageBox]:s==='[data-lead-id]'?[rowBox]:[]; leadsState.selected=['p1']; leadSyncSelectionControls()", context);
 assert.strictEqual(vm.runInContext("pageBox.indeterminate", context), true, "partially selected page has an indeterminate checkbox");
 assert.strictEqual(vm.runInContext("rowBox.checked", context), true);
@@ -41,5 +48,7 @@ const mineList = vm.runInContext("renderLeadMineList([{id:'mine-1',name:'王师�
 assert(mineList.includes("lead-list-mine") && mineList.includes("确认明天下午送样") && mineList.includes("3 次"));
 const taskList = vm.runInContext("renderLeadTaskList([{id:'task-1',name:'陈经理',phone:'13900000001',reason:'最近有效订单距今26天，订单后尚未跟进',reasonShort:'订单后26天未跟进',tags:'装修公司负责人/工长',orderAmount:12860,orderCount:3,lastOrderAt:'2026/8/19',lastFollowupAt:null,lastFollowupContent:'',followupCount:0}],'priority')", context);
 assert(taskList.includes("lead-list-tasks") && taskList.includes("订单后26天未跟进") && taskList.includes("¥12,860.00") && taskList.includes("暂无跟进内容"));
+const jumpUi = vm.runInContext("renderLeadPageJump('lead-page-jump',2,51,20,'leadPageJump')", context);
+assert(jumpUi.includes('max="3"') && jumpUi.includes("跳转"));
 
 console.log("lead cross-page selection and 100-item limit tests passed");
