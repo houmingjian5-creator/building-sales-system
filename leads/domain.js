@@ -67,6 +67,7 @@ function publicLead(row, user, secrets) {
     result.lastFollowupAt = row.last_followup_at || null;
     result.lastFollowupContent = String(row.last_followup_content || "");
     result.followupCount = Number(row.followup_count || 0);
+    result.seaEnteredAt = row.sea_entered_at || row.created_at || null;
   }
   return result;
 }

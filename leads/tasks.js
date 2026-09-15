@@ -80,9 +80,13 @@ function classify(input) {
 function compare(a, b, sort) {
   const mode = sort || "created_desc";
   const createdA = timestamp(a.createdAt || a.created_at) || 0, createdB = timestamp(b.createdAt || b.created_at) || 0;
+  const enteredA = timestamp(a.seaEnteredAt || a.privateEnteredAt || a.createdAt || a.created_at) || 0;
+  const enteredB = timestamp(b.seaEnteredAt || b.privateEnteredAt || b.createdAt || b.created_at) || 0;
   const followedA = timestamp(a.lastFollowupAt || a.last_followup_at), followedB = timestamp(b.lastFollowupAt || b.last_followup_at);
   let value = 0;
-  if (mode === "followed_desc" || mode === "followed_asc") {
+  if (mode === "sea_desc" || mode === "sea_asc") {
+    if (enteredA !== enteredB) value = mode === "sea_desc" ? enteredB - enteredA : enteredA - enteredB;
+  } else if (mode === "followed_desc" || mode === "followed_asc") {
     if (followedA === null && followedB !== null) return 1;
     if (followedA !== null && followedB === null) return -1;
     if (followedA !== followedB) value = mode === "followed_desc" ? followedB - followedA : followedA - followedB;

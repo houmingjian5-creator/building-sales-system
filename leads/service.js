@@ -4,6 +4,8 @@ const D = require("./domain");
 const Tasks = require("./tasks");
 const id = () => crypto.randomBytes(16).toString("hex");
 const SORTS = {
+  sea_desc: "sea_entered_at DESC,r.created_at DESC,r.id DESC",
+  sea_asc: "sea_entered_at ASC,r.created_at DESC,r.id DESC",
   created_desc: "r.created_at DESC,r.id DESC",
   created_asc: "r.created_at ASC,r.id ASC",
   followed_desc: "fm.last_followup_at IS NULL ASC,fm.last_followup_at DESC,r.created_at DESC,r.id DESC",
@@ -47,6 +49,14 @@ module.exports = function service(db, secrets, legacy) {
   }
   function payloadPhone(value) { return D.phone(value, legacy.normalizeCustomerPhone); }
   function sortMode(params) { const value = params.get("sort") || "created_desc"; return SORTS[value] ? value : "created_desc"; }
+  function addSearch(params, where, args) {
+    const keyword = D.text(params.get("q"), 160);
+    if (!keyword) return;
+    const pattern = "%" + keyword.replace(/[\\%_]/g, "\\$&") + "%";
+    const normalized = legacy.normalizeCustomerPhone(keyword);
+    where.push("(r.name LIKE ? OR r.phone_key=?)");
+    args.push(pattern, secrets.hash(normalized || keyword));
+  }
   async function insert(c, input, owner, customerId) {
     const number = payloadPhone(input.phone);
     const leadId = id();
@@ -89,6 +99,7 @@ module.exports = function service(db, secrets, legacy) {
       if (owner) { where.push("r.owner_id=?"); args.push(D.text(owner, 64)); }
     }
     else { where.push("r.owner_id=?"); args.push(user.id); }
+    addSearch(params, where, args);
     if (params.get("intent")) { where.push("r.intent=?"); args.push(D.text(params.get("intent"), 32)); }
     if (params.get("tag") === "unset") where.push("(r.tags IS NULL OR TRIM(r.tags)='')");
     else if (params.get("tag")) { where.push("r.tags=?"); args.push(D.tag(params.get("tag"))); }
@@ -99,13 +110,14 @@ module.exports = function service(db, secrets, legacy) {
     ["from", "to"].forEach(key => { if (params.get(key)) { where.push("r.created_at" + (key === "from" ? ">=?" : "<=?")); args.push(D.date(params.get(key))); } });
     const sql = where.length ? " WHERE " + where.join(" AND ") : "";
     const count = await q("SELECT COUNT(*) AS n FROM lead_resources r" + sql, args);
-    const rows = await q("SELECT r.*,fm.last_followup_at,COALESCE(fm.followup_count,0) AS followup_count,(SELECT f.content FROM lead_followups f WHERE f.lead_id=r.id ORDER BY f.created_at DESC,f.id DESC LIMIT 1) AS last_followup_content,EXISTS(SELECT 1 FROM lead_do_not_call d WHERE d.phone_key=r.phone_key) AS blocked FROM lead_resources r LEFT JOIN (SELECT lead_id,MAX(created_at) AS last_followup_at,COUNT(*) AS followup_count FROM lead_followups GROUP BY lead_id) fm ON fm.lead_id=r.id" + sql + " ORDER BY " + SORTS[sort] + " LIMIT " + size + " OFFSET " + ((page - 1) * size), args);
+    const rows = await q("SELECT r.*,fm.last_followup_at,COALESCE(fm.followup_count,0) AS followup_count,(SELECT f.content FROM lead_followups f WHERE f.lead_id=r.id ORDER BY f.created_at DESC,f.id DESC LIMIT 1) AS last_followup_content,COALESCE((SELECT MAX(h.created_at) FROM lead_assignment_history h WHERE h.lead_id=r.id AND ((r.owner_id IS NULL AND h.to_owner IS NULL) OR h.to_owner=r.owner_id)),r.created_at) AS sea_entered_at,EXISTS(SELECT 1 FROM lead_do_not_call d WHERE d.phone_key=r.phone_key) AS blocked FROM lead_resources r LEFT JOIN (SELECT lead_id,MAX(created_at) AS last_followup_at,COUNT(*) AS followup_count FROM lead_followups GROUP BY lead_id) fm ON fm.lead_id=r.id" + sql + " ORDER BY " + SORTS[sort] + " LIMIT " + size + " OFFSET " + ((page - 1) * size), args);
     return { items: rows.map(r => D.publicLead(r, user, secrets)), total: Number(count[0].n), page, pageSize: size };
   }
   async function tasks(user, params) {
     await ready();
     const sort = sortMode(params);
     const where = ["r.owner_id=?", "NOT EXISTS(SELECT 1 FROM lead_do_not_call d WHERE d.phone_key=r.phone_key)"], args = [user.id];
+    addSearch(params, where, args);
     if (params.get("intent")) { where.push("r.intent=?"); args.push(D.text(params.get("intent"), 32)); }
     if (params.get("tag") === "unset") where.push("(r.tags IS NULL OR TRIM(r.tags)='')");
     else if (params.get("tag")) { where.push("r.tags=?"); args.push(D.tag(params.get("tag"))); }
@@ -134,6 +146,7 @@ module.exports = function service(db, secrets, legacy) {
       const latestFollowup = resourceFollowups.length ? resourceFollowups[resourceFollowups.length - 1] : null;
       groups[task.tier].push(Object.assign(D.publicLead(r, user, secrets), task, {
         reasonShort: Tasks.shortReason(task.reason),
+        seaEnteredAt: entryByLead[r.id] || r.created_at,
         lastFollowupContent: latestFollowup ? String(latestFollowup.content || "") : "",
         followupCount: resourceFollowups.length,
         orderAmount: Math.round(validOrders.reduce(function (sum, order) { return sum + Number(legacy.effectiveOrderAmount(order) || 0); }, 0) * 100) / 100,

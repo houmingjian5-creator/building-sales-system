@@ -136,7 +136,7 @@ async function run() {
   const unsetSql = f.queries().filter(x => x.sql.startsWith("SELECT r.*")).pop();
   assert(unsetSql.sql.indexOf("TRIM(r.tags)=''" ) >= 0);
   await assert.rejects(f.service.list(users[0], new URLSearchParams({ scope: "mine", owner: "b" })));
-  const orderFragments = { created_desc: "r.created_at DESC", created_asc: "r.created_at ASC", followed_desc: "fm.last_followup_at DESC", followed_asc: "fm.last_followup_at ASC", count_desc: "followup_count,0) DESC", count_asc: "followup_count,0) ASC" };
+  const orderFragments = { sea_desc: "sea_entered_at DESC", sea_asc: "sea_entered_at ASC", created_desc: "r.created_at DESC", created_asc: "r.created_at ASC", followed_desc: "fm.last_followup_at DESC", followed_asc: "fm.last_followup_at ASC", count_desc: "followup_count,0) DESC", count_asc: "followup_count,0) ASC" };
   for (const mode of Object.keys(orderFragments)) {
     await f.service.list(users[0], new URLSearchParams({ scope: "mine", sort: mode }));
     const sortedSql = f.queries().filter(x => x.sql.startsWith("SELECT r.*,fm.last_followup_at")).pop().sql;
@@ -145,6 +145,11 @@ async function run() {
   await f.service.list(users[0], new URLSearchParams({ scope: "mine", sort: "r.created_at;DROP TABLE lead_resources" }));
   const safeSortSql = f.queries().filter(x => x.sql.startsWith("SELECT r.*,fm.last_followup_at")).pop().sql;
   assert(safeSortSql.indexOf("DROP TABLE") < 0 && safeSortSql.indexOf("r.created_at DESC") >= 0, "unknown sort falls back safely");
+  await f.service.list(users[0], new URLSearchParams({ scope: "mine", q: "138-0000-0001" }));
+  const searchQuery = f.queries().filter(x => x.sql.startsWith("SELECT r.*,fm.last_followup_at")).pop();
+  assert(searchQuery.sql.indexOf("r.name LIKE ? OR r.phone_key=?") >= 0, "resource search must use bound name and exact phone conditions");
+  assert(searchQuery.args.indexOf("%138-0000-0001%") >= 0 && searchQuery.args.indexOf(secrets.hash("13800000001")) >= 0);
+  assert(searchQuery.sql.indexOf("AS sea_entered_at") >= 0 && searchQuery.sql.indexOf("lead_assignment_history") >= 0, "list must derive the latest entry into the current sea");
   f = fixture(); f.add("task-own", "a", "13800000007"); f.add("task-other", "b", "13800000008"); f.add("task-blocked", "a", "13800000009");
   f.state().blocked.push(secrets.hash("13800000009"));
   const tasks = await f.service.tasks(users[0], new URLSearchParams());
@@ -159,6 +164,7 @@ async function run() {
   assert.strictEqual(orderTask.orderAmount, 888.5);
   assert.strictEqual(orderTask.orderCount, 1);
   assert.strictEqual(orderTask.lastFollowupContent, "最近沟通了报价与送货时间");
+  assert.strictEqual(orderTask.seaEnteredAt, "2026-08-01T00:00:00.000Z");
   assert(orderTask.reasonShort && orderTask.reasonShort.length <= 16);
   console.log("lead service concurrency model, quota, ownership and interrupted-customer recovery tests passed");
 }
