@@ -189,11 +189,18 @@ const costRenderSource = appSource.slice(
 );
 assert(costRenderSource.includes("costOrderDateInRange"), "成本订单必须应用日期筛选");
 assert(costRenderSource.includes("costOrderMatchesSuppliers"), "成本订单必须应用供应商筛选");
+assert(costRenderSource.includes("state.costSalesOptions"), "成本人员候选项必须来自独立稳定列表，不能从筛选后的订单生成");
+assert(costRenderSource.includes("state.costSalesFilters.includes(order.salesUserId)"), "成本人员筛选必须使用人员ID");
 assert(costRenderSource.includes("整体毛利率"), "成本汇总必须展示整体毛利率");
 assert(appSource.includes("summary.profit / summary.revenue"), "整体毛利率必须按总盈利除以实际付款合计计算");
 assert(stylesSource.includes(".cost-filter-toggle"), "手机成本筛选必须提供折叠入口");
 assert(stylesSource.includes(".cost-filter-content.is-open"), "手机成本筛选必须支持展开");
 assert(stylesSource.includes("grid-template-columns: repeat(5"), "桌面成本汇总必须容纳五张统计卡");
+
+const defaultCostSalesSource = frontendFunctionSource("defaultCostSalesFilters", "toggleCostSupplierMenu");
+assert(defaultCostSalesSource.includes("return [];"), "成本控制默认必须选择全部销售");
+assert(!defaultCostSalesSource.includes("谢天天") && !defaultCostSalesSource.includes("陈诚"), "成本控制不得硬编码默认人员");
+assert(appSource.includes("state.costSalesOptions = data.salespeople || state.costSalesOptions"), "成本人员候选列表必须由服务端独立返回");
 
 assert(appSource.includes("cost-order-view-btn"), "Each cost order must expose an order-detail button.");
 assert(appSource.includes("openCostOrderDocument"), "Cost orders must use the guarded order-detail flow.");

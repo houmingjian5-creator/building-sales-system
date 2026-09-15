@@ -901,7 +901,7 @@ function analyticsCustomerData(db, user, orders, salesFilters, range, inactiveDa
 function analyticsPayload(db, user, options) {
   const input = options || {};
   const allowedSalesIds = (db.users || []).filter(function (item) {
-    return item.role === "销售人员" && item.status !== "停用";
+    return isOrderCapableUser(item);
   }).map(function (item) { return item.id; });
   const requested = Array.isArray(input.salesFilters) ? input.salesFilters : [];
   const salesFilters = user.role === "销售人员" ? [user.id] : requested.filter(function (id) { return allowedSalesIds.indexOf(id) >= 0; });
@@ -2289,6 +2289,10 @@ const ASSISTANT_TOOL_NAMES = new Set([
 
 function isAdminRole(user) {
   return user && ['超级管理员', '管理员'].includes(user.role);
+}
+
+function isOrderCapableUser(user) {
+  return Boolean(user && user.status !== '停用' && ['销售人员', '管理员', '超级管理员'].includes(user.role));
 }
 
 function readAssistantChats() {
@@ -4851,6 +4855,11 @@ async function handleApi(req, res) {
     const orderStatus = url.searchParams.get("status") || "";
     const reconciliationStatus = url.searchParams.get("reconciliationStatus") || "";
     const baseOrders = db.orders.filter(isCostControlOrder);
+    const salespeople = (db.users || []).filter(isOrderCapableUser).map(function (item) {
+      return { id: item.id, name: item.name, role: item.role };
+    }).sort(function (a, b) {
+      return String(a.name || "").localeCompare(String(b.name || ""), "zh-CN") || String(a.id).localeCompare(String(b.id));
+    });
     const supplierOptions = Array.from(new Set(baseOrders.reduce((names, order) => {
       const control = normalizeCostControl(order.costControl || {});
       control.suppliers.forEach((supplier) => {
@@ -4883,9 +4892,10 @@ async function handleApi(req, res) {
     if (url.searchParams.has("page") || url.searchParams.has("pageSize")) {
       const result = pagedResult(orders, url, 30);
       result.suppliers = supplierOptions;
+      result.salespeople = salespeople;
       return sendJson(res, 200, result);
     }
-    return sendJson(res, 200, { orders: orders, suppliers: supplierOptions });
+    return sendJson(res, 200, { orders: orders, suppliers: supplierOptions, salespeople: salespeople });
   }
 
   if (url.pathname.startsWith("/api/cost-control/") && method === "PATCH") {
@@ -5332,6 +5342,7 @@ module.exports.dashboardPayload = dashboardPayload;
 module.exports.analyticsRange = analyticsRange;
 module.exports.analyticsPayload = analyticsPayload;
 module.exports.analyticsCustomerDetailsPayload = analyticsCustomerDetailsPayload;
+module.exports.isOrderCapableUser = isOrderCapableUser;
 module.exports.pagedResult = pagedResult;
 module.exports.customerOrderMatchesCustomer = customerOrderMatchesCustomer;
 module.exports.customerOrdersForUser = customerOrdersForUser;

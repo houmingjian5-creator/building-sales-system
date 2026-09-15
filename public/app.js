@@ -65,6 +65,7 @@ const state = {
   costStatusFilter: "全部",
   costReconcileFilter: "全部",
   costSalesFilters: [],
+  costSalesOptions: [],
   costDateFrom: initialCostDateRange.from,
   costDateTo: initialCostDateRange.to,
   costSupplierFilters: [],
@@ -625,6 +626,7 @@ async function logout() {
     state.costSavingId = "";
     state.costReconcileFilter = "全部";
     state.costSalesFilters = [];
+    state.costSalesOptions = [];
     const costDateRange = costDatePresetRange("month");
     state.costDateFrom = costDateRange.from;
     state.costDateTo = costDateRange.to;
@@ -746,7 +748,8 @@ function renderMobileFilterSheet() {
       mobileFilterSelect("二级分类", state.productSubcategory || "全部", secondaryCategories, "setProductSubcategory(this.value === '全部' ? '' : this.value)", state.category === "全部");
   } else if (state.mobileFilterOpen === "analytics") {
     const selectedSalesperson = state.analyticsSalesFilters.length === 1 ? state.analyticsSalesFilters[0] : "";
-    fields = `<label class="mobile-filter-field"><span>开始日期</span><input class="input" type="date" value="${html(state.analyticsDateFrom)}" onchange="setAnalyticsCustomDate('from',this.value)" /></label><label class="mobile-filter-field"><span>结束日期</span><input class="input" type="date" value="${html(state.analyticsDateTo)}" onchange="setAnalyticsCustomDate('to',this.value)" /></label>${canChooseAnalyticsSalesperson() ? `<label class="mobile-filter-field"><span>销售人员</span><select class="select" onchange="setAnalyticsMobileSalesperson(this.value)"><option value="">全部销售人员</option>${analyticsSalesUsers().map((user) => `<option value="${html(user.id)}" ${selectedSalesperson === user.id ? "selected" : ""}>${html(user.name)}</option>`).join("")}</select></label>` : `<div class="hint">销售人员仅查看自己的数据。</div>`}<label class="mobile-filter-field"><span>待跟进标准</span><select class="select" onchange="setAnalyticsInactiveDays(this.value)"><option value="30" ${state.analyticsInactiveDays === 30 ? "selected" : ""}>30天未下单</option><option value="60" ${state.analyticsInactiveDays === 60 ? "selected" : ""}>60天未下单</option><option value="90" ${state.analyticsInactiveDays === 90 ? "selected" : ""}>90天未下单</option></select></label>`;
+    fields = `<label class="mobile-filter-field"><span>下单人员</span><select class="select" onchange="setAnalyticsMobileSalesperson(this.value)"><option value="">全部可下单人员</option>${analyticsSalesUsers().map((user) => `<option value="${html(user.id)}" ${selectedSalesperson === user.id ? "selected" : ""}>${html(user.name)}${user.role !== "销售人员" ? `（${html(user.role)}）` : ""}</option>`).join("")}</select></label>`;
+    fields = `<label class="mobile-filter-field"><span>开始日期</span><input class="input" type="date" value="${html(state.analyticsDateFrom)}" onchange="setAnalyticsCustomDate('from',this.value)" /></label><label class="mobile-filter-field"><span>结束日期</span><input class="input" type="date" value="${html(state.analyticsDateTo)}" onchange="setAnalyticsCustomDate('to',this.value)" /></label>${canChooseAnalyticsSalesperson() ? fields : `<div class="hint">销售人员仅查看自己的数据。</div>`}<label class="mobile-filter-field"><span>待跟进标准</span><select class="select" onchange="setAnalyticsInactiveDays(this.value)"><option value="30" ${state.analyticsInactiveDays === 30 ? "selected" : ""}>30天未下单</option><option value="60" ${state.analyticsInactiveDays === 60 ? "selected" : ""}>60天未下单</option><option value="90" ${state.analyticsInactiveDays === 90 ? "selected" : ""}>90天未下单</option></select></label>`;
   } else if (state.mobileFilterOpen === "audit") {
     fields = `<label class="mobile-filter-field"><span>开始日期</span><input class="input" type="date" value="${html(state.auditFilters.startDate)}" onchange="updateAuditFilter('startDate',this.value)" /></label><label class="mobile-filter-field"><span>结束日期</span><input class="input" type="date" value="${html(state.auditFilters.endDate)}" onchange="updateAuditFilter('endDate',this.value)" /></label><label class="mobile-filter-field"><span>操作人员</span><select class="select" onchange="updateAuditFilter('actorId',this.value)"><option value="">全部操作人员</option>${salesUsers.map((user) => `<option value="${html(user.id)}" ${state.auditFilters.actorId === user.id ? "selected" : ""}>${html(user.name)}</option>`).join("")}</select></label>${mobileFilterSelect("业务类型", state.auditFilters.entityType, ["", "账号", "客户", "商品", "订单", "成本", "人员", "操作日志", "批量数据"], "updateAuditFilter('entityType',this.value)")}${mobileFilterSelect("操作结果", state.auditFilters.result, ["", "成功", "失败"], "updateAuditFilter('result',this.value)")}`;
   }
@@ -3317,6 +3320,7 @@ async function loadBootstrap() {var _state$user9, _activeSalesUsers$2;
   state.analyticsSalesFilters = [];
   state.analyticsSalesMenuOpen = false;
   state.analyticsCustomerDetails = null;
+  state.costSalesOptions = [];
   ensureSalesScope();
   await loadRouteData(state.route, true);
 }
@@ -5414,10 +5418,10 @@ function closeCostSalesMenu() {
   rerenderCostControl();
 }
 
-function toggleCostSalesperson(name) {
+function toggleCostSalesperson(userId) {
   const selected = new Set(state.costSalesFilters);
-  if (selected.has(name)) selected.delete(name);else
-  selected.add(name);
+  if (selected.has(userId)) selected.delete(userId);else
+  selected.add(userId);
   state.costSalesFilters = Array.from(selected);
   rerenderCostControl();
   loadCostControl(true);
@@ -5430,8 +5434,7 @@ function clearCostSalespeople() {
 }
 
 function defaultCostSalesFilters() {
-  const availableNames = new Set(state.costOrders.map((order) => order.salesName).filter(Boolean));
-  return ["谢天天", "陈诚"].filter((name) => availableNames.has(name));
+  return [];
 }
 
 function toggleCostSupplierMenu() {
@@ -5513,14 +5516,13 @@ async function loadCostControl(force = false) {
   state.costError = "";
   if (state.route === "costs" && !document.getElementById("costLiveResults")) render();
   try {
-    const selectedSalesIds = state.costSalesFilters.map((name) => {var _salesUsers$find;return (_salesUsers$find = salesUsers.find((user) => user.name === name)) === null || _salesUsers$find === void 0 ? void 0 : _salesUsers$find.id;}).filter(Boolean);
     const selectedSuppliers = state.costSupplierFilters.map((name) => name === COST_UNASSIGNED_SUPPLIER ? "__EMPTY__" : name);
     const response = await latestApiFetch("cost-control", `/api/cost-control${queryString({
       q: state.costQuery,
       startDate: state.costDateFrom,
       endDate: state.costDateTo,
       suppliers: selectedSuppliers.join(","),
-      salesUserIds: selectedSalesIds.join(","),
+      salesUserIds: state.costSalesFilters.join(","),
       status: state.costStatusFilter,
       reconciliationStatus: state.costReconcileFilter
     })}`);
@@ -5532,6 +5534,7 @@ async function loadCostControl(force = false) {
       costControl: cloneCostControl(order.costControl)
     }));
     state.costSupplierOptions = data.suppliers || state.costSupplierOptions;
+    state.costSalesOptions = data.salespeople || state.costSalesOptions;
     if (!state.costSalesInitialized) {
       state.costSalesFilters = defaultCostSalesFilters();
       state.costSalesInitialized = true;
@@ -5598,7 +5601,7 @@ function renderCostControl() {
   }
 
   const query = state.costQuery.trim().toLowerCase();
-  const salesNames = Array.from(new Set(state.costOrders.map((order) => order.salesName).filter(Boolean))).sort((a, b) => a.localeCompare(b, "zh-CN"));
+  const salesOptions = state.costSalesOptions.length ? state.costSalesOptions : analyticsSalesUsers().map((user) => ({ id: user.id, name: user.name, role: user.role }));
   const supplierNameSet = new Set();
   state.costOrders.forEach((order) => {var _order$costControl4;
     (((_order$costControl4 = order.costControl) === null || _order$costControl4 === void 0 ? void 0 : _order$costControl4.suppliers) || []).forEach((supplier) => {
@@ -5620,7 +5623,7 @@ function renderCostControl() {
     some((value) => String(value || "").toLowerCase().includes(query));
     const matchesStatus = state.costStatusFilter === "全部" || (
     state.costStatusFilter === "已完成" ? order.status === "已完成" : order.status !== "已完成");
-    const matchesSales = !state.costSalesFilters.length || state.costSalesFilters.includes(order.salesName);
+    const matchesSales = !state.costSalesFilters.length || state.costSalesFilters.includes(order.salesUserId);
     const reconcileStatus = ((_order$costControl5 = order.costControl) === null || _order$costControl5 === void 0 ? void 0 : _order$costControl5.reconciliationStatus) || "未对订单";
     const matchesReconcile = state.costReconcileFilter === "全部" || reconcileStatus === state.costReconcileFilter;
     const matchesDate = costOrderDateInRange(order.date, state.costDateFrom, state.costDateTo);
@@ -5653,10 +5656,10 @@ function renderCostControl() {
             ${state.costSalesMenuOpen ? `
               <div class="cost-sales-menu">
                 <button type="button" class="cost-sales-all ${!state.costSalesFilters.length ? "selected" : ""}" onclick="clearCostSalespeople()">全部销售</button>
-                ${salesNames.map((name) => `
+                ${salesOptions.map((user) => `
                   <label class="cost-sales-option">
-                    <input type="checkbox" ${state.costSalesFilters.includes(name) ? "checked" : ""} onchange="toggleCostSalesperson(${jsArg(name)})" />
-                    <span>${html(name)}</span>
+                    <input type="checkbox" ${state.costSalesFilters.includes(user.id) ? "checked" : ""} onchange="toggleCostSalesperson(${jsArg(user.id)})" />
+                    <span>${html(user.name)}${user.role !== "销售人员" ? `（${html(user.role)}）` : ""}</span>
                   </label>
                 `).join("")}
               </div>
@@ -6769,7 +6772,7 @@ function analyticsDatePresetRange(preset, referenceDate = new Date()) {
 }
 
 function analyticsSalesUsers() {
-  return salesUsers.filter((user) => user.role === "销售人员" && user.status !== "停用");
+  return salesUsers.filter((user) => ["销售人员", "管理员", "超级管理员"].includes(user.role) && user.status !== "停用");
 }
 
 function canChooseAnalyticsSalesperson() {
@@ -6858,10 +6861,10 @@ function analyticsSalesFilterHtml() {
   if (!canChooseAnalyticsSalesperson()) return `<div class="analytics-self-scope">我的数据</div>`;
   const users = analyticsSalesUsers();
   const selectedNames = users.filter((user) => state.analyticsSalesFilters.includes(user.id)).map((user) => user.name);
-  const label = selectedNames.length ? selectedNames.length === 1 ? selectedNames[0] : `已选 ${selectedNames.length} 人` : "全部销售人员";
+  const label = selectedNames.length ? selectedNames.length === 1 ? selectedNames[0] : `已选 ${selectedNames.length} 人` : "全部可下单人员";
   return `<div class="analytics-sales-filter">
     <button type="button" class="select analytics-sales-trigger" onclick="toggleAnalyticsSalesMenu()"><span>${html(label)}</span><b>⌄</b></button>
-    ${state.analyticsSalesMenuOpen ? `<div class="analytics-sales-menu"><button type="button" class="${!state.analyticsSalesFilters.length ? "selected" : ""}" onclick="clearAnalyticsSalespeople()">全部销售人员</button>${users.map((user) => `<label><input type="checkbox" ${state.analyticsSalesFilters.includes(user.id) ? "checked" : ""} onchange="toggleAnalyticsSalesperson(${jsArg(user.id)})"/><span>${html(user.name)}</span></label>`).join("")}</div>` : ""}
+    ${state.analyticsSalesMenuOpen ? `<div class="analytics-sales-menu"><button type="button" class="${!state.analyticsSalesFilters.length ? "selected" : ""}" onclick="clearAnalyticsSalespeople()">全部可下单人员</button>${users.map((user) => `<label><input type="checkbox" ${state.analyticsSalesFilters.includes(user.id) ? "checked" : ""} onchange="toggleAnalyticsSalesperson(${jsArg(user.id)})"/><span>${html(user.name)}${user.role !== "销售人员" ? `（${html(user.role)}）` : ""}</span></label>`).join("")}</div>` : ""}
   </div>`;
 }
 

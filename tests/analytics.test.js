@@ -70,6 +70,16 @@ const financeFiltered = server.analyticsPayload(db, db.users[1], {
 assert.strictEqual(financeFiltered.summary.netSales.value, 500, "财务应能筛选个人销售数据");
 assert.strictEqual(financeFiltered.summary.orderCount.value, 1);
 
+const adminFiltered = server.analyticsPayload(db, db.users[0], {
+  dateFrom: "2026-09-01",
+  dateTo: "2026-09-02",
+  salesFilters: ["admin"],
+});
+assert.deepStrictEqual(adminFiltered.salesFilters, ["admin"], "管理员必须出现在可下单人员筛选范围内");
+assert.strictEqual(server.isOrderCapableUser(db.users[0]), true, "管理员应属于可下单人员");
+assert.strictEqual(server.isOrderCapableUser(db.users[1]), false, "财务不应被误列为可下单人员");
+assert.strictEqual(server.isOrderCapableUser({ id: "root", role: "超级管理员", status: "启用" }), true, "超级管理员应属于可下单人员");
+
 const detail = server.analyticsCustomerDetailsPayload(db, db.users[0], {
   type: "repeat",
   dateFrom: "2026-09-01",
@@ -84,6 +94,7 @@ assert(appSource.includes('navButton("analytics", "数据分析")'), "桌面侧�
 assert(appSource.includes('mobileMoreRouteButton("analytics", "数据分析")'), "手机更多菜单必须提供数据分析入口");
 assert(appSource.includes("/api/analytics") && appSource.includes("/api/analytics/customers"), "数据分析页面必须读取汇总和客户明细接口");
 assert(appSource.includes("dashboard-analytics-entry") && appSource.includes("查看详细分析"), "销售概览必须提供详细分析入口");
+assert(appSource.includes('["销售人员", "管理员", "超级管理员"].includes(user.role)'), "数据分析人员筛选必须展示全部可下单角色");
 assert(stylesSource.includes(".analytics-kpi-grid") && stylesSource.includes(".analytics-chart-grid") && stylesSource.includes(".route-analytics"), "数据分析页面必须包含桌面和手机响应式样式");
 assert(/@media \(max-width: 720px\)[\s\S]*?\.analytics-kpi-grid\s*\{\s*grid-template-columns:\s*repeat\(2/.test(stylesSource), "手机端关键指标必须采用双列紧凑布局");
 
