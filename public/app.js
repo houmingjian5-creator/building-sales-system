@@ -2198,7 +2198,6 @@ async function saveCustomer(id) {var _document$getElementB6, _document$getElemen
   try {
     if (!id && state.leadsCapability && state.leadsCapability.active) {
       const membership = await leadRequest("lookup", { phone: payload.phone });
-      if (membership.blocked) throw new Error("该号码已禁止联系，不能新增正式客户。");
       if (membership.location === "mine") {
         if (!confirm("该号码已在您的私海，是否关联为本人正式客户？")) return;
       }

@@ -21,14 +21,25 @@ function fixture() {
     if (sql.startsWith("SELECT * FROM lead_requests")) return clone(state.requests.filter(x => x.request_key === args[0]));
     if (sql.startsWith("SELECT COUNT(*) AS n FROM lead_resources r")) return [{ n: 0 }];
     if (sql.startsWith("SELECT COUNT(*) AS n FROM lead_resources")) return [{ n: state.rows.filter(x => x.owner_id === args[0] && x.id !== args[1]).length }];
-    if (sql.startsWith("SELECT r.*, 0 AS blocked FROM lead_resources r")) return clone(state.rows.filter(x => x.owner_id === args[0] && state.blocked.indexOf(x.phone_key) < 0).map(x => Object.assign({}, x, { blocked: 0 })));
+    if (sql.startsWith("SELECT owner_id,COUNT(*) total")) {
+      const owners = args.length ? [args[0]] : Array.from(new Set(state.rows.map(x => x.owner_id)));
+      return owners.filter(Boolean).map(owner => ({ owner_id: owner, total: state.rows.filter(x => x.owner_id === owner).length, customers: state.rows.filter(x => x.owner_id === owner && x.customer_id).length }));
+    }
+    if (sql.startsWith("SELECT COUNT(DISTINCT f.lead_id)")) return [{ followed_customers: 0, connected_customers: 0 }];
+    if (sql.startsWith("SELECT COUNT(*) total FROM lead_resources WHERE owner_id IS NOT NULL")) return [{ total: 0 }];
+    if (sql.startsWith("SELECT f.id,f.actor_id")) return [];
+    if (sql.startsWith("SELECT f.actor_id,MAX(f.actor_name)")) return [];
+    if (sql.startsWith("SELECT f.result,COUNT(*)")) return [];
+    if (sql.startsWith("SELECT DATE_FORMAT(CONVERT_TZ")) return [];
+    if (sql.startsWith("SELECT id,customer_id FROM lead_resources")) return [];
+    if (sql.startsWith("SELECT f.lead_id,f.actor_id")) return [];
+    if (sql.startsWith("SELECT r.* FROM lead_resources r WHERE r.owner_id=?") && sql.indexOf("ORDER BY") < 0) return clone(state.rows.filter(x => x.owner_id === args[0]));
     if (sql.startsWith("SELECT f.lead_id,f.content,f.created_at FROM lead_followups")) return clone(state.followups.filter(function (item) { return item && !Array.isArray(item) && item.owner_id === args[0]; }));
     if (sql.startsWith("SELECT h.lead_id,MAX(h.created_at) AS entered_at")) return [];
-    if (sql.startsWith("SELECT r.*,EXISTS") && sql.indexOf("r.customer_id=?") >= 0) return clone(state.rows.filter(x => x.customer_id === args[0] || x.phone_key === args[1]).map(x => Object.assign({}, x, { blocked: state.blocked.indexOf(x.phone_key) >= 0 ? "1" : "0" })));
+    if (sql.startsWith("SELECT r.*") && sql.indexOf("r.customer_id=?") >= 0) return clone(state.rows.filter(x => x.customer_id === args[0] || x.phone_key === args[1]));
     if (sql.startsWith("SELECT r.*") && sql.indexOf("r.phone_key=?") >= 0) return clone(state.rows.filter(x => x.phone_key === args[0]).map(x => Object.assign({}, x, { blocked: state.blocked.indexOf(x.phone_key) >= 0 ? "1" : "0" })));
     if (sql.startsWith("SELECT r.*") && sql.indexOf("r.id=?") >= 0) return clone(state.rows.filter(x => x.id === args[0]).map(x => Object.assign({}, x, { blocked: state.blocked.indexOf(x.phone_key) >= 0 ? "1" : "0" })));
     if (sql.startsWith("SELECT r.id FROM lead_resources")) return clone(state.rows.filter(x => x.phone_key === args[0] && x.id !== args[1]).map(x => ({ id: x.id })));
-    if (sql.startsWith("SELECT phone_key FROM lead_do_not_call")) return state.blocked.indexOf(args[0]) >= 0 ? [{ phone_key: args[0] }] : [];
     if (sql.startsWith("SELECT r.*")) return [];
     if (sql.startsWith("INSERT INTO lead_requests")) { state.requests.push({ request_key: args[0], payload_key: args[1], result_json: args[2] }); return {}; }
     if (sql.startsWith("INSERT INTO lead_assignment_history")) { state.history.push(clone(args)); return {}; }
@@ -47,7 +58,6 @@ function fixture() {
       const r = state.rows.find(x => x.id === args[1] && x.version === args[2]);
       if (!r) return { affectedRows: 0 }; r.tags = args[0]; r.version++; return { affectedRows: 1 };
     }
-    if (sql.startsWith("INSERT INTO lead_do_not_call")) { state.blocked.push(args[0]); return {}; }
     if (sql.startsWith("SELECT r.id,r.owner_id,r.customer_id")) return clone(state.rows.filter(x => x.phone_key === args[0]).map(x => Object.assign({}, x, { blocked: state.blocked.indexOf(x.phone_key) >= 0 ? "1" : "0" })));
     if (sql.startsWith("INSERT INTO lead_resources")) { state.rows.push({ id: args[0], phone_key: args[1], phone_cipher: args[2], phone_mask: args[3], name: args[4], contact: args[5], address: args[6], source: args[7], region: args[8], tags: args[9], owner_id: args[10], customer_id: args[11], version: 1 }); return {}; }
     if (sql.startsWith("UPDATE lead_resources SET name=?,phone_key=?")) {
@@ -82,6 +92,15 @@ function fixture() {
 async function run() {
   let f = fixture(); f.add("shared");
   await assert.rejects(f.service.stats(users[0], new URLSearchParams()), /只有管理员可以查看外呼数据/);
+  f.add("other-owner-resource", "b", "13800000099");
+  const filteredStats = await f.service.stats(users[2], new URLSearchParams({ owner: "a", period: "today" }));
+  assert.deepStrictEqual(filteredStats.resources.map(x => x.owner_id), ["a"], "salesperson filter must also scope resource cards");
+  const ownerResourceQuery = f.queries().find(x => x.sql.startsWith("SELECT owner_id,COUNT(*) total"));
+  const approvedQuery = f.queries().find(x => x.sql.startsWith("SELECT COUNT(*) total FROM lead_resources WHERE owner_id IS NOT NULL"));
+  const actorQueries = f.queries().filter(x => x.sql.indexOf("AND f.actor_id=?") >= 0);
+  assert(ownerResourceQuery.args[0] === "a" && approvedQuery.args[0] === "a", "resource and approved-WeChat totals must use the selected salesperson");
+  assert.strictEqual(actorQueries.length, 5, "summary, recent activity, active sales, result distribution and trend must all be salesperson-scoped");
+  assert(actorQueries.every(x => x.args[x.args.length - 1] === "a"), "all follow-up dashboard queries must receive the selected salesperson");
   const results = await Promise.allSettled([f.service.move(users[0], "request-shared-0001", { action: "claim", ids: ["shared"] }), f.service.move(users[1], "request-shared-0002", { action: "claim", ids: ["shared"] })]);
   assert.strictEqual(results.filter(x => x.status === "fulfilled").length, 1);
   assert.strictEqual(f.state().history.length, 1);
@@ -89,9 +108,13 @@ async function run() {
   assert.strictEqual(f.state().history.length, 1, "retry must not duplicate history");
   await assert.rejects(f.service.move(users[0], "request-shared-0001", { action: "return", ids: ["shared"] }));
   await assert.rejects(f.service.follow(users[1], "request-follow-0001", "shared", { result: "connected", content: "越权" }));
-  await f.service.follow(users[0], "request-follow-0002", "shared", { result: "do_not_call", content: "拒绝联系" });
-  assert.strictEqual(f.state().blocked.length, 1);
-  await assert.rejects(f.service.follow(users[0], "request-follow-0003", "shared", { result: "connected", content: "后续", nextFollowupAt: "2026-10-01T00:00:00Z" }));
+  await f.service.follow(users[0], "request-follow-0002", "shared", { result: "do_not_call", content: "本次电话明确拒绝", nextFollowupAt: "2026-09-20T00:00:00Z" });
+  assert.strictEqual(f.state().blocked.length, 0, "refusal is only a follow-up result and must not create a list entry");
+  assert.strictEqual(f.state().followups[0][5], "do_not_call", "refusal result must remain in follow-up history");
+  assert.strictEqual(f.state().followups[0][6], "本次电话明确拒绝");
+  assert(f.state().rows[0].next_followup_at, "a refusal result may still schedule a later contact");
+  await f.service.follow(users[0], "request-follow-0003", "shared", { result: "connected", content: "后续", nextFollowupAt: "2026-10-01T00:00:00Z" });
+  assert(f.state().rows[0].next_followup_at, "a refusal result must not prevent later follow-up scheduling");
   f = fixture(); for (let i = 0; i < 499; i++) f.add("owned" + i, "a"); f.add("one"); f.add("two");
   const quota = await Promise.allSettled([f.service.move(users[0], "request-quota-0001", { action: "claim", ids: ["one"] }), f.service.move(users[0], "request-quota-0002", { action: "claim", ids: ["two"] })]);
   assert.strictEqual(quota.filter(x => x.status === "fulfilled").length, 1);
@@ -139,10 +162,10 @@ async function run() {
   await assert.rejects(f.service.addResource(users[0], "request-manual-0004", { name: "冲突", phone: "13800000005" }));
   f.add("blocked-own", "a", "13800000006");
   f.state().blocked.push(secrets.hash("13800000006"));
-  await assert.rejects(f.service.addResource(users[0], "request-manual-0005", { name: "禁联", phone: "13800000006" }), /禁止联系/);
-  const blockedMembership = await f.service.lookup(users[0], "13800000006");
-  assert.strictEqual(blockedMembership.blocked, true);
-  await assert.rejects(f.service.saveCustomer(users[0], { name: "禁联客户", phone: "13800000006" }, null, "customer-blocked"), /禁止联系/);
+  const legacyListed = await f.service.addResource(users[0], "request-manual-0005", { name: "旧名单号码", phone: "13800000006" });
+  assert.strictEqual(legacyListed.status, "existing", "legacy refusal-list rows must no longer block resources");
+  const legacyMembership = await f.service.lookup(users[0], "13800000006");
+  assert.strictEqual(Object.prototype.hasOwnProperty.call(legacyMembership, "blocked"), false, "lookup must no longer expose a global refusal state");
   const version = f.state().rows[0].version;
   const tagged = await f.service.updateTag(users[0], "request-tag-0001", created.resourceId, { tag: "装修公司负责人/工长", version });
   assert.strictEqual(tagged.tag, "装修公司负责人/工长");
@@ -199,9 +222,9 @@ async function run() {
   f = fixture(); f.add("task-own", "a", "13800000007"); f.add("task-other", "b", "13800000008"); f.add("task-blocked", "a", "13800000009");
   f.state().blocked.push(secrets.hash("13800000009"));
   const tasks = await f.service.tasks(users[0], new URLSearchParams());
-  assert.deepStrictEqual(tasks.groups.pending.items.map(x => x.id), ["task-own"], "tasks only expose the current owner's contactable resources");
-  const taskSql = f.queries().find(x => x.sql.startsWith("SELECT r.*, 0 AS blocked"));
-  assert(taskSql.sql.indexOf("r.owner_id=?") >= 0 && taskSql.sql.indexOf("lead_do_not_call") >= 0);
+  assert.deepStrictEqual(tasks.groups.pending.items.map(x => x.id).sort(), ["task-blocked", "task-own"], "legacy refusal-list rows must remain eligible for follow-up tasks");
+  const taskSql = f.queries().find(x => x.sql.startsWith("SELECT r.* FROM lead_resources r WHERE r.owner_id=?") && x.sql.indexOf("ORDER BY") < 0);
+  assert(taskSql.sql.indexOf("lead_do_not_call") < 0);
   f = fixture(); f.add("task-order", "a", "13800000010"); f.state().rows[0].customer_id = "customer-task";
   f.state().followups.push({ lead_id: "task-order", owner_id: "a", content: "最近沟通了报价与送货时间", created_at: "2026-08-20T00:00:00.000Z" });
   f.setBusiness({ users, customers: [{ id: "customer-task", ownerId: "a", name: "任务客户", phone: "13800000010" }], orders: [{ id: "order-task", customerId: "customer-task", no: "XS001", date: "2026/7/1", status: "已完成", amount: 1000, actualPaidAmount: 888.5 }] });

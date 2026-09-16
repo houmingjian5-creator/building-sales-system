@@ -43,7 +43,7 @@ module.exports = function service(db, secrets, legacy) {
     if (Number(rows[0].n) >= D.LIMIT) D.fail(409, "该人员私海已达到500条上限");
   }
   async function row(c, leadId, user) {
-    const rows = await q("SELECT r.*, EXISTS(SELECT 1 FROM lead_do_not_call d WHERE d.phone_key=r.phone_key) AS blocked FROM lead_resources r WHERE r.id=?", [leadId], c);
+    const rows = await q("SELECT r.* FROM lead_resources r WHERE r.id=?", [leadId], c);
     if (!rows.length) D.fail(404, "资源不存在");
     if (user) D.own(user, rows[0]);
     return rows[0];
@@ -91,10 +91,6 @@ module.exports = function service(db, secrets, legacy) {
     if (owner && !D.admin(user)) D.fail(403, "只有管理员可以按负责人筛选");
     if (scope === "public") {
       where.push("r.owner_id IS NULL");
-      // The public pool is an actionable claim queue. Keep do-not-call records
-      // available to administrators in the global view, but never offer them
-      // to salespeople (or include them in a batch claim).
-      where.push("NOT EXISTS(SELECT 1 FROM lead_do_not_call d WHERE d.phone_key=r.phone_key)");
     }
     else if (scope === "all" && D.admin(user)) {
       if (owner) { where.push("r.owner_id=?"); args.push(D.text(owner, 64)); }
@@ -120,13 +116,13 @@ module.exports = function service(db, secrets, legacy) {
     ["from", "to"].forEach(key => { if (params.get(key)) { where.push("r.created_at" + (key === "from" ? ">=?" : "<=?")); args.push(D.date(params.get(key))); } });
     const sql = where.length ? " WHERE " + where.join(" AND ") : "";
     const count = await q("SELECT COUNT(*) AS n FROM lead_resources r" + sql, args);
-    const rows = await q("SELECT r.*,fm.last_followup_at,COALESCE(fm.followup_count,0) AS followup_count,(SELECT f.content FROM lead_followups f WHERE f.lead_id=r.id ORDER BY f.created_at DESC,f.id DESC LIMIT 1) AS last_followup_content,COALESCE((SELECT MAX(h.created_at) FROM lead_assignment_history h WHERE h.lead_id=r.id AND ((r.owner_id IS NULL AND h.to_owner IS NULL) OR h.to_owner=r.owner_id)),r.created_at) AS sea_entered_at,EXISTS(SELECT 1 FROM lead_do_not_call d WHERE d.phone_key=r.phone_key) AS blocked FROM lead_resources r LEFT JOIN (SELECT lead_id,MAX(created_at) AS last_followup_at,COUNT(*) AS followup_count FROM lead_followups GROUP BY lead_id) fm ON fm.lead_id=r.id" + sql + " ORDER BY " + SORTS[sort] + " LIMIT " + size + " OFFSET " + ((page - 1) * size), args);
+    const rows = await q("SELECT r.*,fm.last_followup_at,COALESCE(fm.followup_count,0) AS followup_count,(SELECT f.content FROM lead_followups f WHERE f.lead_id=r.id ORDER BY f.created_at DESC,f.id DESC LIMIT 1) AS last_followup_content,COALESCE((SELECT MAX(h.created_at) FROM lead_assignment_history h WHERE h.lead_id=r.id AND ((r.owner_id IS NULL AND h.to_owner IS NULL) OR h.to_owner=r.owner_id)),r.created_at) AS sea_entered_at FROM lead_resources r LEFT JOIN (SELECT lead_id,MAX(created_at) AS last_followup_at,COUNT(*) AS followup_count FROM lead_followups GROUP BY lead_id) fm ON fm.lead_id=r.id" + sql + " ORDER BY " + SORTS[sort] + " LIMIT " + size + " OFFSET " + ((page - 1) * size), args);
     return { items: rows.map(r => D.publicLead(r, user, secrets)), total: Number(count[0].n), page, pageSize: size };
   }
   async function tasks(user, params) {
     await ready();
     const sort = sortMode(params);
-    const where = ["r.owner_id=?", "NOT EXISTS(SELECT 1 FROM lead_do_not_call d WHERE d.phone_key=r.phone_key)"], args = [user.id];
+    const where = ["r.owner_id=?"], args = [user.id];
     addSearch(params, where, args);
     if (params.get("tag") === "unset") where.push("(r.tags IS NULL OR TRIM(r.tags)='')");
     else if (params.get("tag")) { where.push("r.tags=?"); args.push(D.tag(params.get("tag"))); }
@@ -136,7 +132,7 @@ module.exports = function service(db, secrets, legacy) {
     if (params.get("due") === "scheduled") where.push("r.next_followup_at IS NOT NULL");
     ["from", "to"].forEach(function (key) { if (params.get(key)) { where.push("r.created_at" + (key === "from" ? ">=?" : "<=?")); args.push(D.date(params.get(key))); } });
     const sql = " WHERE " + where.join(" AND ");
-    const rows = await q("SELECT r.*, 0 AS blocked FROM lead_resources r" + sql, args);
+    const rows = await q("SELECT r.* FROM lead_resources r" + sql, args);
     const followups = await q("SELECT f.lead_id,f.content,f.created_at FROM lead_followups f JOIN lead_resources r ON r.id=f.lead_id WHERE r.owner_id=? ORDER BY f.lead_id,f.created_at,f.id", [user.id]);
     const entries = await q("SELECT h.lead_id,MAX(h.created_at) AS entered_at FROM lead_assignment_history h JOIN lead_resources r ON r.id=h.lead_id WHERE r.owner_id=? AND h.to_owner=? GROUP BY h.lead_id", [user.id, user.id]);
     const followByLead = {}, entryByLead = {};
@@ -190,10 +186,9 @@ module.exports = function service(db, secrets, legacy) {
     const payload = { name, phone: number, tag, claimPublic: Boolean(input.claimPublic) };
     return mutate(user, requestId, payload, async c => {
       const key = secrets.hash(number);
-      const matches = await q("SELECT r.*, EXISTS(SELECT 1 FROM lead_do_not_call d WHERE d.phone_key=r.phone_key) AS blocked FROM lead_resources r WHERE r.phone_key=? FOR UPDATE", [key], c);
+      const matches = await q("SELECT r.* FROM lead_resources r WHERE r.phone_key=? FOR UPDATE", [key], c);
       if (matches.length) {
         const existing = matches[0];
-        if (D.blocked(existing.blocked)) D.fail(409, "该号码已禁止联系，不能添加或领取");
         if (existing.owner_id === user.id) return { status: "existing", resourceId: existing.id };
         if (existing.owner_id) D.fail(409, "该号码已在其他销售私海，请联系管理员调配");
         if (!input.claimPublic) D.fail(409, "该号码在公海，请确认领取");
@@ -261,8 +256,6 @@ module.exports = function service(db, secrets, legacy) {
       if (phoneKey !== r.phone_key) {
         const duplicates = await q("SELECT r.id FROM lead_resources r WHERE r.phone_key=? AND r.id<>? FOR UPDATE", [phoneKey, r.id], c);
         if (duplicates.length) D.fail(409, "该电话号码已属于另一条资源");
-        const blocked = await q("SELECT phone_key FROM lead_do_not_call WHERE phone_key=? LIMIT 1", [phoneKey], c);
-        if (blocked.length) D.fail(409, "该电话号码已禁止联系，不能用于资源");
       }
       const update = await q("UPDATE lead_resources SET name=?,phone_key=?,phone_cipher=?,phone_mask=?,version=version+1,updated_at=UTC_TIMESTAMP() WHERE id=? AND version=?", [name, phoneKey, secrets.encrypt(number), number.slice(0, 3) + "****" + number.slice(-4), r.id, r.version], c);
       if (update.affectedRows !== 1) D.fail(409, "资源已变化，请重新打开详情");
@@ -281,7 +274,6 @@ module.exports = function service(db, secrets, legacy) {
         let owner = null;
         if (input.action === "claim") {
           if (r.owner_id) D.fail(409, "资源已被领取，请刷新列表");
-          if (D.blocked(r.blocked)) D.fail(409, "禁止联系资源不能领取");
           if (r.customer_id) D.fail(409, "正式客户归属请由管理员调整");
           owner = user.id;
         } else if (input.action === "return") {
@@ -308,10 +300,8 @@ module.exports = function service(db, secrets, legacy) {
       const content = D.text(input.content, 4000);
       if (!content) D.fail(400, "请填写跟进内容");
       const next = D.date(input.nextFollowupAt);
-      if ((D.blocked(r.blocked) || input.result === "do_not_call") && next) D.fail(400, "禁止联系资源不能设置联系任务");
       await q("INSERT INTO lead_followups VALUES (?,?,?,?,?,?,?,?,?,UTC_TIMESTAMP())", [id(), r.id, user.id, user.name, "manual", input.result, content, "unknown", next], c);
       await q("UPDATE lead_resources SET next_followup_at=?,version=version+1,updated_at=UTC_TIMESTAMP() WHERE id=?", [next, r.id], c);
-      if (input.result === "do_not_call") await q("INSERT INTO lead_do_not_call VALUES (?,?,?,UTC_TIMESTAMP()) ON DUPLICATE KEY UPDATE reason=VALUES(reason),actor_id=VALUES(actor_id)", [r.phone_key, "销售跟进标记拒绝联系", user.id], c);
       await audit(c, user, "followup", r.id, requestId);
       return { ok: true };
     });
@@ -319,7 +309,7 @@ module.exports = function service(db, secrets, legacy) {
   async function lookup(user, number) {
     await ready();
     const normalized = payloadPhone(number);
-    const rows = await q("SELECT r.id,r.owner_id,r.customer_id,EXISTS(SELECT 1 FROM lead_do_not_call d WHERE d.phone_key=r.phone_key) AS blocked FROM lead_resources r WHERE r.phone_key=?", [secrets.hash(normalized)]);
+    const rows = await q("SELECT r.id,r.owner_id,r.customer_id FROM lead_resources r WHERE r.phone_key=?", [secrets.hash(normalized)]);
     if (!rows.length) {
       if (legacy.readDb().customers.some(x => legacy.normalizeCustomerPhone(x.phone) === normalized)) D.fail(409, "现有客户关联缺失，请联系管理员核对");
       return { location: "new" };
@@ -327,12 +317,11 @@ module.exports = function service(db, secrets, legacy) {
     const r = rows[0];
     const location = !r.owner_id ? "public" : r.owner_id === user.id ? "mine" : "other";
     // A lookup discloses only the membership state, never another salesperson's details.
-    return { location, blocked: D.blocked(r.blocked), resourceId: location === "other" && !D.admin(user) ? undefined : r.id, ownerId: D.admin(user) ? r.owner_id : undefined };
+    return { location, resourceId: location === "other" && !D.admin(user) ? undefined : r.id, ownerId: D.admin(user) ? r.owner_id : undefined };
   }
   async function dial(user, leadId, requestId) {
     return db.transaction(async c => {
       const r = await row(c, leadId, user);
-      if (D.blocked(r.blocked)) D.fail(403, "该资源已禁止联系");
       await audit(c, user, "dial_intent", r.id, requestId);
       return { phone: secrets.decrypt(r.phone_cipher) };
     });
@@ -371,19 +360,14 @@ module.exports = function service(db, secrets, legacy) {
     const duplicate = data.customers.find(x => x.id !== customer.id && legacy.normalizeCustomerPhone(x.phone) === legacy.normalizeCustomerPhone(customer.phone));
     if (!deleting && duplicate) D.fail(409, duplicate.ownerId === user.id ? "该客户已在本人名下，请打开原记录" : "客户已在其他人员名下，只有管理员可以调整所属");
     const operation = await db.transaction(async c => {
-      const found = await q("SELECT r.*,EXISTS(SELECT 1 FROM lead_do_not_call d WHERE d.phone_key=r.phone_key) AS blocked FROM lead_resources r WHERE r.customer_id=? OR r.phone_key=? FOR UPDATE", [customer.id, secrets.hash(customer.phone)], c);
+      const found = await q("SELECT r.* FROM lead_resources r WHERE r.customer_id=? OR r.phone_key=? FOR UPDATE", [customer.id, secrets.hash(customer.phone)], c);
       if (found.length > 1) D.fail(409, "新号码已属于另一资源，不能合并覆盖");
       let r = found[0];
       if (r && expectedLeadVersion !== undefined && Number(r.version) !== Number(expectedLeadVersion)) D.fail(409, "资源已变化，请重新打开详情");
       if (r && r.customer_id && r.customer_id !== customer.id) D.fail(409, "号码已关联其他客户");
-      if (r && !old && D.blocked(r.blocked)) D.fail(409, "该号码已禁止联系，不能新增正式客户");
       if (r && !old && r.owner_id && r.owner_id !== customer.ownerId) D.fail(409, "资源已在其他人员名下，只有管理员可以先调整所属");
       if (r && !old && !r.owner_id && !input.claimPublic) D.fail(409, "客户在公海，请确认纳入本人名下");
       const customerPhoneKey = secrets.hash(customer.phone);
-      if (!deleting && (!r || r.phone_key !== customerPhoneKey)) {
-        const blockedPhone = await q("SELECT phone_key FROM lead_do_not_call WHERE phone_key=? LIMIT 1", [customerPhoneKey], c);
-        if (blockedPhone.length) D.fail(409, "该号码已禁止联系，不能用于正式客户");
-      }
       if (!deleting) await capacity(c, customer.ownerId, r && r.id);
       if (!r) {
         if (old) D.fail(409, "现有客户尚未关联资源，请先核对迁移");
@@ -443,7 +427,7 @@ module.exports = function service(db, secrets, legacy) {
     catch (error) { D.fail(400, error.message); }
     const requestedOwner = D.text(params && params.get("owner"), 64);
     const ownerId = requestedOwner;
-    const ownerResourceWhere = "", ownerResourceArgs = [];
+    const ownerResourceWhere = ownerId ? " WHERE owner_id=?" : "", ownerResourceArgs = ownerId ? [ownerId] : [];
     const actorWhere = ownerId ? " AND f.actor_id=?" : "", actorArgs = ownerId ? [ownerId] : [];
     const resources = await q("SELECT owner_id,COUNT(*) total,SUM(customer_id IS NOT NULL) customers FROM lead_resources" + ownerResourceWhere + " GROUP BY owner_id", ownerResourceArgs);
     const summary = await q("SELECT COUNT(DISTINCT f.lead_id) followed_customers,COUNT(DISTINCT CASE WHEN f.result='connected' THEN f.lead_id END) connected_customers FROM lead_followups f WHERE f.created_at>=? AND f.created_at<?" + actorWhere, [range.start, range.end].concat(actorArgs));
@@ -474,22 +458,5 @@ module.exports = function service(db, secrets, legacy) {
     const offset = Math.max(0, Math.min(100000, (parseInt(page, 10) || 1) - 1)) * 50;
     return { items: await q("SELECT id,request_id,actor_id,action,lead_id,created_at FROM lead_audit ORDER BY created_at DESC,id DESC LIMIT 50 OFFSET " + offset) };
   }
-  async function doNotCall(user, page) {
-    if (!D.admin(user)) D.fail(403, "只有管理员可以查看拒绝联系名单");
-    await ready();
-    const currentPage = Math.max(1, Math.min(2000, parseInt(page, 10) || 1));
-    const size = 50, offset = (currentPage - 1) * size;
-    const count = await q("SELECT COUNT(*) AS n FROM lead_do_not_call");
-    const rows = await q("SELECT d.reason,d.actor_id,d.created_at,r.id AS lead_id,r.phone_mask,r.name,r.owner_id FROM lead_do_not_call d LEFT JOIN lead_resources r ON r.phone_key=d.phone_key ORDER BY d.created_at DESC,d.phone_key LIMIT " + size + " OFFSET " + offset);
-    const users = legacy.readDb().users;
-    function userName(userId) {
-      const found = users.find(u => u.id === userId);
-      return found ? found.name : userId || "未知";
-    }
-    return {
-      items: rows.map(r => ({ leadId: r.lead_id, phone: r.phone_mask || "资源已不存在", name: r.name || "未关联资源", reason: r.reason || "未填写", actorName: userName(r.actor_id), ownerName: r.owner_id ? userName(r.owner_id) : "公海", createdAt: r.created_at })),
-      total: Number(count[0].n), page: currentPage, pageSize: size
-    };
-  }
-  return { ready, list, tasks, detail, addResource, updateTag, updateWechatStatus, updateResource, move, follow, lookup, dial, saveCustomer, recover, migration, stats, audits, doNotCall, insert, audit, payloadPhone };
+  return { ready, list, tasks, detail, addResource, updateTag, updateWechatStatus, updateResource, move, follow, lookup, dial, saveCustomer, recover, migration, stats, audits, insert, audit, payloadPhone };
 };

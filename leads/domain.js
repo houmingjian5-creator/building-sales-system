@@ -7,7 +7,6 @@ const WECHAT_STATUSES = ["unknown", "rejected", "agreed_pending", "approved"];
 function fail(status, message) { const error = new Error(message); error.status = status; throw error; }
 function admin(user) { return Boolean(user && ["管理员", "超级管理员"].indexOf(user.role) >= 0); }
 function allowed(user) { return admin(user) || Boolean(user && user.role === "销售人员"); }
-function blocked(value) { return value === true || Number(value) === 1; }
 function tag(value, normalizeUnknown) {
   const result = text(value, 80);
   if (!result || TAGS.indexOf(result) >= 0) return result;
@@ -70,7 +69,7 @@ function publicLead(row, user, secrets) {
   const result = { id: row.id, name: full ? row.name : "电话资源", phone: full ? secrets.decrypt(row.phone_cipher) : row.phone_mask,
     source: full ? row.source : safeCategory(row.source), region: full ? row.region : safeCategory(row.region), tags: full ? row.tags : safeCategory(row.tags),
     ownerId: row.owner_id, nextFollowupAt: row.next_followup_at,
-    createdAt: row.created_at, version: row.version, canContact: full && !blocked(row.blocked) };
+    createdAt: row.created_at, version: row.version, canContact: full };
   if (full) {
     result.customerId = row.customer_id; result.contact = row.contact; result.address = row.address; result.wechatStatus = publicWechatStatus(row.consent_status);
     result.lastFollowupAt = row.last_followup_at || null;
@@ -81,4 +80,4 @@ function publicLead(row, user, secrets) {
   return result;
 }
 function safeCategory(value) { return /[\d+]/.test(String(value || "")) ? "已隐藏" : String(value || ""); }
-module.exports = { LIMIT, RESULTS, TAGS, WECHAT_STATUSES, fail, admin, allowed, blocked, tag, wechatStatus, publicWechatStatus, own, text, phone, date, vault, publicLead };
+module.exports = { LIMIT, RESULTS, TAGS, WECHAT_STATUSES, fail, admin, allowed, tag, wechatStatus, publicWechatStatus, own, text, phone, date, vault, publicLead };

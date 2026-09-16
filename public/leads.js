@@ -1,6 +1,6 @@
 /* No phone data is persisted in browser storage. */
 let leadsState, leadStatsRefreshTimer;
-function resetLeads() { if (leadStatsRefreshTimer) clearTimeout(leadStatsRefreshTimer); leadStatsRefreshTimer = null; leadsState = { tab: "public", page: 1, items: [], tasks: null, taskPages: { priority: 1, medium: 1, pending: 1 }, selected: [], detail: null, editing: false, adding: false, total: 0, error: "", filters: { sort: "created_desc" }, statsFilters: { period: "today", owner: "", from: "", to: "" }, imports: [], batch: null, mapping: null, stats: null, blocked: [], busy: false }; }
+function resetLeads() { if (leadStatsRefreshTimer) clearTimeout(leadStatsRefreshTimer); leadStatsRefreshTimer = null; leadsState = { tab: "public", page: 1, items: [], tasks: null, taskPages: { priority: 1, medium: 1, pending: 1 }, selected: [], detail: null, editing: false, adding: false, total: 0, error: "", filters: { sort: "created_desc" }, statsFilters: { period: "today", owner: "", from: "", to: "" }, imports: [], batch: null, mapping: null, stats: null, busy: false }; }
 resetLeads();
 const leadTags = ["装修公司负责人/工长", "工人", "业主", "其他"];
 const leadWechatStatuses = ["unknown", "rejected", "agreed_pending", "approved"];
@@ -53,7 +53,6 @@ async function loadLeads() {
     let data;
     if (!state.leadsCapability.active) data = await leadRequest("setup");
     else if (tab === "imports") data = await leadRequest("imports");
-    else if (tab === "blocked") data = await leadRequest("do-not-call?page=" + page);
     else if (tab === "stats") data = await leadRequest("stats?" + new URLSearchParams(leadsState.statsFilters).toString());
     else if (tab === "audit") data = await leadRequest("audit?page=" + page);
     else if (tab === "tasks") data = await leadRequest("tasks?" + new URLSearchParams(Object.assign({}, leadsState.filters, { priorityPage: leadsState.taskPages.priority, mediumPage: leadsState.taskPages.medium, pendingPage: leadsState.taskPages.pending })).toString());
@@ -61,7 +60,6 @@ async function loadLeads() {
     if (!state.user || state.user.id !== owner || leadsState.tab !== tab || leadsState.page !== page || (tab === "tasks" && JSON.stringify(leadsState.taskPages) !== taskPages) || (tab === "stats" && JSON.stringify(leadsState.statsFilters) !== statsFilters)) return;
     if (!state.leadsCapability.active) leadsState.setup = data;
     else if (tab === "imports") leadsState.imports = data.batches;
-    else if (tab === "blocked") { leadsState.blocked = data.items; leadsState.total = data.total; }
     else if (tab === "stats") leadsState.stats = data;
     else if (tab === "audit") leadsState.audits = data.items;
     else if (tab === "tasks") leadsState.tasks = data.groups;
@@ -143,13 +141,12 @@ function renderLeadTasks() {
 function renderLeads() {
   if (!state.leadsCapability || !state.leadsCapability.enabled) return "<p>没有外呼资源权限</p>";
   setTimeout(leadSyncSelectionControls, 0);
-  const tabs = [["public", "公海池"], ["mine", "我的私海"], ["tasks", "跟进任务"]].concat(isAdmin() ? [["all", "全部资源"], ["imports", "资源导入"], ["blocked", "拒绝联系"], ["stats", "外呼数据"], ["audit", "外呼日志"]] : []);
+  const tabs = [["public", "公海池"], ["mine", "我的私海"], ["tasks", "跟进任务"]].concat(isAdmin() ? [["all", "全部资源"], ["imports", "资源导入"], ["stats", "外呼数据"], ["audit", "外呼日志"]] : []);
   let body;
   if (!state.leadsCapability.active) {
     const report = leadsState.setup;
     body = `<div class="lead-card"><h3>外呼准备检查</h3><p>当前未激活，不影响旧业务。现有客户只做关联，不修改原客户数据。</p>${report ? `<p>现有客户 ${report.total} 条，待处理问题 ${report.errors.length} 项</p>${report.errors.map(e => `<p>${html(e.customerId || e.ownerId)}：${html(e.reason)}</p>`).join("")}` : ""}<p>数据库建表、迁移和启用步骤请按部署说明执行。</p>${report && !report.errors.length ? '<button class="btn" onclick="leadInitialize()">初始化现有客户关联</button>' : ""}</div>`;
   } else if (leadsState.tab === "imports") body = renderLeadImports();
-  else if (leadsState.tab === "blocked") body = renderLeadBlocked();
   else if (leadsState.tab === "stats") body = renderLeadStats();
   else if (leadsState.tab === "audit") body = renderLeadAudit();
   else if (leadsState.tab === "tasks") body = renderLeadTasks();
@@ -178,7 +175,6 @@ function leadAddSave() { leadAction(async () => {
   const name = document.getElementById("lead-add-name").value.trim(), phone = document.getElementById("lead-add-phone").value.trim(), tag = document.getElementById("lead-add-tag").value;
   if (!name || !phone) throw new Error("姓名和电话必填");
   const membership = await leadRequest("lookup", { phone });
-  if (membership.blocked) throw new Error("该号码已禁止联系，不能添加或领取。");
   if (membership.location === "mine") {
     leadsState.adding = false;
     leadsState.detail = await leadRequest("resources/" + membership.resourceId);
@@ -301,10 +297,6 @@ function renderLeadStats() {
 function leadStatsPeriod(period) { leadsState.statsFilters.period = period; if (period !== "custom" || leadsState.statsFilters.from && leadsState.statsFilters.to) loadLeads(); else render(); }
 function leadStatsOwner(owner) { leadsState.statsFilters.owner = owner; loadLeads(); }
 function leadStatsCustom() { const from = document.getElementById("lead-stats-from"), to = document.getElementById("lead-stats-to"); leadsState.statsFilters.from = from ? from.value : ""; leadsState.statsFilters.to = to ? to.value : ""; if (leadsState.statsFilters.from && leadsState.statsFilters.to) loadLeads(); }
-function renderLeadBlocked() {
-  const rows = leadsState.blocked || [];
-  return `<p class="lead-note">这里只显示销售在跟进结果中主动选择“拒绝联系”后留下的记录。导入资源不会自动进入此名单。</p>${rows.map(r => `<div class="lead-card"><p class="lead-phone">${html(r.phone)}</p><p>${html(r.name)} · 当前归属：${html(r.ownerName)}</p><p>标记人：${html(r.actorName)} · 标记时间：${html(leadTime(r.createdAt))}</p><p>原因：${html(r.reason)}</p>${r.leadId ? `<button class="btn" onclick="leadDetail('${r.leadId}')">查看资源详情</button>` : ""}</div>`).join("") || "<p>暂无拒绝联系记录</p>"}<div class="lead-actions"><button class="btn" onclick="leadPage(-1)" ${leadsState.page <= 1 ? "disabled" : ""}>上一页</button><span>第${leadsState.page}页，共${leadsState.total}条</span><button class="btn" onclick="leadPage(1)" ${leadsState.page * 50 >= leadsState.total ? "disabled" : ""}>下一页</button></div>`;
-}
 function renderLeadAudit() {
   const rows = leadsState.audits || [];
   const names = { dial_intent: "调起拨号", followup: "填写跟进", update_wechat_status: "修改微信状态", sync_customer: "同步客户", import_upload: "上传导入文件", import_preview: "预览导入", import_resource: "导入资源", import_chunk: "提交导入批次", migrate_customers: "初始化客户关联" };

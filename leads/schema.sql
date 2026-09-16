@@ -114,13 +114,6 @@ CREATE TABLE lead_import_rows (
   FOREIGN KEY (batch_id) REFERENCES lead_import_batches(id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
-CREATE TABLE lead_do_not_call (
-  phone_key CHAR(64) PRIMARY KEY,
-  reason VARCHAR(500) NOT NULL,
-  actor_id VARCHAR(64) NOT NULL,
-  created_at DATETIME NOT NULL
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
-
 -- Reserved only: no provider, recording or automatic calling is configured.
 CREATE TABLE lead_call_records (
   id VARCHAR(40) PRIMARY KEY,

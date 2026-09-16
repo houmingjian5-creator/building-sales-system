@@ -32,7 +32,7 @@ async function run() {
   assert(!JSON.stringify(D.publicLead(row, a, secrets)).includes("13800000001"));
   assert.strictEqual(D.publicLead(Object.assign({}, row, { owner_id: a.id, blocked: "0" }), a, secrets).phone, "13800000001");
   assert.strictEqual(D.publicLead(Object.assign({}, row, { owner_id: a.id, blocked: "0" }), a, secrets).canContact, true);
-  assert.strictEqual(D.publicLead(Object.assign({}, row, { owner_id: a.id, blocked: "1" }), a, secrets).canContact, false);
+  assert.strictEqual(D.publicLead(Object.assign({}, row, { owner_id: a.id, blocked: "1" }), a, secrets).canContact, true, "legacy refusal-list data must not block contact");
   const enriched = D.publicLead(Object.assign({}, row, { owner_id: a.id, blocked: "0", consent_status: "approved", created_at: "2026-09-01T00:00:00Z", sea_entered_at: "2026-09-14T00:00:00Z", last_followup_at: "2026-09-14T00:00:00Z", last_followup_content: "确认材料报价", followup_count: "3" }), a, secrets);
   assert.strictEqual(enriched.lastFollowupContent, "确认材料报价");
   assert.strictEqual(enriched.followupCount, 3);
@@ -61,6 +61,8 @@ async function run() {
   assert(ui.includes("leadWechatStatusSave") && ui.includes("同意但未通过") && ui.includes("已通过"), "private sea rows must update the four WeChat statuses directly");
   assert(ui.includes("销售资源情况") && ui.includes("实时跟进动态") && ui.includes("跟进促成订单") && ui.includes("当前活跃销售"), "outbound statistics must display the approved live-dashboard layout");
   assert(ui.includes("leadStatsPeriod") && ui.includes("leadStatsOwner") && ui.includes("scheduleLeadStatsRefresh"), "outbound statistics need date, salesperson and live refresh controls");
+  assert(ui.includes('do_not_call: "拒绝联系"') && ui.includes('"do_not_call"'), "refusal must remain available as a follow-up result");
+  assert(!ui.includes('["blocked", "拒绝联系"]') && !ui.includes("renderLeadBlocked") && !ui.includes('leadRequest("do-not-call'), "the refusal-list page and request must be removed");
   assert(!ui.includes("意向") && !ui.includes('id="lead-filter-intent"') && !ui.includes('id="lead-intent"'), "outbound UI must remove intent everywhere");
   assert(ui.includes('id="lead-filter-sort"') && ui.includes("入海时间近→远") && ui.includes("入海时间远→近") && ui.includes("录入系统时间近→远") && ui.includes("跟进次数少→多"));
   assert(ui.includes('id="lead-filter-q"') && ui.includes("搜索客户名称或完整电话"), "all actionable lead lists must provide search");
@@ -85,7 +87,7 @@ async function run() {
   assert(!ui.includes("leadConvert("), "lead details must not convert formal customers");
   assert(customerUi.includes("该号码已在您的私海") && customerUi.includes("该号码在公海") && customerUi.includes("该号码已在其他销售私海"));
   const indexUi = require("fs").readFileSync(require("path").join(__dirname, "..", "public", "index.html"), "utf8");
-  assert.strictEqual((indexUi.match(/20260916-stats-dashboard-1/g) || []).length, 2, "lead script and stylesheet must share a new cache version");
+  assert.strictEqual((indexUi.match(/20260916-followup-result-1/g) || []).length, 3, "changed outbound scripts and stylesheet must use the new cache version");
   console.log("lead privacy, normalization, import and routing tests passed");
 }
 run().catch(error => { console.error(error); process.exitCode = 1; });
