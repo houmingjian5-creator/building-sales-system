@@ -46,6 +46,7 @@ module.exports = function createLeads(legacy, env) {
         else if (action === "tasks" && method === "GET") result = await service.tasks(user, url.searchParams);
         else if (action === "resources" && method === "POST") result = await service.addResource(user, req.headers["x-idempotency-key"], await legacy.readBody(req));
         else if (/^resources\/[^/]+$/.test(action) && method === "GET") result = await service.detail(user, action.split("/")[1], url.searchParams.get("page"));
+        else if (/^resources\/[^/]+\/wechat-status$/.test(action) && method === "PATCH") result = await service.updateWechatStatus(user, req.headers["x-idempotency-key"], action.split("/")[1], await legacy.readBody(req));
         else if (/^resources\/[^/]+$/.test(action) && method === "PATCH") {
           const body = await legacy.readBody(req), leadId = action.split("/")[1];
           result = Object.prototype.hasOwnProperty.call(body, "name")

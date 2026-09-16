@@ -14,9 +14,14 @@ async function run() {
   assert.strictEqual(D.allowed({ role: "财务" }), false);
   assert.strictEqual(D.allowed({ role: "unknown" }), false);
   assert.deepStrictEqual(D.TAGS, ["装修公司负责人/工长", "工人", "业主", "其他"]);
+  assert.deepStrictEqual(D.WECHAT_STATUSES, ["unknown", "rejected", "agreed_pending", "approved"]);
   assert.strictEqual(D.tag("业主"), "业主");
   assert.strictEqual(D.tag("旧分类", true), "其他");
   assert.throws(() => D.tag("旧分类"));
+  assert.strictEqual(D.wechatStatus("approved"), "approved");
+  assert.strictEqual(D.publicWechatStatus(""), "unknown");
+  assert.strictEqual(D.publicWechatStatus("legacy-value"), "unknown");
+  assert.throws(() => D.wechatStatus("legacy-value"));
   assert.throws(() => D.own(b, { owner_id: "a" }));
   const encrypted = secrets.encrypt("13800000001");
   assert.strictEqual(secrets.decrypt(encrypted), "13800000001");
@@ -28,10 +33,12 @@ async function run() {
   assert.strictEqual(D.publicLead(Object.assign({}, row, { owner_id: a.id, blocked: "0" }), a, secrets).phone, "13800000001");
   assert.strictEqual(D.publicLead(Object.assign({}, row, { owner_id: a.id, blocked: "0" }), a, secrets).canContact, true);
   assert.strictEqual(D.publicLead(Object.assign({}, row, { owner_id: a.id, blocked: "1" }), a, secrets).canContact, false);
-  const enriched = D.publicLead(Object.assign({}, row, { owner_id: a.id, blocked: "0", created_at: "2026-09-01T00:00:00Z", sea_entered_at: "2026-09-14T00:00:00Z", last_followup_at: "2026-09-14T00:00:00Z", last_followup_content: "确认材料报价", followup_count: "3" }), a, secrets);
+  const enriched = D.publicLead(Object.assign({}, row, { owner_id: a.id, blocked: "0", consent_status: "approved", created_at: "2026-09-01T00:00:00Z", sea_entered_at: "2026-09-14T00:00:00Z", last_followup_at: "2026-09-14T00:00:00Z", last_followup_content: "确认材料报价", followup_count: "3" }), a, secrets);
   assert.strictEqual(enriched.lastFollowupContent, "确认材料报价");
   assert.strictEqual(enriched.followupCount, 3);
   assert.strictEqual(enriched.seaEnteredAt, "2026-09-14T00:00:00Z");
+  assert.strictEqual(enriched.wechatStatus, "approved");
+  assert.strictEqual(Object.prototype.hasOwnProperty.call(enriched, "intent"), false, "lead API must no longer expose intent");
   assert.deepStrictEqual(worker.csv('姓名,电话\r\n"甲,乙",13800000001\r\n"带""引号",13800000002'), [["姓名", "电话"], ["甲,乙", "13800000001"], ['带"引号', "13800000002"]]);
   assert.throws(() => worker.csv('a\n"unfinished'));
   const workbook = await require("xlsx-populate").fromBlankAsync();
@@ -50,6 +57,9 @@ async function run() {
   const customerUi = require("fs").readFileSync(require("path").join(__dirname, "..", "public", "app.js"), "utf8");
   assert(!ui.includes('id="lead-filter-source"') && !ui.includes('id="lead-filter-region"'));
   assert(ui.includes('id="lead-filter-tag"') && ui.includes('id="lead-filter-followed"'));
+  assert(ui.includes('id="lead-filter-wechatStatus"') && ui.includes("全部微信状态"), "private sea must provide a WeChat status filter");
+  assert(ui.includes("leadWechatStatusSave") && ui.includes("同意但未通过") && ui.includes("已通过"), "private sea rows must update the four WeChat statuses directly");
+  assert(!ui.includes("意向") && !ui.includes('id="lead-filter-intent"') && !ui.includes('id="lead-intent"'), "outbound UI must remove intent everywhere");
   assert(ui.includes('id="lead-filter-sort"') && ui.includes("入海时间近→远") && ui.includes("入海时间远→近") && ui.includes("录入系统时间近→远") && ui.includes("跟进次数少→多"));
   assert(ui.includes('id="lead-filter-q"') && ui.includes("搜索客户名称或完整电话"), "all actionable lead lists must provide search");
   assert(ui.includes("leadSelectPage") && ui.includes("全选本页") && ui.includes("已选择 ${leadsState.selected.length} 条"));
@@ -60,6 +70,7 @@ async function run() {
   assert(ui.includes("leadPageJump") && ui.includes("leadTaskPageJump") && ui.includes("跳至"), "public, private and task lists need direct page jumps");
   const leadIndex = require("fs").readFileSync(require("path").join(__dirname, "..", "leads", "index.js"), "utf8");
   assert(leadIndex.includes("service.updateResource") && leadIndex.includes("legacy.enqueueDbMutation"), "resource profile edits must use the serialized customer synchronization path");
+  assert(leadIndex.includes("service.updateWechatStatus") && leadIndex.includes("/wechat-status"), "WeChat status must use its dedicated resource endpoint");
   assert(ui.includes('leadRequest("tasks?"'), "follow-up tasks must use the automatic task endpoint");
   assert(ui.includes("重点跟进客户") && ui.includes("中等跟进客户") && ui.includes("待跟进客户"));
   assert(ui.includes("为什么这些客户会进入此等级") && ui.includes("<details"), "tier explanations are collapsed by default");
@@ -72,7 +83,7 @@ async function run() {
   assert(!ui.includes("leadConvert("), "lead details must not convert formal customers");
   assert(customerUi.includes("该号码已在您的私海") && customerUi.includes("该号码在公海") && customerUi.includes("该号码已在其他销售私海"));
   const indexUi = require("fs").readFileSync(require("path").join(__dirname, "..", "public", "index.html"), "utf8");
-  assert.strictEqual((indexUi.match(/20260915-resource-edit-page-jump-1/g) || []).length, 2, "lead script and stylesheet must share a new cache version");
+  assert.strictEqual((indexUi.match(/20260916-wechat-status-1/g) || []).length, 2, "lead script and stylesheet must share a new cache version");
   console.log("lead privacy, normalization, import and routing tests passed");
 }
 run().catch(error => { console.error(error); process.exitCode = 1; });

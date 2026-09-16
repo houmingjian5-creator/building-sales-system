@@ -100,7 +100,16 @@ module.exports = function service(db, secrets, legacy) {
     }
     else { where.push("r.owner_id=?"); args.push(user.id); }
     addSearch(params, where, args);
-    if (params.get("intent")) { where.push("r.intent=?"); args.push(D.text(params.get("intent"), 32)); }
+    if (scope === "mine" && params.get("wechatStatus")) {
+      const wechatStatus = D.wechatStatus(params.get("wechatStatus"));
+      if (wechatStatus === "unknown") {
+        where.push("(r.consent_status='unknown' OR r.consent_status IS NULL OR TRIM(r.consent_status)='' OR r.consent_status NOT IN (?,?,?,?))");
+        args.push.apply(args, D.WECHAT_STATUSES);
+      } else {
+        where.push("r.consent_status=?");
+        args.push(wechatStatus);
+      }
+    }
     if (params.get("tag") === "unset") where.push("(r.tags IS NULL OR TRIM(r.tags)='')");
     else if (params.get("tag")) { where.push("r.tags=?"); args.push(D.tag(params.get("tag"))); }
     if (params.get("followed") === "yes") where.push("EXISTS(SELECT 1 FROM lead_followups f WHERE f.lead_id=r.id)");
@@ -118,7 +127,6 @@ module.exports = function service(db, secrets, legacy) {
     const sort = sortMode(params);
     const where = ["r.owner_id=?", "NOT EXISTS(SELECT 1 FROM lead_do_not_call d WHERE d.phone_key=r.phone_key)"], args = [user.id];
     addSearch(params, where, args);
-    if (params.get("intent")) { where.push("r.intent=?"); args.push(D.text(params.get("intent"), 32)); }
     if (params.get("tag") === "unset") where.push("(r.tags IS NULL OR TRIM(r.tags)='')");
     else if (params.get("tag")) { where.push("r.tags=?"); args.push(D.tag(params.get("tag"))); }
     if (params.get("followed") === "yes") where.push("EXISTS(SELECT 1 FROM lead_followups f WHERE f.lead_id=r.id)");
@@ -166,7 +174,7 @@ module.exports = function service(db, secrets, legacy) {
     await ready();
     const r = await row(null, leadId, user);
     const offset = Math.max(0, Math.min(10000, (parseInt(page, 10) || 1) - 1)) * 50;
-    const followups = await q("SELECT id,actor_name,method,result,content,intent,next_followup_at,created_at FROM lead_followups WHERE lead_id=? ORDER BY created_at DESC,id DESC LIMIT 50 OFFSET " + offset, [leadId]);
+    const followups = await q("SELECT id,actor_name,method,result,content,next_followup_at,created_at FROM lead_followups WHERE lead_id=? ORDER BY created_at DESC,id DESC LIMIT 50 OFFSET " + offset, [leadId]);
     const movements = await q("SELECT actor_name,action,from_owner,to_owner,reason,created_at FROM lead_assignment_history WHERE lead_id=? ORDER BY created_at DESC,id DESC LIMIT 50 OFFSET " + offset, [leadId]);
     const data = legacy.readDb();
     const customer = data.customers.find(x => x.id === r.customer_id);
@@ -214,6 +222,19 @@ module.exports = function service(db, secrets, legacy) {
       if (update.affectedRows !== 1) D.fail(409, "资源已变化，请重新打开详情");
       await audit(c, user, "update_tag", r.id, requestId);
       return { ok: true, tag, version: version + 1 };
+    });
+  }
+  async function updateWechatStatus(user, requestId, leadId, input) {
+    if (!input || !Object.prototype.hasOwnProperty.call(input, "wechatStatus")) D.fail(400, "请选择微信状态");
+    const wechatStatus = D.wechatStatus(input.wechatStatus), version = Number(input.version);
+    if (!Number.isInteger(version) || version < 1) D.fail(400, "资源版本无效，请刷新列表");
+    return mutate(user, requestId, { leadId, wechatStatus, version }, async c => {
+      const r = await row(c, leadId, user);
+      if (Number(r.version) !== version) D.fail(409, "资源已变化，请刷新列表后重试");
+      const update = await q("UPDATE lead_resources SET consent_status=?,version=version+1,updated_at=UTC_TIMESTAMP() WHERE id=? AND version=?", [wechatStatus, r.id, r.version], c);
+      if (update.affectedRows !== 1) D.fail(409, "资源已变化，请刷新列表后重试");
+      await audit(c, user, "update_wechat_status", r.id, requestId);
+      return { ok: true, wechatStatus, version: version + 1 };
     });
   }
   async function updateResource(user, requestId, leadId, input) {
@@ -282,13 +303,13 @@ module.exports = function service(db, secrets, legacy) {
   async function follow(user, requestId, leadId, input) {
     return mutate(user, requestId, { leadId, input }, async c => {
       const r = await row(c, leadId, user);
-      if (D.RESULTS.indexOf(input.result) < 0 || D.INTENTS.indexOf(input.intent) < 0) D.fail(400, "请选择有效跟进结果和意向");
+      if (D.RESULTS.indexOf(input.result) < 0) D.fail(400, "请选择有效跟进结果");
       const content = D.text(input.content, 4000);
       if (!content) D.fail(400, "请填写跟进内容");
       const next = D.date(input.nextFollowupAt);
       if ((D.blocked(r.blocked) || input.result === "do_not_call") && next) D.fail(400, "禁止联系资源不能设置联系任务");
-      await q("INSERT INTO lead_followups VALUES (?,?,?,?,?,?,?,?,?,UTC_TIMESTAMP())", [id(), r.id, user.id, user.name, "manual", input.result, content, input.intent, next], c);
-      await q("UPDATE lead_resources SET intent=?,next_followup_at=?,version=version+1,updated_at=UTC_TIMESTAMP() WHERE id=?", [input.intent, next, r.id], c);
+      await q("INSERT INTO lead_followups VALUES (?,?,?,?,?,?,?,?,?,UTC_TIMESTAMP())", [id(), r.id, user.id, user.name, "manual", input.result, content, "unknown", next], c);
+      await q("UPDATE lead_resources SET next_followup_at=?,version=version+1,updated_at=UTC_TIMESTAMP() WHERE id=?", [next, r.id], c);
       if (input.result === "do_not_call") await q("INSERT INTO lead_do_not_call VALUES (?,?,?,UTC_TIMESTAMP()) ON DUPLICATE KEY UPDATE reason=VALUES(reason),actor_id=VALUES(actor_id)", [r.phone_key, "销售跟进标记拒绝联系", user.id], c);
       await audit(c, user, "followup", r.id, requestId);
       return { ok: true };
@@ -416,7 +437,7 @@ module.exports = function service(db, secrets, legacy) {
   async function stats(user) {
     await ready();
     const where = D.admin(user) ? "" : " WHERE owner_id=?", args = D.admin(user) ? [] : [user.id];
-    const resources = await q("SELECT owner_id,COUNT(*) total,SUM(next_followup_at IS NOT NULL) scheduled,SUM(next_followup_at<UTC_TIMESTAMP()) overdue,SUM(intent='high') interested,SUM(customer_id IS NOT NULL) customers FROM lead_resources" + where + " GROUP BY owner_id", args);
+    const resources = await q("SELECT owner_id,COUNT(*) total,SUM(next_followup_at IS NOT NULL) scheduled,SUM(next_followup_at<UTC_TIMESTAMP()) overdue,SUM(customer_id IS NOT NULL) customers FROM lead_resources" + where + " GROUP BY owner_id", args);
     const movements = await q("SELECT actor_id,action,COUNT(*) total FROM lead_assignment_history" + (D.admin(user) ? "" : " WHERE actor_id=?") + " GROUP BY actor_id,action", args);
     const connections = await q("SELECT actor_id,COUNT(*) total FROM lead_followups WHERE result='connected'" + (D.admin(user) ? "" : " AND actor_id=?") + " GROUP BY actor_id", args);
     const linked = await q("SELECT customer_id FROM lead_resources" + (where ? where + " AND customer_id IS NOT NULL" : " WHERE customer_id IS NOT NULL"), args);
@@ -451,5 +472,5 @@ module.exports = function service(db, secrets, legacy) {
       total: Number(count[0].n), page: currentPage, pageSize: size
     };
   }
-  return { ready, list, tasks, detail, addResource, updateTag, updateResource, move, follow, lookup, dial, saveCustomer, recover, migration, stats, audits, doNotCall, insert, audit, payloadPhone };
+  return { ready, list, tasks, detail, addResource, updateTag, updateWechatStatus, updateResource, move, follow, lookup, dial, saveCustomer, recover, migration, stats, audits, doNotCall, insert, audit, payloadPhone };
 };

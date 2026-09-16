@@ -47,10 +47,10 @@
 .lead-list-shell { width:100%; overflow-x:auto; border:1px solid #dbe2ea; border-radius:12px; background:#fff; }
 .lead-task-list-shell { overflow-x:hidden; }
 .lead-list { width:100%; }
-.lead-list-mine { min-width:1120px; }
+.lead-list-mine { min-width:1180px; }
 .lead-list-tasks { min-width:0; }
 .lead-list-head,.lead-list-row { display:grid; align-items:center; column-gap:16px; padding:0 16px; }
-.lead-list-mine .lead-list-head,.lead-list-mine .lead-list-row { grid-template-columns:minmax(160px,1.15fr) minmax(112px,.78fr) minmax(76px,.52fr) minmax(138px,.9fr) minmax(210px,1.55fr) minmax(74px,.5fr) minmax(138px,.9fr) 106px; }
+.lead-list-mine .lead-list-head,.lead-list-mine .lead-list-row { grid-template-columns:minmax(160px,1.15fr) minmax(112px,.78fr) minmax(142px,.82fr) minmax(138px,.9fr) minmax(210px,1.55fr) minmax(74px,.5fr) minmax(138px,.9fr) 106px; }
 .lead-list-tasks .lead-list-head,.lead-list-tasks .lead-list-row { grid-template-columns:minmax(0,1.2fr) minmax(0,1.08fr) minmax(0,.78fr) minmax(0,.72fr) minmax(0,.55fr) minmax(0,.72fr) minmax(0,.88fr) minmax(0,1.18fr) minmax(0,.5fr) 92px; column-gap:8px; padding-left:10px; padding-right:10px; }
 .lead-list-tasks .lead-list-head { font-size:12px; line-height:1.35; }
 .lead-list-tasks .lead-list-row { font-size:13px; }
@@ -70,9 +70,7 @@
 .lead-list-customer small { color:#536277; font-size:13px; font-variant-numeric:tabular-nums; }
 .lead-list-pill { display:inline-block; max-width:100%; padding:4px 9px; overflow:hidden; border-radius:999px; background:#eef2f7; color:#475569; font-size:12px; text-overflow:ellipsis; white-space:nowrap; vertical-align:middle; }
 .lead-tag-pill { background:#edf2ff; color:#3557c8; }
-.lead-intent-high { background:#fee2e2; color:#b42318; }
-.lead-intent-medium { background:#fff3cd; color:#9a6700; }
-.lead-intent-low { background:#dcfce7; color:#18743a; }
+.lead-wechat-select { width:100%; min-width:132px; margin:0; padding:8px 28px 8px 9px; font-size:13px; }
 .lead-list-content,.lead-list-reason { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
 .lead-list-reason { font-weight:600; color:#394861; }
 .lead-list-money { color:#3153c8; font-weight:700; font-variant-numeric:tabular-nums; }

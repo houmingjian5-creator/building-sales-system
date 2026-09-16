@@ -1,9 +1,9 @@
 "use strict";
 const crypto = require("crypto");
 const LIMIT = 500;
-const INTENTS = ["unknown", "low", "medium", "high", "invalid"];
 const RESULTS = ["connected", "no_answer", "busy", "invalid", "do_not_call", "other"];
 const TAGS = ["装修公司负责人/工长", "工人", "业主", "其他"];
+const WECHAT_STATUSES = ["unknown", "rejected", "agreed_pending", "approved"];
 function fail(status, message) { const error = new Error(message); error.status = status; throw error; }
 function admin(user) { return Boolean(user && ["管理员", "超级管理员"].indexOf(user.role) >= 0); }
 function allowed(user) { return admin(user) || Boolean(user && user.role === "销售人员"); }
@@ -13,6 +13,15 @@ function tag(value, normalizeUnknown) {
   if (!result || TAGS.indexOf(result) >= 0) return result;
   if (normalizeUnknown) return "其他";
   fail(400, "请选择有效的资源标签");
+}
+function wechatStatus(value) {
+  const result = text(value, 32) || "unknown";
+  if (WECHAT_STATUSES.indexOf(result) >= 0) return result;
+  fail(400, "请选择有效的微信状态");
+}
+function publicWechatStatus(value) {
+  const result = String(value || "").trim();
+  return WECHAT_STATUSES.indexOf(result) >= 0 ? result : "unknown";
 }
 function own(user, lead) { if (!admin(user) && lead.owner_id !== user.id) fail(403, "无权访问该私海资源"); }
 function text(value, max) {
@@ -60,10 +69,10 @@ function publicLead(row, user, secrets) {
   // and a masked display are exposed; never spread a database row into a response.
   const result = { id: row.id, name: full ? row.name : "电话资源", phone: full ? secrets.decrypt(row.phone_cipher) : row.phone_mask,
     source: full ? row.source : safeCategory(row.source), region: full ? row.region : safeCategory(row.region), tags: full ? row.tags : safeCategory(row.tags),
-    ownerId: row.owner_id, intent: row.intent, nextFollowupAt: row.next_followup_at,
+    ownerId: row.owner_id, nextFollowupAt: row.next_followup_at,
     createdAt: row.created_at, version: row.version, canContact: full && !blocked(row.blocked) };
   if (full) {
-    result.customerId = row.customer_id; result.contact = row.contact; result.address = row.address; result.consentStatus = row.consent_status;
+    result.customerId = row.customer_id; result.contact = row.contact; result.address = row.address; result.wechatStatus = publicWechatStatus(row.consent_status);
     result.lastFollowupAt = row.last_followup_at || null;
     result.lastFollowupContent = String(row.last_followup_content || "");
     result.followupCount = Number(row.followup_count || 0);
@@ -72,4 +81,4 @@ function publicLead(row, user, secrets) {
   return result;
 }
 function safeCategory(value) { return /[\d+]/.test(String(value || "")) ? "已隐藏" : String(value || ""); }
-module.exports = { LIMIT, INTENTS, RESULTS, TAGS, fail, admin, allowed, blocked, tag, own, text, phone, date, vault, publicLead };
+module.exports = { LIMIT, RESULTS, TAGS, WECHAT_STATUSES, fail, admin, allowed, blocked, tag, wechatStatus, publicWechatStatus, own, text, phone, date, vault, publicLead };

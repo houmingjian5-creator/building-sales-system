@@ -25,7 +25,7 @@ async function run() {
   const ownerId = (await db.query("SELECT owner_id FROM lead_resources WHERE id=?", [shared]))[0].owner_id;
   const owner = users.find(u => u.id === ownerId), stranger = users.find(u => u.id !== ownerId && u.role === "销售人员");
   await assert.rejects(service.detail(stranger, shared));
-  await service.follow(owner, "mysql-follow-000001", shared, { result: "connected", intent: "high", content: "合成记录" });
+  await service.follow(owner, "mysql-follow-000001", shared, { result: "connected", content: "合成记录" });
   assert.strictEqual((await service.detail(owner, shared)).followups.length, 1);
   const candidates = [];
   await db.transaction(async c => {

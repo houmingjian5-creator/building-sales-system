@@ -38,7 +38,11 @@ function fixture() {
       if (!r) return { affectedRows: 0 }; r.owner_id = args[0]; r.version++; r.next_followup_at = null; return { affectedRows: 1 };
     }
     if (sql.startsWith("INSERT INTO lead_followups")) { state.followups.push(clone(args)); return {}; }
-    if (sql.startsWith("UPDATE lead_resources SET intent")) { Object.assign(state.rows.find(x => x.id === args[2]), { intent: args[0], next_followup_at: args[1] }); return {}; }
+    if (sql.startsWith("UPDATE lead_resources SET next_followup_at")) { const r = state.rows.find(x => x.id === args[1]); Object.assign(r, { next_followup_at: args[0], version: r.version + 1 }); return {}; }
+    if (sql.startsWith("UPDATE lead_resources SET consent_status")) {
+      const r = state.rows.find(x => x.id === args[1] && x.version === args[2]);
+      if (!r) return { affectedRows: 0 }; r.consent_status = args[0]; r.version++; return { affectedRows: 1 };
+    }
     if (sql.startsWith("UPDATE lead_resources SET tags")) {
       const r = state.rows.find(x => x.id === args[1] && x.version === args[2]);
       if (!r) return { affectedRows: 0 }; r.tags = args[0]; r.version++; return { affectedRows: 1 };
@@ -73,7 +77,7 @@ function fixture() {
     effectiveOrderAmount: order => Number(order.actualPaidAmount != null ? order.actualPaidAmount : order.amount || 0) };
   return { service: createService(db, secrets, legacy), state: () => state, business: () => business, queries: () => queries,
     failWrite: value => { failWrite = value; }, setBusiness: value => { business = clone(value); },
-    add: function (id, owner, number) { state.rows.push({ id, owner_id: owner || null, phone_key: secrets.hash(number || "13800000001"), phone_cipher: secrets.encrypt(number || "13800000001"), phone_mask: "138****0001", name: id, tags: "", intent: "unknown", created_at: "2026-08-01T00:00:00.000Z", version: 1, customer_id: null }); } };
+    add: function (id, owner, number) { state.rows.push({ id, owner_id: owner || null, phone_key: secrets.hash(number || "13800000001"), phone_cipher: secrets.encrypt(number || "13800000001"), phone_mask: "138****0001", name: id, tags: "", consent_status: "unknown", created_at: "2026-08-01T00:00:00.000Z", version: 1, customer_id: null }); } };
 }
 async function run() {
   let f = fixture(); f.add("shared");
@@ -83,10 +87,10 @@ async function run() {
   await f.service.move(users[0], "request-shared-0001", { action: "claim", ids: ["shared"] });
   assert.strictEqual(f.state().history.length, 1, "retry must not duplicate history");
   await assert.rejects(f.service.move(users[0], "request-shared-0001", { action: "return", ids: ["shared"] }));
-  await assert.rejects(f.service.follow(users[1], "request-follow-0001", "shared", { result: "connected", intent: "high", content: "越权" }));
-  await f.service.follow(users[0], "request-follow-0002", "shared", { result: "do_not_call", intent: "low", content: "拒绝联系" });
+  await assert.rejects(f.service.follow(users[1], "request-follow-0001", "shared", { result: "connected", content: "越权" }));
+  await f.service.follow(users[0], "request-follow-0002", "shared", { result: "do_not_call", content: "拒绝联系" });
   assert.strictEqual(f.state().blocked.length, 1);
-  await assert.rejects(f.service.follow(users[0], "request-follow-0003", "shared", { result: "connected", intent: "high", content: "后续", nextFollowupAt: "2026-10-01T00:00:00Z" }));
+  await assert.rejects(f.service.follow(users[0], "request-follow-0003", "shared", { result: "connected", content: "后续", nextFollowupAt: "2026-10-01T00:00:00Z" }));
   f = fixture(); for (let i = 0; i < 499; i++) f.add("owned" + i, "a"); f.add("one"); f.add("two");
   const quota = await Promise.allSettled([f.service.move(users[0], "request-quota-0001", { action: "claim", ids: ["one"] }), f.service.move(users[0], "request-quota-0002", { action: "claim", ids: ["two"] })]);
   assert.strictEqual(quota.filter(x => x.status === "fulfilled").length, 1);
@@ -142,8 +146,19 @@ async function run() {
   const tagged = await f.service.updateTag(users[0], "request-tag-0001", created.resourceId, { tag: "装修公司负责人/工长", version });
   assert.strictEqual(tagged.tag, "装修公司负责人/工长");
   await assert.rejects(f.service.updateTag(users[1], "request-tag-0002", created.resourceId, { tag: "工人", version: tagged.version }));
-  await f.service.follow(users[0], "request-follow-tag-0001", created.resourceId, { result: "connected", intent: "high", content: "已联系" });
+  const blockedBeforeWechat = f.state().blocked.length;
+  const wechat = await f.service.updateWechatStatus(users[0], "request-wechat-0001", created.resourceId, { wechatStatus: "rejected", version: tagged.version });
+  assert.strictEqual(wechat.wechatStatus, "rejected");
+  assert.strictEqual(f.state().rows[0].consent_status, "rejected");
+  assert.strictEqual(f.state().blocked.length, blockedBeforeWechat, "微信拒绝不能加入拒绝联系名单");
+  await assert.rejects(f.service.updateWechatStatus(users[1], "request-wechat-0002", created.resourceId, { wechatStatus: "approved", version: wechat.version }), /无权访问/);
+  await assert.rejects(f.service.updateWechatStatus(users[0], "request-wechat-0005", created.resourceId, { version: wechat.version }), /请选择微信状态/);
+  await assert.rejects(f.service.updateWechatStatus(users[0], "request-wechat-0003", created.resourceId, { wechatStatus: "invalid-status", version: wechat.version }), /微信状态/);
+  await assert.rejects(f.service.updateWechatStatus(users[0], "request-wechat-0004", created.resourceId, { wechatStatus: "approved", version: tagged.version }), /资源已变化/);
+  await f.service.follow(users[0], "request-follow-tag-0001", created.resourceId, { result: "connected", content: "已联系" });
   assert.strictEqual(f.state().rows[0].tags, "装修公司负责人/工长", "follow-up must not change the fixed tag");
+  assert.strictEqual(f.state().rows[0].consent_status, "rejected", "follow-up must not change WeChat status");
+  assert.strictEqual(f.state().followups.filter(Array.isArray).pop()[7], "unknown", "legacy non-null intent column must receive a compatibility value");
   const renamed = await f.service.updateResource(users[0], "request-edit-name-01", created.resourceId, { name: "销售修改姓名", version: f.state().rows[0].version });
   assert.strictEqual(renamed.name, "销售修改姓名");
   assert.strictEqual(f.state().rows[0].phone_key, secrets.hash("13800000003"));
@@ -162,6 +177,9 @@ async function run() {
   await f.service.list(users[2], new URLSearchParams({ scope: "all", tag: "unset" }));
   const unsetSql = f.queries().filter(x => x.sql.startsWith("SELECT r.*")).pop();
   assert(unsetSql.sql.indexOf("TRIM(r.tags)=''" ) >= 0);
+  await f.service.list(users[0], new URLSearchParams({ scope: "mine", wechatStatus: "unknown" }));
+  const wechatFilterSql = f.queries().filter(x => x.sql.startsWith("SELECT r.*,fm.last_followup_at")).pop();
+  assert(wechatFilterSql.sql.indexOf("r.consent_status='unknown'") >= 0 && wechatFilterSql.args.indexOf("approved") >= 0, "private sea must filter normalized WeChat status with bound values");
   await assert.rejects(f.service.list(users[0], new URLSearchParams({ scope: "mine", owner: "b" })));
   const orderFragments = { sea_desc: "sea_entered_at DESC", sea_asc: "sea_entered_at ASC", created_desc: "r.created_at DESC", created_asc: "r.created_at ASC", followed_desc: "fm.last_followup_at DESC", followed_asc: "fm.last_followup_at ASC", count_desc: "followup_count,0) DESC", count_asc: "followup_count,0) ASC" };
   for (const mode of Object.keys(orderFragments)) {
