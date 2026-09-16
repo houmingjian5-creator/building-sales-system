@@ -2,6 +2,7 @@
 const crypto = require("crypto");
 const D = require("./domain");
 const Tasks = require("./tasks");
+const Stats = require("./stats");
 const id = () => crypto.randomBytes(16).toString("hex");
 const SORTS = {
   sea_desc: "sea_entered_at DESC,r.created_at DESC,r.id DESC",
@@ -434,21 +435,39 @@ module.exports = function service(db, secrets, legacy) {
       return { ok: true, count: data.customers.length };
     }, { setup: true });
   }
-  async function stats(user) {
+  async function stats(user, params) {
+    if (!D.admin(user)) D.fail(403, "只有管理员可以查看外呼数据");
     await ready();
-    const where = D.admin(user) ? "" : " WHERE owner_id=?", args = D.admin(user) ? [] : [user.id];
-    const resources = await q("SELECT owner_id,COUNT(*) total,SUM(next_followup_at IS NOT NULL) scheduled,SUM(next_followup_at<UTC_TIMESTAMP()) overdue,SUM(customer_id IS NOT NULL) customers FROM lead_resources" + where + " GROUP BY owner_id", args);
-    const movements = await q("SELECT actor_id,action,COUNT(*) total FROM lead_assignment_history" + (D.admin(user) ? "" : " WHERE actor_id=?") + " GROUP BY actor_id,action", args);
-    const connections = await q("SELECT actor_id,COUNT(*) total FROM lead_followups WHERE result='connected'" + (D.admin(user) ? "" : " AND actor_id=?") + " GROUP BY actor_id", args);
-    const linked = await q("SELECT customer_id FROM lead_resources" + (where ? where + " AND customer_id IS NOT NULL" : " WHERE customer_id IS NOT NULL"), args);
-    const customerIds = new Set(linked.map(r => r.customer_id)), data = legacy.readDb();
-    const sales = { customers: 0, orders: 0, amount: 0 };
-    data.customers.filter(c => customerIds.has(c.id)).forEach(c => {
-      const summary = legacy.customerStatsPayload(data, c, null).stats;
-      if (summary.count) sales.customers++;
-      sales.orders += summary.count; sales.amount += summary.total;
-    });
-    return { resources, movements, connections, sales, note: "累计口径；接通为人工填写。关联成交使用旧客户有效销售单口径，不含退货单，不改变原销售业绩归属。" };
+    let range;
+    try { range = Stats.period(params || {}, new Date()); }
+    catch (error) { D.fail(400, error.message); }
+    const requestedOwner = D.text(params && params.get("owner"), 64);
+    const ownerId = requestedOwner;
+    const ownerResourceWhere = "", ownerResourceArgs = [];
+    const actorWhere = ownerId ? " AND f.actor_id=?" : "", actorArgs = ownerId ? [ownerId] : [];
+    const resources = await q("SELECT owner_id,COUNT(*) total,SUM(customer_id IS NOT NULL) customers FROM lead_resources" + ownerResourceWhere + " GROUP BY owner_id", ownerResourceArgs);
+    const summary = await q("SELECT COUNT(DISTINCT f.lead_id) followed_customers,COUNT(DISTINCT CASE WHEN f.result='connected' THEN f.lead_id END) connected_customers FROM lead_followups f WHERE f.created_at>=? AND f.created_at<?" + actorWhere, [range.start, range.end].concat(actorArgs));
+    const approved = await q("SELECT COUNT(*) total FROM lead_resources WHERE owner_id IS NOT NULL AND consent_status='approved'" + (ownerId ? " AND owner_id=?" : ""), ownerResourceArgs);
+    const recent = await q("SELECT f.id,f.actor_id,f.actor_name,f.result,f.content,f.created_at,r.id lead_id,r.name,r.phone_mask,r.consent_status FROM lead_followups f JOIN lead_resources r ON r.id=f.lead_id WHERE f.created_at>=? AND f.created_at<?" + actorWhere + " ORDER BY f.created_at DESC,f.id DESC LIMIT 20", [range.start, range.end].concat(actorArgs));
+    const active = await q("SELECT f.actor_id,MAX(f.actor_name) actor_name,COUNT(DISTINCT f.lead_id) followed_customers,COUNT(DISTINCT CASE WHEN f.result='connected' THEN f.lead_id END) connected_customers,MAX(f.created_at) last_followup_at FROM lead_followups f WHERE f.created_at>=? AND f.created_at<?" + actorWhere + " GROUP BY f.actor_id ORDER BY last_followup_at DESC", [range.start, range.end].concat(actorArgs));
+    const results = await q("SELECT f.result,COUNT(*) total FROM lead_followups f WHERE f.created_at>=? AND f.created_at<?" + actorWhere + " GROUP BY f.result ORDER BY total DESC", [range.start, range.end].concat(actorArgs));
+    const days = Stats.lastSevenDays(new Date()), trendStart = Stats.mysqlUtc(days[0]), trendEnd = Stats.mysqlUtc(Stats.addDays(days[days.length - 1], 1));
+    const trendRows = await q("SELECT DATE_FORMAT(CONVERT_TZ(f.created_at,'+00:00','+08:00'),'%Y-%m-%d') day,COUNT(DISTINCT f.lead_id) total FROM lead_followups f WHERE f.created_at>=? AND f.created_at<?" + actorWhere + " GROUP BY day ORDER BY day", [trendStart, trendEnd].concat(actorArgs));
+    const linkedResources = await q("SELECT id,customer_id FROM lead_resources WHERE customer_id IS NOT NULL");
+    const attributionFollowups = await q("SELECT f.lead_id,f.actor_id,f.created_at FROM lead_followups f JOIN lead_resources r ON r.id=f.lead_id WHERE r.customer_id IS NOT NULL AND f.created_at>=? AND f.created_at<? ORDER BY f.lead_id,f.created_at,f.id", [range.attributionStart, range.end]);
+    const data = legacy.readDb();
+    const attributedOrders = Stats.attributeOrders({ resources: linkedResources, followups: attributionFollowups, data, period: range, ownerId,
+      customerOrderMatchesCustomer: legacy.customerOrderMatchesCustomer, effectiveOrderAmount: legacy.effectiveOrderAmount });
+    const trendByDay = new Map(trendRows.map(r => [String(r.day).slice(0, 10), Number(r.total || 0)]));
+    return {
+      range: { mode: range.mode, from: range.from, to: range.to }, generatedAt: new Date().toISOString(), resources,
+      kpis: { followedCustomers: Number(summary[0].followed_customers || 0), connectedCustomers: Number(summary[0].connected_customers || 0), approved: Number(approved[0].total || 0), attributedOrders: attributedOrders.count, attributedAmount: attributedOrders.amount },
+      recent: recent.map(r => ({ id: r.id, actorId: r.actor_id, actorName: r.actor_name, result: r.result, content: r.content, createdAt: r.created_at, leadId: r.lead_id, name: r.name, phone: r.phone_mask, wechatStatus: D.publicWechatStatus(r.consent_status) })),
+      active: active.map(r => ({ actorId: r.actor_id, actorName: r.actor_name, followedCustomers: Number(r.followed_customers || 0), connectedCustomers: Number(r.connected_customers || 0), lastFollowupAt: r.last_followup_at, attributedOrders: Number(attributedOrders.byActor[r.actor_id] || 0) })),
+      results: results.map(r => ({ result: r.result, total: Number(r.total || 0) })),
+      trend: days.map(day => ({ day, total: trendByDay.get(day) || 0 })),
+      note: "跟进促成订单按下单前7天内最后一次跟进归属统计；仅含有效销售订单，不含取消、作废和退货单。"
+    };
   }
   async function audits(user, page) {
     if (!D.admin(user)) D.fail(403, "只有管理员可以查看外呼审计");

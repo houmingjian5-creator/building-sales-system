@@ -82,3 +82,54 @@
 @media(max-width:1100px) { .lead-task-list-shell { overflow-x:auto; } .lead-list-tasks { min-width:1080px; } }
 @media(max-width:720px) { .lead-detail-head { display:block; } .lead-fixed-tag { width:100%; margin-top:12px; } .lead-page-jump { width:100%; } }
 @media(max-width:600px) { .lead-grid { grid-template-columns:minmax(0,1fr); } .lead-drawer { padding:16px; } .lead-actions .btn { flex:1 1 auto; } }
+.lead-stats-dashboard { display:grid; gap:14px; min-width:0; }
+.lead-stats-filters { display:flex; flex-wrap:wrap; align-items:center; gap:9px; }
+.lead-stats-filters .select { width:180px; }
+.lead-stats-filters label { display:flex; align-items:center; gap:6px; }
+.lead-stats-filters input { width:150px; }
+.lead-stats-period { display:flex; gap:4px; }
+.lead-stats-live { margin-left:auto; color:#159856; font-weight:600; }
+.lead-stats-live:before { content:""; display:inline-block; width:8px; height:8px; margin-right:7px; border-radius:50%; background:#16a45c; }
+.lead-stats-heading { display:flex; align-items:baseline; justify-content:space-between; gap:12px; }
+.lead-stats-heading h3,.lead-stats-panel h3 { margin:0; }
+.lead-stats-heading small,.lead-stats-panel p { color:#64748b; }
+.lead-stats-sales { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:12px; }
+.lead-stats-sales-card,.lead-stats-panel,.lead-stats-kpis { background:#fff; border:1px solid #dbe2ea; border-radius:12px; }
+.lead-stats-sales-card { padding:16px; border-top:4px solid #4365e4; }
+.lead-stats-sales-card:nth-child(4n+2) { border-top-color:#16a36b; }
+.lead-stats-sales-card:nth-child(4n+3) { border-top-color:#ee9b21; }
+.lead-stats-sales-card:nth-child(4n+4) { border-top-color:#8663df; }
+.lead-stats-sales-card>div { display:grid; grid-template-columns:1fr 1fr; margin-top:14px; }
+.lead-stats-sales-card span { color:#64748b; }
+.lead-stats-sales-card span+span { padding-left:14px; border-left:1px solid #e4e9f1; }
+.lead-stats-sales-card strong { display:block; color:#15233b; font-size:24px; }
+.lead-stats-sales-card small { font-size:12px; margin-left:4px; }
+.lead-stats-kpis { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); padding:12px 0; }
+.lead-stats-kpis>div { text-align:center; border-right:1px solid #e4e9f1; }
+.lead-stats-kpis>div:last-child { border-right:0; }
+.lead-stats-kpis small { color:#536277; }
+.lead-stats-kpis strong { font-size:24px; margin-left:8px; }
+.lead-stats-kpis em { font-style:normal; color:#64748b; margin-left:3px; }
+.lead-stats-main { display:grid; grid-template-columns:minmax(0,2.4fr) minmax(270px,.9fr); gap:14px; }
+.lead-stats-panel { padding:16px; min-width:0; }
+.lead-stats-panel p { margin:5px 0 12px; font-size:13px; }
+.lead-stats-table-wrap { overflow-x:auto; }
+.lead-stats-table-wrap table { width:100%; border-collapse:collapse; font-size:13px; }
+.lead-stats-table-wrap th,.lead-stats-table-wrap td { border-bottom:1px solid #e7ecf2; padding:9px 7px; text-align:left; }
+.lead-stats-table-wrap th { white-space:nowrap; color:#536277; background:#f8fafc; }
+.lead-stats-table-wrap td small { display:block; color:#64748b; }
+.lead-stats-table-wrap td .btn { padding:5px 8px; font-size:12px; }
+.lead-stats-content { max-width:290px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.lead-stats-pill { border-radius:999px; padding:3px 8px; color:#2156bd; background:#eaf0ff; white-space:nowrap; }
+.lead-stats-side { display:grid; align-content:start; gap:14px; }
+.lead-stats-active { display:grid; grid-template-columns:1fr auto auto; gap:8px; padding:10px 0; border-bottom:1px solid #e7ecf2; font-size:13px; }
+.lead-stats-active:last-child { border-bottom:0; }
+.lead-stats-active small { grid-column:1/-1; color:#64748b; }
+.lead-stats-result { display:grid; grid-template-columns:85px 1fr 30px; align-items:center; gap:8px; margin:13px 0; font-size:13px; }
+.lead-stats-result i { height:9px; background:#e9eef7; border-radius:9px; overflow:hidden; }
+.lead-stats-result i b { display:block; height:100%; background:#4468e8; border-radius:9px; }
+.lead-stats-trend svg { width:100%; height:95px; border-bottom:1px solid #dbe2ea; }
+.lead-stats-trend>div { display:flex; justify-content:space-between; font-size:12px; color:#64748b; }
+.lead-stats-trend>div span b { display:block; text-align:center; color:#1e2d47; }
+@media(max-width:1200px) { .lead-stats-sales { grid-template-columns:repeat(2,minmax(0,1fr)); } .lead-stats-main { grid-template-columns:1fr; } .lead-stats-side { grid-template-columns:repeat(2,minmax(0,1fr)); } }
+@media(max-width:700px) { .lead-stats-sales,.lead-stats-side { grid-template-columns:1fr; } .lead-stats-kpis { grid-template-columns:repeat(2,1fr); gap:12px 0; } .lead-stats-kpis>div:nth-child(2) { border-right:0; } .lead-stats-filters .select { width:100%; } .lead-stats-live { margin-left:0; } }

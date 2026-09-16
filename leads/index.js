@@ -62,7 +62,7 @@ module.exports = function createLeads(legacy, env) {
           if (limit.n > 20) D.fail(429, "号码核对过于频繁，请稍后重试");
           result = await service.lookup(user, (await legacy.readBody(req)).phone);
         } else if (action === "do-not-call" && method === "GET") result = await service.doNotCall(user, url.searchParams.get("page"));
-        else if (action === "stats" && method === "GET") result = await service.stats(user);
+        else if (action === "stats" && method === "GET") result = await service.stats(user, url.searchParams);
         else if (action === "audit" && method === "GET") result = await service.audits(user, url.searchParams.get("page"));
         else if (action.indexOf("imports") === 0 && D.admin(user)) {
           await service.ready();

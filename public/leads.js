@@ -1,6 +1,6 @@
 /* No phone data is persisted in browser storage. */
-let leadsState;
-function resetLeads() { leadsState = { tab: "public", page: 1, items: [], tasks: null, taskPages: { priority: 1, medium: 1, pending: 1 }, selected: [], detail: null, editing: false, adding: false, total: 0, error: "", filters: { sort: "created_desc" }, imports: [], batch: null, mapping: null, stats: null, blocked: [], busy: false }; }
+let leadsState, leadStatsRefreshTimer;
+function resetLeads() { if (leadStatsRefreshTimer) clearTimeout(leadStatsRefreshTimer); leadStatsRefreshTimer = null; leadsState = { tab: "public", page: 1, items: [], tasks: null, taskPages: { priority: 1, medium: 1, pending: 1 }, selected: [], detail: null, editing: false, adding: false, total: 0, error: "", filters: { sort: "created_desc" }, statsFilters: { period: "today", owner: "", from: "", to: "" }, imports: [], batch: null, mapping: null, stats: null, blocked: [], busy: false }; }
 resetLeads();
 const leadTags = ["装修公司负责人/工长", "工人", "业主", "其他"];
 const leadWechatStatuses = ["unknown", "rejected", "agreed_pending", "approved"];
@@ -48,17 +48,17 @@ async function leadAction(task) {
 }
 async function loadLeads() {
   if (!state.leadsCapability || !state.leadsCapability.enabled) return;
-  const owner = state.user.id, tab = leadsState.tab, page = leadsState.page, taskPages = JSON.stringify(leadsState.taskPages);
+  const owner = state.user.id, tab = leadsState.tab, page = leadsState.page, taskPages = JSON.stringify(leadsState.taskPages), statsFilters = JSON.stringify(leadsState.statsFilters);
   try {
     let data;
     if (!state.leadsCapability.active) data = await leadRequest("setup");
     else if (tab === "imports") data = await leadRequest("imports");
     else if (tab === "blocked") data = await leadRequest("do-not-call?page=" + page);
-    else if (tab === "stats") data = await leadRequest("stats");
+    else if (tab === "stats") data = await leadRequest("stats?" + new URLSearchParams(leadsState.statsFilters).toString());
     else if (tab === "audit") data = await leadRequest("audit?page=" + page);
     else if (tab === "tasks") data = await leadRequest("tasks?" + new URLSearchParams(Object.assign({}, leadsState.filters, { priorityPage: leadsState.taskPages.priority, mediumPage: leadsState.taskPages.medium, pendingPage: leadsState.taskPages.pending })).toString());
     else data = await leadRequest("resources?" + new URLSearchParams(Object.assign({}, leadsState.filters, { scope: tab, page })).toString());
-    if (!state.user || state.user.id !== owner || leadsState.tab !== tab || leadsState.page !== page || (tab === "tasks" && JSON.stringify(leadsState.taskPages) !== taskPages)) return;
+    if (!state.user || state.user.id !== owner || leadsState.tab !== tab || leadsState.page !== page || (tab === "tasks" && JSON.stringify(leadsState.taskPages) !== taskPages) || (tab === "stats" && JSON.stringify(leadsState.statsFilters) !== statsFilters)) return;
     if (!state.leadsCapability.active) leadsState.setup = data;
     else if (tab === "imports") leadsState.imports = data.batches;
     else if (tab === "blocked") { leadsState.blocked = data.items; leadsState.total = data.total; }
@@ -68,9 +68,10 @@ async function loadLeads() {
     else { leadsState.items = data.items; leadsState.total = data.total; }
     leadsState.error = "";
   } catch (error) { leadsState.error = error.message; }
-  if (state.user && state.route === "leads") render();
+  if (state.user && state.route === "leads") { render(); if (tab === "stats") scheduleLeadStatsRefresh(); }
 }
-function leadTab(tab) { leadsState.tab = tab; leadsState.page = 1; leadsState.taskPages = { priority: 1, medium: 1, pending: 1 }; leadsState.selected = []; leadsState.detail = null; leadsState.filters = { sort: "created_desc" }; loadLeads(); }
+function scheduleLeadStatsRefresh() { if (leadStatsRefreshTimer) clearTimeout(leadStatsRefreshTimer); leadStatsRefreshTimer = setTimeout(() => { if (state.user && state.route === "leads" && leadsState.tab === "stats" && !leadsState.busy) loadLeads(); }, 15000); }
+function leadTab(tab) { if (leadStatsRefreshTimer) clearTimeout(leadStatsRefreshTimer); leadStatsRefreshTimer = null; leadsState.tab = tab; leadsState.page = 1; leadsState.taskPages = { priority: 1, medium: 1, pending: 1 }; leadsState.selected = []; leadsState.detail = null; leadsState.filters = { sort: "created_desc" }; loadLeads(); }
 function leadFilter() {
   ["tag", "wechatStatus", "due", "followed", "sort"].forEach(key => { const el = document.getElementById("lead-filter-" + key); leadsState.filters[key] = el ? el.value : ""; });
   const search = document.getElementById("lead-filter-q"); leadsState.filters.q = search ? search.value.trim() : "";
@@ -279,9 +280,27 @@ function leadCommit(id) { leadAction(async () => {
 }); }
 function renderLeadStats() {
   const s = leadsState.stats; if (!s) return "<p>正在加载</p>";
-  const name = id => { const u = salesUsers.find(x => x.id === id); return u ? u.name : id || "公海"; };
-  return `<p class="lead-note">${html(s.note)}</p><p>关联成交客户 ${s.sales.customers} · 有效销售单 ${s.sales.orders} · 合计 ¥${Number(s.sales.amount).toFixed(2)}</p><div class="lead-grid">${s.resources.map(r => `<div class="lead-card"><h3>${html(name(r.owner_id))}</h3><p>资源 ${r.total} · 已关联客户 ${r.customers || 0}</p><p>待跟进 ${r.scheduled || 0} · 逾期 ${r.overdue || 0}</p></div>`).join("")}</div><h3>累计流转</h3>${s.movements.map(r => `<p>${html(name(r.actor_id))} · ${html(leadLabels[r.action] || r.action)}：${r.total}</p>`).join("")}<h3>人工记录有效接通</h3>${s.connections.map(r => `<p>${html(name(r.actor_id))}：${r.total}</p>`).join("")}`;
+  const f = leadsState.statsFilters, names = id => { const found = salesUsers.find(u => u.id === id); return found ? found.name : id || "未知"; };
+  const users = salesUsers.filter(u => ["销售人员", "管理员", "超级管理员"].indexOf(u.role) >= 0 && u.status !== "停用");
+  const counts = new Map((s.resources || []).map(r => [r.owner_id, r]));
+  const cards = users.filter(u => !f.owner || u.id === f.owner).map(u => Object.assign({ owner_id: u.id, total: 0, customers: 0 }, counts.get(u.id) || {})).sort((a, b) => Number(b.total || 0) - Number(a.total || 0));
+  const labels = { connected: "有效接通", no_answer: "未接", busy: "占线", invalid: "无效号码", do_not_call: "拒绝联系", other: "其他" };
+  const maximum = Math.max(1, ...(s.results || []).map(r => Number(r.total || 0)));
+  const trend = s.trend || [], maxTrend = Math.max(1, ...trend.map(r => Number(r.total || 0)));
+  const points = trend.map((r, i) => `${24 + i * 152},${120 - Math.round(Number(r.total || 0) / maxTrend * 96)}`).join(" ");
+  return `<div class="lead-stats-dashboard">
+    <div class="lead-stats-filters"><div class="lead-stats-period">${[["today","今日"],["week","近7天"],["month","本月"],["custom","自定义"]].map(item => `<button class="btn ${f.period === item[0] ? "primary" : ""}" onclick="leadStatsPeriod('${item[0]}')">${item[1]}</button>`).join("")}</div>${f.period === "custom" ? `<label>开始日期 <input class="input" type="date" id="lead-stats-from" value="${html(f.from || "")}" onchange="leadStatsCustom()"></label><label>结束日期 <input class="input" type="date" id="lead-stats-to" value="${html(f.to || "")}" onchange="leadStatsCustom()"></label>` : ""}<select class="select" aria-label="筛选销售" onchange="leadStatsOwner(this.value)"><option value="">全部销售</option>${users.map(u => `<option value="${html(u.id)}" ${f.owner === u.id ? "selected" : ""}>${html(u.name)}</option>`).join("")}</select><button class="btn" onclick="loadLeads()">刷新</button><span class="lead-stats-live">自动更新 · 15秒</span></div>
+    <div class="lead-stats-heading"><h3>销售资源情况</h3><small>资源和正式客户关联为当前存量，不随日期变化</small></div>
+    <div class="lead-stats-sales">${cards.map(r => `<div class="lead-stats-sales-card"><b>${html(names(r.owner_id))}</b><div><span>名下资源<strong>${Number(r.total || 0)}</strong><small>条</small></span><span>已关联客户<strong>${Number(r.customers || 0)}</strong><small>位</small></span></div></div>`).join("") || '<p class="lead-list-empty">暂无销售资源</p>'}</div>
+    <div class="lead-stats-kpis"><div><small>跟进客户</small><strong>${Number(s.kpis.followedCustomers || 0)}</strong></div><div><small>有效接通客户</small><strong>${Number(s.kpis.connectedCustomers || 0)}</strong></div><div><small>微信已通过资源</small><strong>${Number(s.kpis.approved || 0)}</strong></div><div title="下单前7天内最后一次跟进归属该销售；按订单录入时间统计"><small>跟进促成订单 ⓘ</small><strong>${Number(s.kpis.attributedOrders || 0)}</strong><em>单</em></div></div>
+    <div class="lead-stats-main"><section class="lead-stats-panel"><h3>实时跟进动态</h3><p>销售最新跟进记录自动更新；仅展示所选时间范围</p><div class="lead-stats-table-wrap"><table><thead><tr><th>时间</th><th>销售</th><th>客户</th><th>跟进结果</th><th>最近跟进内容</th><th>微信状态</th><th>操作</th></tr></thead><tbody>${(s.recent || []).map(r => `<tr><td>${html(leadListTime(r.createdAt))}</td><td>${html(r.actorName || names(r.actorId))}</td><td><b>${html(r.name)}</b><small>${html(r.phone)}</small></td><td><span class="lead-stats-pill">${html(labels[r.result] || r.result)}</span></td><td class="lead-stats-content" title="${html(r.content)}">${html(r.content)}</td><td>${html(leadWechatLabels[r.wechatStatus] || "未判断")}</td><td><button class="btn" onclick="leadDetail('${r.leadId}')">查看</button></td></tr>`).join("") || '<tr><td colspan="7">该时间范围暂无跟进记录</td></tr>'}</tbody></table></div></section>
+      <div class="lead-stats-side"><section class="lead-stats-panel"><h3>当前活跃销售</h3><p>按最近跟进时间排序</p>${(s.active || []).map(r => `<div class="lead-stats-active"><b>${html(r.actorName || names(r.actorId))}</b><span>跟进 ${Number(r.followedCustomers || 0)} 位</span><span>接通 ${Number(r.connectedCustomers || 0)} 位</span><small>${html(leadListTime(r.lastFollowupAt))}</small></div>`).join("") || '<p>暂无销售跟进</p>'}</section><section class="lead-stats-panel"><h3>跟进结果分布</h3>${(s.results || []).map(r => `<div class="lead-stats-result"><span>${html(labels[r.result] || r.result)}</span><i><b style="width:${Math.round(Number(r.total || 0) / maximum * 100)}%"></b></i><strong>${Number(r.total || 0)}</strong></div>`).join("") || '<p>暂无跟进结果</p>'}</section></div></div>
+    <section class="lead-stats-panel lead-stats-trend"><h3>近7天跟进趋势</h3><p>每日有跟进记录的去重客户数</p><svg role="img" aria-label="近7天跟进客户趋势" viewBox="0 0 960 135" preserveAspectRatio="none"><polyline fill="none" stroke="#3d61df" stroke-width="4" points="${points}"/></svg><div>${trend.map(r => `<span>${html(r.day.slice(5))}<b>${Number(r.total || 0)}</b></span>`).join("")}</div></section><p class="lead-note">${html(s.note)}</p>
+  </div>`;
 }
+function leadStatsPeriod(period) { leadsState.statsFilters.period = period; if (period !== "custom" || leadsState.statsFilters.from && leadsState.statsFilters.to) loadLeads(); else render(); }
+function leadStatsOwner(owner) { leadsState.statsFilters.owner = owner; loadLeads(); }
+function leadStatsCustom() { const from = document.getElementById("lead-stats-from"), to = document.getElementById("lead-stats-to"); leadsState.statsFilters.from = from ? from.value : ""; leadsState.statsFilters.to = to ? to.value : ""; if (leadsState.statsFilters.from && leadsState.statsFilters.to) loadLeads(); }
 function renderLeadBlocked() {
   const rows = leadsState.blocked || [];
   return `<p class="lead-note">这里只显示销售在跟进结果中主动选择“拒绝联系”后留下的记录。导入资源不会自动进入此名单。</p>${rows.map(r => `<div class="lead-card"><p class="lead-phone">${html(r.phone)}</p><p>${html(r.name)} · 当前归属：${html(r.ownerName)}</p><p>标记人：${html(r.actorName)} · 标记时间：${html(leadTime(r.createdAt))}</p><p>原因：${html(r.reason)}</p>${r.leadId ? `<button class="btn" onclick="leadDetail('${r.leadId}')">查看资源详情</button>` : ""}</div>`).join("") || "<p>暂无拒绝联系记录</p>"}<div class="lead-actions"><button class="btn" onclick="leadPage(-1)" ${leadsState.page <= 1 ? "disabled" : ""}>上一页</button><span>第${leadsState.page}页，共${leadsState.total}条</span><button class="btn" onclick="leadPage(1)" ${leadsState.page * 50 >= leadsState.total ? "disabled" : ""}>下一页</button></div>`;

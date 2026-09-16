@@ -81,6 +81,7 @@ function fixture() {
 }
 async function run() {
   let f = fixture(); f.add("shared");
+  await assert.rejects(f.service.stats(users[0], new URLSearchParams()), /只有管理员可以查看外呼数据/);
   const results = await Promise.allSettled([f.service.move(users[0], "request-shared-0001", { action: "claim", ids: ["shared"] }), f.service.move(users[1], "request-shared-0002", { action: "claim", ids: ["shared"] })]);
   assert.strictEqual(results.filter(x => x.status === "fulfilled").length, 1);
   assert.strictEqual(f.state().history.length, 1);
