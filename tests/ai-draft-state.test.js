@@ -50,10 +50,18 @@ assert(deleteSource.includes("render()"), "删除后必须从草稿重新渲染"
 const draftItemsSource = functionSource("aiDraftItems", "aiStatusSummary");
 assert(draftItemsSource.includes("if (item.userDeleted) return"), "重新渲染时必须保持人工删除结果");
 assert(draftItemsSource.includes("item.selectedProductId"), "重新渲染时必须保持人工选择商品");
+assert(draftItemsSource.includes("Number(a.orderIndex || 0) - Number(b.orderIndex || 0)"), "AI审核清单必须始终按原始材料序号排列");
 
 const applySource = functionSource("applyAiDraft", "saveOrder");
 assert(applySource.includes("aiDraftItems(state.aiDraft)"), "填入开单页面必须以持久化 AI 草稿为准");
 assert(!applySource.includes('document.querySelectorAll("[data-ai-matched-line]")'), "填入开单页面不能再依赖易丢失的临时 DOM 状态");
+assert(applySource.includes("entries.sort((a, b) => a.orderIndex - b.orderIndex)"), "填入购物车前必须再次按原始材料顺序排列");
+assert(applySource.includes("item.status !== \"confirmed\""), "仍有异常或未匹配商品时不得跳过后继续填入购物车");
+
+const reviewSource = functionSource("renderAiDraft", "aiDraftItems");
+assert(reviewSource.includes("items.filter((item) => item.status !== \"confirmed\")"), "异常筛选只能隐藏正常项，不能重新排列商品");
+assert(reviewSource.includes("items.indexOf(item)"), "筛选异常时必须保留原始商品序号");
+assert(reviewSource.includes("保持原文顺序"), "AI审核界面必须明确提示商品顺序规则");
 
 const analyzeSource = functionSource("analyzeAiOrder", "addDraftLine");
 assert(analyzeSource.includes("state.aiDraftDirty"), "已有人工修改时重新识别必须检测草稿状态");

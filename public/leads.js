@@ -1,6 +1,6 @@
 /* No phone data is persisted in browser storage. */
 let leadsState, leadStatsRefreshTimer;
-function resetLeads() { if (leadStatsRefreshTimer) clearTimeout(leadStatsRefreshTimer); leadStatsRefreshTimer = null; leadsState = { tab: "public", page: 1, items: [], tasks: null, taskPages: { priority: 1, medium: 1, pending: 1 }, selected: [], detail: null, editing: false, adding: false, total: 0, error: "", filters: { sort: "created_desc" }, statsFilters: { period: "today", owner: "", from: "", to: "" }, imports: [], batch: null, mapping: null, stats: null, busy: false }; }
+function resetLeads() { if (leadStatsRefreshTimer) clearTimeout(leadStatsRefreshTimer); leadStatsRefreshTimer = null; leadsState = { tab: "public", page: 1, items: [], tasks: null, taskPages: { priority: 1, medium: 1, pending: 1 }, selected: [], detail: null, editing: false, adding: false, followSaved: false, total: 0, error: "", loadedAt: "", filters: { sort: "created_desc" }, filtersByTab: {}, statsFilters: { period: "today", owner: "", from: "", to: "" }, imports: [], batch: null, mapping: null, stats: null, busy: false }; }
 resetLeads();
 const leadTags = ["装修公司负责人/工长", "工人", "业主", "其他"];
 const leadWechatStatuses = ["unknown", "rejected", "agreed_pending", "approved"];
@@ -65,11 +65,12 @@ async function loadLeads() {
     else if (tab === "tasks") leadsState.tasks = data.groups;
     else { leadsState.items = data.items; leadsState.total = data.total; }
     leadsState.error = "";
+    leadsState.loadedAt = new Date().toISOString();
   } catch (error) { leadsState.error = error.message; }
   if (state.user && state.route === "leads") { render(); if (tab === "stats") scheduleLeadStatsRefresh(); }
 }
 function scheduleLeadStatsRefresh() { if (leadStatsRefreshTimer) clearTimeout(leadStatsRefreshTimer); leadStatsRefreshTimer = setTimeout(() => { if (state.user && state.route === "leads" && leadsState.tab === "stats" && !leadsState.busy) loadLeads(); }, 15000); }
-function leadTab(tab) { if (leadStatsRefreshTimer) clearTimeout(leadStatsRefreshTimer); leadStatsRefreshTimer = null; leadsState.tab = tab; leadsState.page = 1; leadsState.taskPages = { priority: 1, medium: 1, pending: 1 }; leadsState.selected = []; leadsState.detail = null; leadsState.filters = { sort: "created_desc" }; loadLeads(); }
+function leadTab(tab) { if (leadStatsRefreshTimer) clearTimeout(leadStatsRefreshTimer); leadStatsRefreshTimer = null; leadsState.filtersByTab[leadsState.tab] = Object.assign({}, leadsState.filters); leadsState.tab = tab; leadsState.page = 1; leadsState.taskPages = { priority: 1, medium: 1, pending: 1 }; leadsState.selected = []; leadsState.detail = null; leadsState.followSaved = false; leadsState.filters = Object.assign({ sort: "created_desc" }, leadsState.filtersByTab[tab] || {}); loadLeads(); }
 function leadFilter() {
   ["tag", "wechatStatus", "due", "followed", "sort"].forEach(key => { const el = document.getElementById("lead-filter-" + key); leadsState.filters[key] = el ? el.value : ""; });
   const search = document.getElementById("lead-filter-q"); leadsState.filters.q = search ? search.value.trim() : "";
@@ -138,6 +139,15 @@ function renderLeadTaskGroup(tier) {
 function renderLeadTasks() {
   return `${renderLeadTaskFilters()}<div class="lead-actions"><button class="btn" onclick="leadMove('return')">退回选中资源</button></div><p class="lead-note">系统根据有效订单、进入私海时间、跟进记录和预约时间自动计算；每个等级可展开查看入选规则。</p>${["priority", "medium", "pending"].map(renderLeadTaskGroup).join("")}`;
 }
+function renderLeadOverview() {
+  if (["imports", "stats", "audit"].indexOf(leadsState.tab) >= 0 || !state.leadsCapability.active) return "";
+  if (leadsState.tab === "tasks") {
+    const groups = leadsState.tasks || {}, values = ["priority", "medium", "pending"].map(key => Number(groups[key] && groups[key].total || 0));
+    return `<div class="lead-overview"><span><small>重点跟进</small><strong>${values[0]}</strong></span><span><small>中等跟进</small><strong>${values[1]}</strong></span><span><small>待跟进</small><strong>${values[2]}</strong></span><span><small>任务合计</small><strong>${values.reduce((a,b)=>a+b,0)}</strong></span></div>`;
+  }
+  const page = leadsState.items || [], followed = page.filter(item => Number(item.followupCount || 0) > 0).length, approved = page.filter(item => item.wechatStatus === "approved").length;
+  return `<div class="lead-overview"><span><small>筛选结果</small><strong>${Number(leadsState.total || 0)}</strong></span><span><small>当前页资源</small><strong>${page.length}</strong></span><span><small>当前页已跟进</small><strong>${followed}</strong></span>${leadsState.tab === "mine" ? `<span><small>当前页微信通过</small><strong>${approved}</strong></span>` : `<span><small>已选择</small><strong>${leadsState.selected.length}</strong></span>`}</div>`;
+}
 function renderLeads() {
   if (!state.leadsCapability || !state.leadsCapability.enabled) return "<p>没有外呼资源权限</p>";
   setTimeout(leadSyncSelectionControls, 0);
@@ -158,7 +168,7 @@ function renderLeads() {
       <p class="lead-note">私海上限500条，正式客户计入容量。公海仅显示脱敏信息；正式客户所属在客户管理中由管理员调整。</p>
       ${leadsState.tab === "mine" ? renderLeadMineList(leadsState.items) : `<div class="lead-grid">${leadsState.items.map(r => `<article class="lead-card"><label><input type="checkbox" data-lead-id="${r.id}" ${leadsState.selected.indexOf(r.id) >= 0 ? "checked" : ""} onchange="leadSelect('${r.id}',this.checked)"> ${html(r.name)}</label><p class="lead-phone">${html(r.phone)}</p><p>${html(r.region || "未标注地区")}</p><p>标签：${html(r.tags || "未设置")}</p><p>下次跟进：${html(leadTime(r.nextFollowupAt))}</p>${isAdmin() || r.ownerId === state.user.id ? `<button class="btn" onclick="leadDetail('${r.id}')">详情 / 跟进</button>` : "领取后查看完整信息"}</article>`).join("") || "<p>暂无符合条件的资源</p>"}</div>`}<div class="lead-actions"><button class="btn" onclick="leadPage(-1)" ${leadsState.page <= 1 ? "disabled" : ""}>上一页</button><span>第${leadsState.page}页，共${leadsState.total}条</span><button class="btn" onclick="leadPage(1)" ${leadsState.page * 20 >= leadsState.total ? "disabled" : ""}>下一页</button>${renderLeadPageJump("lead-page-jump", leadsState.page, leadsState.total, 20, "leadPageJump")}${renderLeadPageSelection(leadsState.items)}</div>`;
   }
-  return `<section class="lead-module"><h2>外呼管理</h2><div class="lead-tabs">${tabs.map(t => `<button class="btn ${leadsState.tab === t[0] ? "primary" : ""}" onclick="leadTab('${t[0]}')">${t[1]}</button>`).join("")}</div>${leadsState.error ? `<p role="alert">${html(leadsState.error)}</p>${isAdmin() ? '<button class="btn" onclick="leadRecover()">恢复待完成的客户同步</button>' : ""}` : ""}${body}${leadsState.detail ? renderLeadDetail() : ""}${leadsState.adding ? renderLeadAdd() : ""}</section>`;
+  return `<section class="lead-module"><h2>外呼管理</h2><div class="lead-tabs">${tabs.map(t => `<button class="btn ${leadsState.tab === t[0] ? "primary" : ""}" onclick="leadTab('${t[0]}')">${t[1]}</button>`).join("")}</div>${renderLeadOverview()}${leadsState.error ? `<div class="lead-load-error" role="alert"><strong>数据刷新失败</strong><span>${html(leadsState.error)}</span>${leadsState.loadedAt ? `<small>页面保留的是 ${html(leadListTime(leadsState.loadedAt))} 的数据</small>` : ""}<button class="btn" onclick="loadLeads()">重新加载</button>${isAdmin() ? '<button class="btn" onclick="leadRecover()">恢复待完成的客户同步</button>' : ""}</div>` : ""}${body}${leadsState.detail ? renderLeadDetail() : ""}${leadsState.adding ? renderLeadAdd() : ""}</section>`;
 }
 function leadMove(action) { leadAction(async () => {
   if (!leadsState.selected.length) throw new Error("请先选择资源");
@@ -196,7 +206,7 @@ function renderLeadDetail() {
   const d = leadsState.detail, r = d.resource;
   const profile = leadsState.editing ? `<div class="lead-profile-edit"><label>客户姓名<input class="input" id="lead-edit-name" maxlength="160" value="${html(r.name)}"></label><label>电话号码<input class="input" id="lead-edit-phone" maxlength="50" inputmode="tel" value="${html(r.phone)}" ${isAdmin() ? "" : "readonly"}></label><p class="lead-note">${isAdmin() ? "管理员可修改姓名和电话；已关联正式客户时将同步客户资料。" : "销售人员只能修改本人私海资源的姓名，电话号码仅管理员可修改。"}</p><div class="lead-actions"><button class="btn primary" onclick="leadResourceSave()">保存资料</button><button class="btn" onclick="leadsState.editing=false;render()">取消</button></div></div>` : `<div><h2>${html(r.name)}</h2><p class="lead-phone">${html(r.phone)}</p><button class="btn lead-edit-resource" onclick="leadsState.editing=true;render()">编辑资料</button></div>`;
   return `<div class="lead-overlay"><section class="lead-drawer" role="dialog" aria-modal="true" aria-label="资源详情"><button class="btn" onclick="leadsState.detail=null;leadsState.editing=false;render()">关闭</button><div class="lead-detail-head">${profile}<label class="lead-fixed-tag">固定标签<select class="select" id="lead-fixed-tag" onchange="leadTagSave(this)">${leadTagOptions(r.tags, "未设置")}</select></label></div><p>${html(r.address || "")}</p><p>来源：${html(r.source || "未填写")}</p><div class="lead-actions">${r.canContact ? `<a class="btn primary" href="tel:${html(r.phone)}" onclick="event.preventDefault();leadDial()">调起电话</a>` : "禁止联系"}${r.customerId ? '<span>已关联正式客户</span>' : '<span>正式客户请在客户管理中新增</span>'}</div><p class="lead-note">调起电话不代表已接通。以下结果由销售手工填写。</p>
-    <label>跟进结果<select class="select" id="lead-result">${leadOptions(["connected", "no_answer", "busy", "invalid", "do_not_call", "other"])}</select></label><label>跟进内容<textarea class="input" id="lead-content" maxlength="4000"></textarea></label><label>下次跟进（北京时间）<input class="input" id="lead-next" type="datetime-local"></label><button class="btn primary" onclick="leadFollow()">保存跟进</button>
+    <label>跟进结果<select class="select" id="lead-result">${leadOptions(["connected", "no_answer", "busy", "invalid", "do_not_call", "other"])}</select></label><label>跟进内容<textarea class="input" id="lead-content" maxlength="4000"></textarea></label><label>下次跟进（北京时间）<input class="input" id="lead-next" type="datetime-local"></label><button class="btn primary" onclick="leadFollow()">保存跟进</button>${leadsState.followSaved ? '<div class="lead-follow-success"><strong>跟进已保存</strong><button class="btn primary" onclick="leadContinueNext()">继续下一条</button><button class="btn" onclick="leadsState.followSaved=false;render()">留在当前客户</button></div>' : ''}
     <h3>跟进历史</h3>${d.followups.map(f => `<div class="lead-history"><b>${html(f.actor_name)}</b> · ${html(leadTime(f.created_at))}<p>${html(leadLabels[f.result] || f.result)}</p><p>${html(f.content)}</p></div>`).join("") || "暂无记录"}<h3>流转历史</h3>${d.movements.map(m => `<p>${html(leadTime(m.created_at))} ${html(m.actor_name)}：${html(leadLabels[m.action] || m.action)}</p>`).join("")}<h3>关联订单摘要（${d.orderTotal}）</h3>${d.orders.map(o => `<p>${html(o.no || o.id)} · ${html(o.status)} · ${html(o.date)} · ¥${html(String(o.amount || 0))}</p>`).join("") || "暂无关联订单"}<div class="lead-actions"><button class="btn" ${d.historyPage <= 1 ? "disabled" : ""} onclick="leadDetail('${r.id}',${d.historyPage - 1})">上一页历史</button><span>第${d.historyPage}页</span><button class="btn" ${Math.max(d.followups.length, d.movements.length, d.orders.length) < 50 ? "disabled" : ""} onclick="leadDetail('${r.id}',${d.historyPage + 1})">下一页历史</button></div></section></div>`;
 }
 function leadResourceSave() { leadAction(async () => {
@@ -232,7 +242,15 @@ function leadWechatStatusSave(select, id) { leadAction(async () => {
 function leadFollow() { leadAction(async () => {
   const r = leadsState.detail.resource, time = document.getElementById("lead-next").value;
   await leadRequest("resources/" + r.id + "/followups", { result: document.getElementById("lead-result").value, content: document.getElementById("lead-content").value, nextFollowupAt: time ? new Date(time + ":00+08:00").toISOString() : null });
-  leadsState.detail = await leadRequest("resources/" + r.id); await loadLeads();
+  leadsState.detail = await leadRequest("resources/" + r.id); await loadLeads(); leadsState.followSaved = true; showToast("跟进记录已保存");
+}); }
+function leadContinueNext() { leadAction(async () => {
+  const currentId = leadsState.detail && leadsState.detail.resource.id;
+  let list = leadsState.items || [];
+  if (leadsState.tab === "tasks" && leadsState.tasks) list = ["priority", "medium", "pending"].reduce((all, key) => all.concat(leadsState.tasks[key] && leadsState.tasks[key].items || []), []);
+  const index = list.findIndex(item => item.id === currentId), next = list[index + 1] || list[0];
+  if (!next || next.id === currentId) { leadsState.followSaved = false; throw new Error("当前页面没有下一条资源"); }
+  leadsState.detail = await leadRequest("resources/" + next.id); leadsState.followSaved = false;
 }); }
 function leadRecover() { leadAction(async () => { if (confirm("按已记录的客户修改恢复同步？")) { await leadRequest("recover", {}); await loadLeads(); } }); }
 function leadInitialize() { leadAction(async () => {

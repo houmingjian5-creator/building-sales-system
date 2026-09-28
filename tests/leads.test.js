@@ -87,7 +87,7 @@ async function run() {
   assert(!ui.includes("leadConvert("), "lead details must not convert formal customers");
   assert(customerUi.includes("该号码已在您的私海") && customerUi.includes("该号码在公海") && customerUi.includes("该号码已在其他销售私海"));
   const indexUi = require("fs").readFileSync(require("path").join(__dirname, "..", "public", "index.html"), "utf8");
-  assert.strictEqual((indexUi.match(/20260916-followup-result-1/g) || []).length, 3, "changed outbound scripts and stylesheet must use the new cache version");
+  assert.strictEqual((indexUi.match(/20260928-lead-polish-1/g) || []).length, 3, "changed outbound scripts and stylesheet must use the new cache version");
   console.log("lead privacy, normalization, import and routing tests passed");
 }
 run().catch(error => { console.error(error); process.exitCode = 1; });

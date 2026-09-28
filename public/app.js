@@ -28,6 +28,7 @@ const state = {
   aiGroups: [],
   aiActiveGroupId: "",
   aiActiveResultKey: "",
+  aiReviewFilter: "all",
   aiMobileEditorOpen: false,
   aiDraftDirty: false,
   aiSourceDirty: false,
@@ -654,6 +655,7 @@ async function logout() {
     state.aiGroups = [];
     state.aiActiveGroupId = "";
     state.aiActiveResultKey = "";
+    state.aiReviewFilter = "all";
     state.aiMobileEditorOpen = false;
     state.aiDraftDirty = false;
     state.aiSourceDirty = false;
@@ -929,6 +931,7 @@ function openAiOrderModal() {
     state.aiGroups = [{ id: `ai-${Date.now()}`, cat1: "", cat2: "", content: "" }];
     state.aiActiveGroupId = state.aiGroups[0].id;
     state.aiActiveResultKey = "";
+    state.aiReviewFilter = "all";
     state.aiMobileEditorOpen = false;
     state.aiDraftCustomerId = state.selectedCustomerId;
     state.aiDraftOrderType = state.orderType;
@@ -965,6 +968,7 @@ function clearAiOrderSession() {
   state.aiGroups = [];
   state.aiActiveGroupId = "";
   state.aiActiveResultKey = "";
+  state.aiReviewFilter = "all";
   state.aiMobileEditorOpen = false;
   state.aiDraftDirty = false;
   state.aiSourceDirty = false;
@@ -1239,6 +1243,7 @@ function finishAiOrderRecognition(runId) {
   state.aiSourceDirty = false;
   const draftItems = aiDraftItems(state.aiDraft);
   const firstIssue = draftItems.find((item) => item.status !== "confirmed");
+  state.aiReviewFilter = firstIssue ? "issues" : "all";
   state.aiActiveResultKey = (firstIssue || draftItems[0] || {}).key || "";
   state.aiMobileEditorOpen = false;
   state.aiError = "";
@@ -1712,7 +1717,17 @@ async function updateAiManualSearch(input, key, rawName, cat1, cat2, orderIndex 
 
 function applyAiDraft() {
   if (!state.aiDraft) return;
-  const entries = aiDraftItems(state.aiDraft).
+  const draftItems = aiDraftItems(state.aiDraft);
+  const unresolved = draftItems.filter((item) => item.status !== "confirmed");
+  if (unresolved.length) {
+    state.aiReviewFilter = "issues";
+    state.aiActiveResultKey = unresolved[0].key;
+    state.aiMobileEditorOpen = false;
+    render();
+    showToast(`还有 ${unresolved.length} 项商品需要处理`);
+    return;
+  }
+  const entries = draftItems.
   map((item) => ({
     orderIndex: Number(item.orderIndex || 0),
     productId: item.selectedProductId || (item.aiType === "matched" || item.aiType === "needsQuantity" ? item.productId : ""),
@@ -1915,7 +1930,7 @@ function aiOrderModal() {
         </div>
         <div class="modal-foot">
           <button class="btn" onclick="minimizeAiOrderModal()">缩小并保留</button>
-          <button class="btn primary" onclick="applyAiDraft()" ${draft && !state.aiLoading ? "" : "disabled"}>填入开单页面</button>
+          <button class="btn primary" onclick="applyAiDraft()" ${draft && !state.aiLoading && aiDraftReady(draft) ? "" : "disabled"}>${draft && !state.aiLoading && !aiDraftReady(draft) ? "请先处理异常商品" : "填入开单页面"}</button>
         </div>
       </div>
       ${state.aiCloseConfirmOpen ? `<div class="ai-clear-confirm-backdrop" role="presentation" onclick="cancelClearAiOrder()"><section class="ai-clear-confirm" role="alertdialog" aria-modal="true" aria-labelledby="aiClearConfirmTitle" onclick="event.stopPropagation()"><div class="ai-clear-confirm-icon">!</div><div><h4 id="aiClearConfirmTitle">确定清空 AI 开单内容吗？</h4><p>关闭后，当前分类材料、识别进度、候选商品和人工调整都会清空，无法继续恢复。</p></div><div class="ai-clear-confirm-actions"><button type="button" class="btn" onclick="cancelClearAiOrder()">继续保留</button><button type="button" class="btn danger" onclick="clearAiOrderSession()">清空并关闭</button></div></section></div>` : ""}
@@ -1926,33 +1941,47 @@ function aiOrderModal() {
 function renderAiDraft(draft) {
   const items = aiDraftItems(draft);
   if (!items.length) return "";
-  if (!items.some((item) => item.key === state.aiActiveResultKey)) {
-    state.aiActiveResultKey = (items.find((item) => item.status !== "confirmed") || items[0]).key;
-  }
   const counts = items.reduce((result, item) => {
     result[item.status] += 1;
     return result;
   }, { confirmed: 0, pending: 0, unmatched: 0 });
+  const visibleItems = state.aiReviewFilter === "issues" ? items.filter((item) => item.status !== "confirmed") : state.aiReviewFilter === "confirmed" ? items.filter((item) => item.status === "confirmed") : items;
+  if (!visibleItems.some((item) => item.key === state.aiActiveResultKey)) state.aiActiveResultKey = (visibleItems[0] || items[0]).key;
+  const estimatedAmount = items.reduce((sum, item) => {
+    const product = item.selectedProductId ? item : item.aiType === "matched" || item.aiType === "needsQuantity" ? item : null;
+    return sum + (product && isPositiveInteger(aiDraftDisplayQuantity(item)) ? Number(product.price || 0) * Number(aiDraftDisplayQuantity(item)) : 0);
+  }, 0);
   return `
     <div class="ai-result ai-master-detail ${state.aiMobileEditorOpen ? "mobile-editor-open" : ""}">
       <aside class="ai-result-master">
         <div class="ai-master-head">
           <div><strong>AI识别的商品需求</strong><span>共 <b data-ai-total-count>${items.length}</b> 条</span></div>
           <div class="ai-status-summary">
-            <span class="ai-status-chip">全部 <b data-ai-total-count>${items.length}</b></span>
-            ${aiStatusSummary("confirmed", "已确定", counts.confirmed)}
-            ${aiStatusSummary("pending", "待确定", counts.pending)}
-            ${aiStatusSummary("unmatched", "未匹配", counts.unmatched)}
+            <button type="button" class="ai-status-chip ${state.aiReviewFilter === "all" ? "active" : ""}" onclick="setAiReviewFilter('all')">全部 <b>${items.length}</b></button>
+            <button type="button" class="ai-status-chip is-pending ${state.aiReviewFilter === "issues" ? "active" : ""}" onclick="setAiReviewFilter('issues')">需处理 <b>${counts.pending + counts.unmatched}</b></button>
+            <button type="button" class="ai-status-chip is-confirmed ${state.aiReviewFilter === "confirmed" ? "active" : ""}" onclick="setAiReviewFilter('confirmed')">已确定 <b>${counts.confirmed}</b></button>
           </div>
+          <div class="ai-order-review-summary"><span>保持原文顺序</span><strong>预计金额 ${money(estimatedAmount)}</strong></div>
         </div>
         <div class="ai-master-list">
-          ${items.map((item, index) => renderAiNavItem(item, index)).join("")}
+          ${visibleItems.map((item) => renderAiNavItem(item, items.indexOf(item))).join("") || '<div class="ai-manual-empty">当前筛选下没有商品</div>'}
         </div>
       </aside>
       <section class="ai-result-detail">
-        ${items.map((item) => renderAiDetailPanel(item)).join("")}
+        ${visibleItems.map((item) => renderAiDetailPanel(item)).join("")}
       </section>
     </div>`;
+}
+
+function aiDraftReady(draft) {
+  const items = aiDraftItems(draft);
+  return Boolean(items.length) && items.every((item) => item.status === "confirmed");
+}
+
+function setAiReviewFilter(filter) {
+  state.aiReviewFilter = ["all", "issues", "confirmed"].includes(filter) ? filter : "all";
+  state.aiMobileEditorOpen = false;
+  render();
 }
 
 function aiDraftItems(draft) {
@@ -1978,7 +2007,7 @@ function aiDraftItems(draft) {
   append(draft.needsQuantity, "needsQuantity", "pending");
   append(draft.uncertain, "uncertain", "pending");
   append(draft.unmatched, "unmatched", "unmatched");
-  return entries.sort((a, b) => Number(a.orderIndex || 0) - Number(b.orderIndex || 0));
+  return entries.map((item, sequence) => ({ ...item, sequence })).sort((a, b) => Number(a.orderIndex || 0) - Number(b.orderIndex || 0) || a.sequence - b.sequence);
 }
 
 function aiStatusSummary(status, label, count) {
