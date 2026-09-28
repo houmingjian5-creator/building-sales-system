@@ -24,6 +24,14 @@ assert(
   "Sales order documents must render the saved order remark."
 );
 assert(
+  app.includes('class="order-document-table"') && styles.includes(".doc-preview .order-document-table") && styles.includes("table-layout: fixed"),
+  "Order document tables must stay within the preview when the dialog becomes narrow."
+);
+assert(
+  styles.includes(".order-document-table th:nth-child(2)") && styles.includes("white-space: normal") && styles.includes("overflow-wrap: anywhere"),
+  "Long product names must wrap inside their table cell instead of widening the document."
+);
+assert(
   app.includes('销售电话：</strong>${html(') && app.includes('s.phone) || "-")}'),
   "Sales order documents must show the salesperson login phone in full."
 );

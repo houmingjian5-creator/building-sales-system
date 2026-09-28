@@ -3819,6 +3819,8 @@ tbody tr:hover {
 
 .doc-preview {
   width: min(900px, 100%);
+  max-width: 100%;
+  min-width: 0;
   margin: 0 auto;
   background: white;
   border: 1px solid #d5dbe5;
@@ -3862,6 +3864,11 @@ tbody tr:hover {
   text-align: right;
 }
 
+.doc-info > div {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
 .doc-address {
   grid-column: 1 / -1;
   padding: 11px 12px;
@@ -3870,11 +3877,39 @@ tbody tr:hover {
 }
 
 .doc-preview table {
+  width: 100%;
+  max-width: 100%;
   min-width: 0;
   margin-top: 20px;
   border: 1px solid #cfcfcf;
   font-size: 16px;
 }
+
+.doc-preview .order-document-table {
+  table-layout: fixed;
+}
+
+.order-document-table th,
+.order-document-table td {
+  min-width: 0;
+  white-space: normal;
+  overflow-wrap: anywhere;
+  word-break: normal;
+  line-height: 1.4;
+}
+
+.order-document-table th:nth-child(1),
+.order-document-table td:nth-child(1) { width: 8%; }
+.order-document-table th:nth-child(2),
+.order-document-table td:nth-child(2) { width: 42%; }
+.order-document-table th:nth-child(3),
+.order-document-table td:nth-child(3) { width: 9%; }
+.order-document-table th:nth-child(4),
+.order-document-table td:nth-child(4) { width: 10%; }
+.order-document-table th:nth-child(5),
+.order-document-table td:nth-child(5) { width: 15%; }
+.order-document-table th:nth-child(6),
+.order-document-table td:nth-child(6) { width: 16%; }
 
 .doc-preview th {
   background: #ffffff;
@@ -5776,7 +5811,9 @@ tbody tr:hover {
 }
 
 .order-document-modal .modal-body {
+  min-width: 0;
   min-height: 0;
+  overflow-x: hidden;
   overflow-y: auto;
   padding: 22px;
   background: #fbfcfe;

@@ -2540,7 +2540,7 @@ function documentModal(id) {
               <div class="right"><span>销售：</span>${html((s === null || s === void 0 ? void 0 : s.name) || "-")}</div>
               <div class="doc-address"><span>地址：</span>${html(orderAddressForDisplay(order, c) || "-")}</div>
             </div>
-            <table><thead><tr><th>编号</th><th>商品名称</th><th>单位</th><th>数量</th><th>单价</th><th>金额</th></tr></thead><tbody>${rows.map((row) => row.empty ? `<tr><td>${row.index}</td><td></td><td></td><td></td><td></td><td></td></tr>` : `<tr><td>${row.index}</td><td>${html(row.name)}</td><td>${html(row.unit)}</td><td>${row.quantity}</td><td>${money(row.price)}</td><td>${money(row.amount)}</td></tr>`).join("")}</tbody></table>
+            <table class="order-document-table"><thead><tr><th>编号</th><th>商品名称</th><th>单位</th><th>数量</th><th>单价</th><th>金额</th></tr></thead><tbody>${rows.map((row) => row.empty ? `<tr><td>${row.index}</td><td></td><td></td><td></td><td></td><td></td></tr>` : `<tr><td>${row.index}</td><td>${html(row.name)}</td><td>${html(row.unit)}</td><td>${row.quantity}</td><td>${money(row.price)}</td><td>${money(row.amount)}</td></tr>`).join("")}</tbody></table>
             <div class="order-document-mobile-items">${rows.filter((row) => !row.empty).map((row) => `<article><span class="document-item-index">${row.index}</span><div><strong>${html(row.name)}</strong><small>${html(row.spec || "无规格")} · ${html(row.unit || "-")}</small><span>数量 ${html(row.quantity)} × ${money(row.price)}</span></div><b>${money(row.amount)}</b></article>`).join("")}</div>
             <div class="doc-bottom">
               <div><strong>合计大写：</strong>${amountToChinese(totalAmount)}<br /><strong>销售电话：</strong>${html((s === null || s === void 0 ? void 0 : s.phone) || "-")}</div>
