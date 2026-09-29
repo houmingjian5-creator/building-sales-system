@@ -705,6 +705,33 @@ function analyticsComparison(current, previous) {
   return result;
 }
 
+function analyticsRanking(db, user, range) {
+  const candidates = (db.users || []).filter(function (item) {
+    if (!isOrderCapableUser(item)) return false;
+    return isAdminRole(user) ? true : item.role === "销售人员";
+  });
+  const activeOrders = (db.orders || []).filter(function (order) { return !order.deletedAt; });
+  return candidates.map(function (candidate) {
+    const orders = activeOrders.filter(function (order) { return order.salesUserId === candidate.id; });
+    const current = analyticsSummaryForRange(orders, range.from, range.to);
+    const previous = analyticsSummaryForRange(orders, range.previousFrom, range.previousTo);
+    const comparison = analyticsComparison(current, previous);
+    return {
+      userId: candidate.id,
+      name: candidate.name || "未命名人员",
+      role: candidate.role || "",
+      netSales: current.netSales,
+      orderCount: current.orderCount,
+      netSalesChange: comparison.netSales,
+      orderCountChange: comparison.orderCount,
+    };
+  }).sort(function (a, b) {
+    return b.netSales - a.netSales || b.orderCount - a.orderCount || a.name.localeCompare(b.name, "zh-CN") || String(a.userId).localeCompare(String(b.userId));
+  }).map(function (item, index) {
+    return Object.assign({ rank: index + 1 }, item);
+  });
+}
+
 function analyticsGroupMode(days) {
   if (days > 180) return "month";
   if (days > 62) return "week";
@@ -923,6 +950,10 @@ function analyticsPayload(db, user, options) {
     returns: { amount: current.returnAmount, count: current.returnCount },
     trend: { mode: currentTrend.mode, current: currentTrend.points, previous: previousTrend.points },
     monthly: analyticsMonthlyTrend(orders, monthCount),
+    ranking: {
+      scope: isAdminRole(user) ? "all" : "sales",
+      items: analyticsRanking(db, user, range),
+    },
     customers: {
       counts: customerData.counts,
       previousCounts: customerData.previousCounts,

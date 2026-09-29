@@ -95,6 +95,7 @@ const state = {
   analyticsMonthCount: 6,
   analyticsTrendMetric: "sales",
   analyticsMonthlyMetric: "sales",
+  analyticsRankingMetric: "sales",
   analyticsCustomerType: "inactive",
   analyticsCustomerDetails: null,
   productCategories: {},
@@ -6881,6 +6882,11 @@ function setAnalyticsMonthlyMetric(metric) {
   render();
 }
 
+function setAnalyticsRankingMetric(metric) {
+  state.analyticsRankingMetric = metric === "orders" ? "orders" : "sales";
+  render();
+}
+
 function analyticsPresetButton(value, label) {
   return `<button type="button" class="${state.analyticsPreset === value ? "active" : ""}" onclick="setAnalyticsPreset(${jsArg(value)})">${html(label)}</button>`;
 }
@@ -6924,6 +6930,34 @@ function analyticsKpi(label, entry, type, tone) {
   const rate = entry && entry.rate;
   const direction = entry && entry.isNew || Number(rate || 0) > 0 ? "up" : Number(rate || 0) < 0 ? "down" : "flat";
   return `<article class="analytics-kpi ${tone}"><div class="analytics-kpi-icon">${type === "money" ? "¥" : "单"}</div><div><span>${html(label)}</span><strong>${html(value)}</strong><small class="${direction}">${html(analyticsChangeText(entry))}</small></div></article>`;
+}
+
+function analyticsRankingChange(entry) {
+  if (!entry) return { text: "0%", direction: "flat" };
+  if (entry.isNew) return { text: "新增", direction: "up" };
+  const rate = Number(entry.rate || 0);
+  return { text: `${rate > 0 ? "+" : ""}${rate}%`, direction: rate > 0 ? "up" : rate < 0 ? "down" : "flat" };
+}
+
+function analyticsRankingCard(data) {
+  const ranking = data && data.ranking || {};
+  const metric = state.analyticsRankingMetric === "orders" ? "orders" : "sales";
+  const items = (ranking.items || []).slice().sort(function (a, b) {
+    const primary = metric === "orders" ? Number(b.orderCount || 0) - Number(a.orderCount || 0) : Number(b.netSales || 0) - Number(a.netSales || 0);
+    return primary || Number(b.netSales || 0) - Number(a.netSales || 0) || Number(b.orderCount || 0) - Number(a.orderCount || 0) || String(a.name || "").localeCompare(String(b.name || ""), "zh-CN");
+  });
+  const max = Math.max(1, ...items.map(function (item) { return metric === "orders" ? Number(item.orderCount || 0) : Math.max(0, Number(item.netSales || 0)); }));
+  const highlightedId = state.analyticsSalesFilters.length === 1 ? state.analyticsSalesFilters[0] : state.user && state.user.role === "销售人员" ? state.user.id : "";
+  const scopeText = ranking.scope === "sales" ? "销售视图 · 全部销售人员" : "管理员视图 · 全部可下单人员";
+  return `<section class="analytics-ranking-card card"><div class="analytics-ranking-head"><div><strong>销售业绩排名</strong><span>按当前时间范围的${metric === "orders" ? "销售订单数" : "净销售额"}排名</span></div><div class="analytics-ranking-controls"><small>${html(scopeText)}</small><div class="analytics-chart-tabs"><button class="${metric === "sales" ? "active" : ""}" onclick="setAnalyticsRankingMetric('sales')">销售额</button><button class="${metric === "orders" ? "active" : ""}" onclick="setAnalyticsRankingMetric('orders')">订单数</button></div></div></div>
+    <div class="analytics-ranking-table"><div class="analytics-ranking-row head"><span>排名</span><span>姓名与角色</span><span>业绩进度</span><span>净销售额</span><span>订单数</span><span>较上期变化</span></div>${items.map(function (item, index) {
+      const change = analyticsRankingChange(metric === "orders" ? item.orderCountChange : item.netSalesChange);
+      const progressValue = metric === "orders" ? Number(item.orderCount || 0) : Math.max(0, Number(item.netSales || 0));
+      const selected = item.userId === highlightedId;
+      return `<div class="analytics-ranking-row ${selected ? "selected" : ""}"><span><i class="analytics-rank-badge rank-${index + 1}">${index + 1}</i></span><span class="analytics-ranking-person"><b>${html(item.name || "未命名人员")}</b><small>${html(item.role || "-")}</small>${selected ? `<em>当前筛选</em>` : ""}</span><span><i class="analytics-ranking-track"><b style="width:${Math.max(progressValue ? 4 : 0, progressValue / max * 100).toFixed(1)}%"></b></i></span><strong>${money(item.netSales || 0)}</strong><b>${Number(item.orderCount || 0)} 单</b><span class="analytics-ranking-change ${change.direction}">${html(change.text)}</span></div>`;
+    }).join("") || `<div class="empty">当前时间范围暂无可排名人员</div>`}</div>
+    <div class="analytics-ranking-note">${ranking.scope === "sales" ? "仅展示销售人员排名，不包含管理员及其他岗位。" : "管理员及以上可查看全部可下单人员排名。"}</div>
+  </section>`;
 }
 
 function analyticsLineChart(data) {
@@ -7010,6 +7044,7 @@ function renderAnalytics() {
     ${state.analyticsError ? `<div class="analytics-error">${html(state.analyticsError)}</div>` : ""}
     <section class="analytics-kpi-grid">${analyticsKpi("净销售额", summary.netSales, "money", "blue")}${analyticsKpi("销售订单", summary.orderCount, "count", "indigo")}${analyticsKpi("平均客单价", summary.averageOrderAmount, "money", "teal")}${analyticsKpi("日均业绩", summary.dailyAverage, "money", "gold")}</section>
     <div class="analytics-return-note">退货冲减：${money(data.returns && data.returns.amount || 0)} · 退货单 ${Number(data.returns && data.returns.count || 0)} 单（不计入销售订单数）</div>
+    ${analyticsRankingCard(data)}
     <div class="analytics-chart-grid">${analyticsLineChart(data)}${analyticsMonthlyChart(data)}</div>
     ${analyticsCustomerSection(data)}
   </div>`;

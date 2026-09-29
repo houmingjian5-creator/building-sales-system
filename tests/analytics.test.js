@@ -57,10 +57,15 @@ assert.strictEqual(salesA.customers.counts.ordering, 2);
 assert.strictEqual(salesA.customers.counts.new, 1, "第一次有效下单发生在本期才是新客户");
 assert.strictEqual(salesA.customers.counts.repeat, 1, "本期两张以上有效销售单才是重复下单客户");
 assert(salesA.customers.previews.inactive.some((row) => row.id === "c4" && row.neverOrdered), "从未下单客户必须进入待跟进名单");
+assert.deepStrictEqual(salesA.ranking.items.map((row) => row.userId), ["sales-b", "sales-a"], "销售人员必须能看到全部销售排名，且不得看到管理员和其他岗位");
+assert.strictEqual(salesA.ranking.items[0].netSales, 500, "销售排行榜不得受当前销售账号的本人数据范围限制");
+assert.strictEqual(salesA.ranking.scope, "sales");
 
 const adminAll = server.analyticsPayload(db, db.users[0], { dateFrom: "2026-09-01", dateTo: "2026-09-02" });
 assert.strictEqual(adminAll.summary.netSales.value, 785, "管理员默认查看公司整体数据");
 assert.strictEqual(adminAll.summary.orderCount.value, 4);
+assert.deepStrictEqual(adminAll.ranking.items.map((row) => row.userId), ["sales-b", "sales-a", "admin"], "管理员必须看到全部可下单人员排名");
+assert.strictEqual(adminAll.ranking.scope, "all");
 
 const financeFiltered = server.analyticsPayload(db, db.users[1], {
   dateFrom: "2026-09-01",
@@ -69,6 +74,7 @@ const financeFiltered = server.analyticsPayload(db, db.users[1], {
 });
 assert.strictEqual(financeFiltered.summary.netSales.value, 500, "财务应能筛选个人销售数据");
 assert.strictEqual(financeFiltered.summary.orderCount.value, 1);
+assert.deepStrictEqual(financeFiltered.ranking.items.map((row) => row.userId), ["sales-b", "sales-a"], "非管理员岗位不得看到管理员业绩排名");
 
 const adminFiltered = server.analyticsPayload(db, db.users[0], {
   dateFrom: "2026-09-01",
@@ -76,6 +82,7 @@ const adminFiltered = server.analyticsPayload(db, db.users[0], {
   salesFilters: ["admin"],
 });
 assert.deepStrictEqual(adminFiltered.salesFilters, ["admin"], "管理员必须出现在可下单人员筛选范围内");
+assert.deepStrictEqual(adminFiltered.ranking.items.map((row) => row.userId), ["sales-b", "sales-a", "admin"], "顶部人员筛选不得缩小管理员排行榜范围");
 assert.strictEqual(server.isOrderCapableUser(db.users[0]), true, "管理员应属于可下单人员");
 assert.strictEqual(server.isOrderCapableUser(db.users[1]), false, "财务不应被误列为可下单人员");
 assert.strictEqual(server.isOrderCapableUser({ id: "root", role: "超级管理员", status: "启用" }), true, "超级管理员应属于可下单人员");
@@ -93,9 +100,12 @@ assert.strictEqual(detail.items[0].id, "c1");
 assert(appSource.includes('navButton("analytics", "数据分析")'), "桌面侧栏必须提供数据分析入口");
 assert(appSource.includes('mobileMoreRouteButton("analytics", "数据分析")'), "手机更多菜单必须提供数据分析入口");
 assert(appSource.includes("/api/analytics") && appSource.includes("/api/analytics/customers"), "数据分析页面必须读取汇总和客户明细接口");
+assert(appSource.includes("analyticsRankingCard") && appSource.includes("销售业绩排名"), "数据分析页面必须展示业绩排名卡片");
+assert(appSource.includes("销售视图 · 全部销售人员") && appSource.includes("管理员视图 · 全部可下单人员"), "排名卡片必须说明当前权限范围");
 assert(appSource.includes("dashboard-analytics-entry") && appSource.includes("查看详细分析"), "销售概览必须提供详细分析入口");
 assert(appSource.includes('["销售人员", "管理员", "超级管理员"].includes(user.role)'), "数据分析人员筛选必须展示全部可下单角色");
 assert(stylesSource.includes(".analytics-kpi-grid") && stylesSource.includes(".analytics-chart-grid") && stylesSource.includes(".route-analytics"), "数据分析页面必须包含桌面和手机响应式样式");
+assert(stylesSource.includes(".analytics-ranking-card") && stylesSource.includes(".analytics-ranking-row"), "业绩排名卡片必须具备独立响应式样式");
 assert(/@media \(max-width: 720px\)[\s\S]*?\.analytics-kpi-grid\s*\{\s*grid-template-columns:\s*repeat\(2/.test(stylesSource), "手机端关键指标必须采用双列紧凑布局");
 
 console.log("Analytics permissions, comparison and customer insight tests passed");
