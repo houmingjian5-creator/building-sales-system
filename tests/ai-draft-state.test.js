@@ -27,9 +27,17 @@ assert(addGroupSource.includes("state.aiGroups.length >= 8"), "AI开单一次最
 
 const selectionSource = functionSource("selectAiCandidateChoice", "updateAiNavStatus");
 assert(selectionSource.includes("persistAiDraftProductSelection"), "人工选择商品必须立即写入 AI 草稿");
+assert(selectionSource.includes("reconcileAiDraftReview(key)"), "人工选择商品后必须从草稿重新同步筛选、统计和提交按钮");
 
 const quantitySource = functionSource("updateAiNavQuantity", "setAiResultActive");
 assert(quantitySource.includes("updateAiDraftQuantity"), "修改数量必须立即写入 AI 草稿");
+assert(quantitySource.includes("function finalizeAiDraftQuantity") && quantitySource.includes("reconcileAiDraftReview(key)"), "数量修改完成后必须重新同步审核状态");
+
+const reviewSyncSource = functionSource("reconcileAiDraftReview", "setAiResultActive");
+assert(reviewSyncSource.includes("aiDraftItems(state.aiDraft)"), "审核同步必须以持久化草稿为准，不能只读取旧 DOM 状态");
+assert(reviewSyncSource.includes('state.aiReviewFilter = "all"'), "最后一项处理完成后必须自动退出空的需处理筛选");
+assert(reviewSyncSource.includes("state.aiActiveResultKey = unresolved[0].key"), "处理一项后必须自动定位下一项需处理商品");
+assert(reviewSyncSource.includes("render()"), "审核同步必须重绘数量统计和填入开单页面按钮");
 
 const quantityUpdateSource = functionSource("updateAiDraftQuantity", "persistAiDraftProductSelection");
 assert(quantityUpdateSource.includes("requestedQuantity"), "未选择商品前修改数量必须更新原始请求数量");

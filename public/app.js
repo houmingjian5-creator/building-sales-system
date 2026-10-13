@@ -1421,6 +1421,7 @@ function selectAiCandidateChoice(input) {var _input$closest;
     if (quantity && selectedItem) quantity.textContent = selectedItem.quantity || "待补";
     refreshAiStatusCounts();
   }
+  reconcileAiDraftReview(key);
 }
 
 function updateAiNavStatus(navItem, status) {
@@ -1472,6 +1473,31 @@ function updateAiNavQuantity(input) {
     updateAiNavStatus(navItem, isPositiveInteger(Number(input.value)) ? "confirmed" : "pending");
     refreshAiStatusCounts();
   }
+}
+
+function finalizeAiDraftQuantity(input) {
+  const key = input.dataset.aiNavQuantity || input.dataset.aiLineKey || input.dataset.aiCandidateQuantity || "";
+  updateAiNavQuantity(input);
+  reconcileAiDraftReview(key);
+}
+
+function reconcileAiDraftReview(editedKey) {
+  if (!state.aiDraft) return;
+  const items = aiDraftItems(state.aiDraft);
+  const unresolved = items.filter((item) => item.status !== "confirmed");
+  const edited = items.find((item) => item.key === String(editedKey));
+  if (state.aiReviewFilter === "issues") {
+    if (!unresolved.length) {
+      state.aiReviewFilter = "all";
+      state.aiActiveResultKey = edited && edited.key || (items[0] && items[0].key) || "";
+    } else if (!edited || edited.status === "confirmed") {
+      state.aiActiveResultKey = unresolved[0].key;
+    }
+  } else if (edited) {
+    state.aiActiveResultKey = edited.key;
+  }
+  state.aiMobileEditorOpen = false;
+  render();
 }
 
 function setAiResultActive(key) {
@@ -2072,9 +2098,9 @@ function aiDetailQuantity(item) {
   const displayQuantity = aiDraftDisplayQuantity(item);
   const common = `class="input ai-detail-quantity${displayQuantity && !isPositiveInteger(displayQuantity) ? " quantity-input-invalid" : ""}" type="number" min="1" step="1" inputmode="numeric" value="${html(displayQuantity)}" placeholder="整数" data-ai-nav-quantity="${html(item.key)}"`;
   if (item.aiType === "matched" || item.aiType === "needsQuantity") {
-    return `<input ${common} data-ai-matched-quantity data-ai-line-key="${html(item.key)}" oninput="updateAiNavQuantity(this)" />`;
+    return `<input ${common} data-ai-matched-quantity data-ai-line-key="${html(item.key)}" oninput="updateAiNavQuantity(this)" onchange="finalizeAiDraftQuantity(this)" />`;
   }
-  return `<input ${common} data-ai-candidate-quantity="${html(item.key)}" oninput="updateAiNavQuantity(this)" />`;
+  return `<input ${common} data-ai-candidate-quantity="${html(item.key)}" oninput="updateAiNavQuantity(this)" onchange="finalizeAiDraftQuantity(this)" />`;
 }
 
 function aiCandidateWorkspace(item) {
