@@ -1209,6 +1209,9 @@ function mergeAiDraftProducts(draft) {
       (Array.isArray(item && item.candidates) ? item.candidates : []).forEach((candidate) => {
         if (candidate && candidate.productId) draftProducts.push({ ...candidate, id: candidate.productId });
       });
+      (Array.isArray(item && item.suggestions) ? item.suggestions : []).forEach((suggestion) => {
+        if (suggestion && suggestion.productId) draftProducts.push({ ...suggestion, id: suggestion.productId });
+      });
     });
   });
   mergeProductCache(draftProducts);
@@ -1319,8 +1322,13 @@ function updateAiDraftQuantity(key, value) {
 
 function persistAiDraftProductSelection(key, productId) {
   const entry = findAiDraftEntry(key);
-  const product = byId(products, productId);
-  if (!entry || !product) return null;
+  if (!entry) return null;
+  const embeddedProduct = (Array.isArray(entry.item.candidates) ? entry.item.candidates : []).
+  concat(Array.isArray(entry.item.suggestions) ? entry.item.suggestions : []).
+  find((item) => String(item && (item.productId || item.id) || "") === String(productId));
+  const product = byId(products, productId) || (embeddedProduct ? { ...embeddedProduct, id: embeddedProduct.id || embeddedProduct.productId } : null);
+  if (!product) return null;
+  if (!byId(products, product.id)) mergeProductCache([product]);
   entry.item.selectedProductId = product.id;
   entry.item.productId = product.id;
   entry.item.name = product.name;

@@ -29,6 +29,13 @@ const selectionSource = functionSource("selectAiCandidateChoice", "updateAiNavSt
 assert(selectionSource.includes("persistAiDraftProductSelection"), "人工选择商品必须立即写入 AI 草稿");
 assert(selectionSource.includes("reconcileAiDraftReview(key)"), "人工选择商品后必须从草稿重新同步筛选、统计和提交按钮");
 
+const mergeProductsSource = functionSource("mergeAiDraftProducts", "markAiDraftGroupFallback");
+assert(mergeProductsSource.includes("item.suggestions"), "未匹配商品的推荐项必须加入商品缓存，保证点击后能写入草稿");
+
+const persistSelectionSource = functionSource("persistAiDraftProductSelection", "setAiAliasConsent");
+assert(persistSelectionSource.includes("entry.item.suggestions"), "商品缓存尚未包含推荐项时，人工选择必须从草稿推荐项兜底读取");
+assert(persistSelectionSource.includes("mergeProductCache([product])"), "兜底选中的商品必须补入商品缓存，保证后续能加入购物车");
+
 const quantitySource = functionSource("updateAiNavQuantity", "setAiResultActive");
 assert(quantitySource.includes("updateAiDraftQuantity"), "修改数量必须立即写入 AI 草稿");
 assert(quantitySource.includes("function finalizeAiDraftQuantity") && quantitySource.includes("reconcileAiDraftReview(key)"), "数量修改完成后必须重新同步审核状态");
