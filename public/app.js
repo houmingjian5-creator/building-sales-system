@@ -2824,16 +2824,28 @@ async function copyOrderText(orderId) {
   }
 }
 
-function downloadBlob(filename, mimeType, content) {
-  const blob = content instanceof Blob ? content : new Blob([content], { type: mimeType });
-  const url = URL.createObjectURL(blob);
+function triggerBrowserDownload(filename, url) {
   const link = document.createElement("a");
   link.href = url;
   link.download = filename;
+  link.rel = "noopener";
   document.body.appendChild(link);
   link.click();
   link.remove();
-  setTimeout(() => URL.revokeObjectURL(url), 800);
+}
+
+function isSafariBrowser() {
+  const userAgent = String(navigator.userAgent || "");
+  return /Safari/i.test(userAgent) && !/(Chrome|Chromium|CriOS|FxiOS|EdgiOS|OPR|Android)/i.test(userAgent);
+}
+
+function downloadBlob(filename, mimeType, content) {
+  const blob = content instanceof Blob ? content : new Blob([content], { type: mimeType });
+  const url = URL.createObjectURL(blob);
+  triggerBrowserDownload(filename, url);
+  // WebKit may hand a blob URL to its download process after the click handler
+  // has returned. Keep it alive long enough for that hand-off to finish.
+  setTimeout(() => URL.revokeObjectURL(url), 60000);
 }
 
 function downloadOrderHtml(orderId) {
@@ -3023,9 +3035,28 @@ function downloadOrderImage(orderId, deliveryOnly = false) {
     drawWrappedText(ctx, remark, 126, summaryY + 100, width - 183, 32);
   }
 
+  const filename = `${title}_${order.no}.png`;
+  const successMessage = deliveryOnly ? "送货单已下载" : "图片已下载";
+  if (isSafariBrowser()) {
+    // Safari can open canvas blob URLs in a new tab and then lose the temporary
+    // resource (WebKitBlobResource error 1). A data URL is created and clicked
+    // while the original user gesture is still active, so no blob hand-off is
+    // needed.
+    try {
+      triggerBrowserDownload(filename, canvas.toDataURL("image/png"));
+      showToast(successMessage);
+      return;
+    } catch (error) {
+      // Fall through to the normal blob path if data URL creation is unavailable.
+    }
+  }
   canvas.toBlob((blob) => {
-    downloadBlob(`${title}_${order.no}.png`, "image/png", blob);
-    showToast(deliveryOnly ? "送货单已下载" : "图片已下载");
+    if (!blob) {
+      alert("图片生成失败，请稍后重试");
+      return;
+    }
+    downloadBlob(filename, "image/png", blob);
+    showToast(successMessage);
   }, "image/png");
 }
 

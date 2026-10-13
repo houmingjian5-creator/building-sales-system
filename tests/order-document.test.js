@@ -39,6 +39,30 @@ assert(
   app.includes("drawWrappedText(ctx, remark"),
   "Image exports must render wrapped remarks."
 );
+assert(
+  app.includes("function isSafariBrowser()") &&
+  app.includes('triggerBrowserDownload(filename, canvas.toDataURL("image/png"))'),
+  "Safari image exports must avoid temporary blob navigation and download from a canvas data URL."
+);
+assert(
+  app.includes("setTimeout(() => URL.revokeObjectURL(url), 60000)"),
+  "Blob download URLs must remain available while browsers hand them to their download process."
+);
+const safariDetectorSource = app.slice(
+  app.indexOf("function isSafariBrowser()"),
+  app.indexOf("function downloadBlob(")
+);
+const detectSafari = new Function("navigator", `${safariDetectorSource}; return isSafariBrowser();`);
+assert.strictEqual(
+  detectSafari({ userAgent: "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 Version/18.0 Safari/605.1.15" }),
+  true,
+  "Desktop Safari must use the data URL image download path."
+);
+assert.strictEqual(
+  detectSafari({ userAgent: "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 Chrome/129.0.0.0 Safari/537.36" }),
+  false,
+  "Chrome on macOS must keep using the blob download path."
+);
 const documentModalSource = app.slice(app.indexOf("function documentModal"), app.indexOf("function userModal"));
 assert(
   documentModalSource.includes("orderForDocument(id)") && documentModalSource.includes("if (!order)") && documentModalSource.includes("orderCustomerForDisplay(order)"),
