@@ -63,6 +63,25 @@ assert.strictEqual(
   false,
   "Chrome on macOS must keep using the blob download path."
 );
+const iosDetectorSource = app.slice(
+  app.indexOf("function isIOSBrowser()"),
+  app.indexOf("function dataUrlToBlob(")
+);
+const detectIOS = new Function("navigator", `${iosDetectorSource}; return isIOSBrowser();`);
+assert.strictEqual(
+  detectIOS({ userAgent: "Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15 Version/18.0 Mobile/15E148 Safari/604.1", platform: "iPhone", maxTouchPoints: 5 }),
+  true,
+  "Safari on iPhone must use the native image share path."
+);
+assert.strictEqual(
+  detectIOS({ userAgent: "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 Version/18.0 Safari/605.1.15", platform: "MacIntel", maxTouchPoints: 0 }),
+  false,
+  "Desktop Safari must not be mistaken for an iOS device."
+);
+assert(
+  app.includes("function shareOrderImageOnIOS(") && app.includes("navigator.share(shareData)") && app.includes("showIOSImageSavePreview(filename, dataUrl)") && styles.includes(".ios-image-save-modal"),
+  "iOS image exports must use the native share sheet with a long-press save fallback."
+);
 const documentModalSource = app.slice(app.indexOf("function documentModal"), app.indexOf("function userModal"));
 assert(
   documentModalSource.includes("orderForDocument(id)") && documentModalSource.includes("if (!order)") && documentModalSource.includes("orderCustomerForDisplay(order)"),

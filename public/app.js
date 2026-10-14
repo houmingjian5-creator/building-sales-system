@@ -2839,6 +2839,56 @@ function isSafariBrowser() {
   return /Safari/i.test(userAgent) && !/(Chrome|Chromium|CriOS|FxiOS|EdgiOS|OPR|Android)/i.test(userAgent);
 }
 
+function isIOSBrowser() {
+  const userAgent = String(navigator.userAgent || "");
+  const platform = String(navigator.platform || "");
+  return /iPad|iPhone|iPod/i.test(userAgent) || platform === "MacIntel" && Number(navigator.maxTouchPoints || 0) > 1;
+}
+
+function dataUrlToBlob(dataUrl) {
+  const parts = String(dataUrl || "").split(",");
+  const mimeMatch = parts[0].match(/^data:([^;]+);base64$/i);
+  if (!mimeMatch || !parts[1]) throw new Error("图片数据无效");
+  const binary = atob(parts[1]);
+  const bytes = new Uint8Array(binary.length);
+  for (let index = 0; index < binary.length; index += 1) bytes[index] = binary.charCodeAt(index);
+  return new Blob([bytes], { type: mimeMatch[1] });
+}
+
+function showIOSImageSavePreview(filename, dataUrl) {
+  const backdrop = document.createElement("div");
+  backdrop.className = "modal-backdrop ios-image-save-backdrop";
+  backdrop.innerHTML = `
+    <div class="modal ios-image-save-modal">
+      <div class="modal-head"><div><h3>保存订单图片</h3><div class="hint">长按图片，选择“存储到照片”或“存储到文件”</div></div><button type="button" class="icon-btn ios-image-save-close">×</button></div>
+      <div class="modal-body"><img src="${dataUrl}" alt="${html(filename)}" /></div>
+      <div class="modal-foot"><button type="button" class="btn primary ios-image-save-close">完成</button></div>
+    </div>`;
+  backdrop.querySelectorAll(".ios-image-save-close").forEach((button) => button.addEventListener("click", () => backdrop.remove()));
+  document.body.appendChild(backdrop);
+}
+
+function shareOrderImageOnIOS(filename, dataUrl, successMessage) {
+  if (typeof File !== "function" || typeof navigator.share !== "function") {
+    showIOSImageSavePreview(filename, dataUrl);
+    return;
+  }
+  try {
+    const file = new File([dataUrlToBlob(dataUrl)], filename, { type: "image/png" });
+    const shareData = { files: [file], title: filename };
+    if (typeof navigator.canShare === "function" && !navigator.canShare(shareData)) {
+      showIOSImageSavePreview(filename, dataUrl);
+      return;
+    }
+    navigator.share(shareData).then(() => showToast(successMessage)).catch((error) => {
+      if (error && error.name === "AbortError") return;
+      showIOSImageSavePreview(filename, dataUrl);
+    });
+  } catch (error) {
+    showIOSImageSavePreview(filename, dataUrl);
+  }
+}
+
 function downloadBlob(filename, mimeType, content) {
   const blob = content instanceof Blob ? content : new Blob([content], { type: mimeType });
   const url = URL.createObjectURL(blob);
@@ -3037,6 +3087,13 @@ function downloadOrderImage(orderId, deliveryOnly = false) {
 
   const filename = `${title}_${order.no}.png`;
   const successMessage = deliveryOnly ? "送货单已下载" : "图片已下载";
+  if (isIOSBrowser()) {
+    // iOS browsers do not reliably honor the download attribute for data/blob
+    // URLs. Use the native share sheet so the image can be saved to Photos or
+    // Files; older iOS versions receive a long-press save preview.
+    shareOrderImageOnIOS(filename, canvas.toDataURL("image/png"), successMessage);
+    return;
+  }
   if (isSafariBrowser()) {
     // Safari can open canvas blob URLs in a new tab and then lose the temporary
     // resource (WebKitBlobResource error 1). A data URL is created and clicked

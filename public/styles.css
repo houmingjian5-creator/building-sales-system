@@ -3930,6 +3930,11 @@ tbody tr:hover {
 .order-document-table th:nth-child(6),
 .order-document-table td:nth-child(6) { width: 16%; }
 
+body .ios-image-save-backdrop { z-index: 10020; }
+.ios-image-save-modal { width: min(92vw, 620px); max-height: 92dvh; }
+.ios-image-save-modal .modal-body { padding: 10px; overflow: auto; background: #eef2f7; }
+.ios-image-save-modal .modal-body img { display: block; width: 100%; height: auto; background: #fff; }
+
 .doc-preview th {
   background: #ffffff;
   color: #172033;
