@@ -111,8 +111,7 @@ module.exports = function service(db, secrets, legacy) {
     else if (params.get("tag")) { where.push("r.tags=?"); args.push(D.tag(params.get("tag"))); }
     if (params.get("followed") === "yes") where.push("EXISTS(SELECT 1 FROM lead_followups f WHERE f.lead_id=r.id)");
     if (params.get("followed") === "no") where.push("NOT EXISTS(SELECT 1 FROM lead_followups f WHERE f.lead_id=r.id)");
-    if (params.get("due") === "overdue") where.push("r.next_followup_at<UTC_TIMESTAMP()");
-    if (params.get("due") === "scheduled") where.push("r.next_followup_at IS NOT NULL");
+    if (params.get("followedBy")) { where.push("EXISTS(SELECT 1 FROM lead_followups f WHERE f.lead_id=r.id AND f.actor_id=?)"); args.push(D.text(params.get("followedBy"), 64)); }
     ["from", "to"].forEach(key => { if (params.get(key)) { where.push("r.created_at" + (key === "from" ? ">=?" : "<=?")); args.push(D.date(params.get(key))); } });
     const sql = where.length ? " WHERE " + where.join(" AND ") : "";
     const count = await q("SELECT COUNT(*) AS n FROM lead_resources r" + sql, args);
@@ -128,8 +127,7 @@ module.exports = function service(db, secrets, legacy) {
     else if (params.get("tag")) { where.push("r.tags=?"); args.push(D.tag(params.get("tag"))); }
     if (params.get("followed") === "yes") where.push("EXISTS(SELECT 1 FROM lead_followups f WHERE f.lead_id=r.id)");
     if (params.get("followed") === "no") where.push("NOT EXISTS(SELECT 1 FROM lead_followups f WHERE f.lead_id=r.id)");
-    if (params.get("due") === "overdue") where.push("r.next_followup_at<UTC_TIMESTAMP()");
-    if (params.get("due") === "scheduled") where.push("r.next_followup_at IS NOT NULL");
+    if (params.get("followedBy")) { where.push("EXISTS(SELECT 1 FROM lead_followups f WHERE f.lead_id=r.id AND f.actor_id=?)"); args.push(D.text(params.get("followedBy"), 64)); }
     ["from", "to"].forEach(function (key) { if (params.get(key)) { where.push("r.created_at" + (key === "from" ? ">=?" : "<=?")); args.push(D.date(params.get(key))); } });
     const sql = " WHERE " + where.join(" AND ");
     const rows = await q("SELECT r.* FROM lead_resources r" + sql, args);

@@ -57,6 +57,8 @@ async function run() {
   const customerUi = require("fs").readFileSync(require("path").join(__dirname, "..", "public", "app.js"), "utf8");
   assert(!ui.includes('id="lead-filter-source"') && !ui.includes('id="lead-filter-region"'));
   assert(ui.includes('id="lead-filter-tag"') && ui.includes('id="lead-filter-followed"'));
+  assert(ui.includes('id="lead-filter-followedBy"') && ui.includes("全部曾跟进人"), "lead lists must filter by any historical follow-up actor");
+  assert(!ui.includes('id="lead-filter-due"') && !ui.includes("全部跟进时间"), "the scheduled-time filter must be replaced by historical follow-up actor");
   assert(ui.includes('id="lead-filter-wechatStatus"') && ui.includes("全部微信状态"), "private sea must provide a WeChat status filter");
   assert(ui.includes("leadWechatStatusSave") && ui.includes("同意但未通过") && ui.includes("已通过"), "private sea rows must update the four WeChat statuses directly");
   assert(ui.includes("销售资源情况") && ui.includes("实时跟进动态") && ui.includes("跟进促成订单") && ui.includes("当前活跃销售"), "outbound statistics must display the approved live-dashboard layout");

@@ -194,10 +194,11 @@ async function run() {
   assert.strictEqual(adminEdited.phone, "13800000013");
   assert.strictEqual(f.state().rows[0].phone_key, secrets.hash("13800000013"));
   await assert.rejects(f.service.updateResource(users[2], "request-edit-stale-01", created.resourceId, { name: "旧版本", phone: "13800000014", version: renamed.version }), /资源已变化/);
-  const params = new URLSearchParams({ scope: "all", owner: "a", tag: "业主", followed: "yes" });
+  const params = new URLSearchParams({ scope: "all", owner: "a", tag: "业主", followed: "yes", followedBy: "b" });
   await f.service.list(users[2], params);
   const listSql = f.queries().filter(x => x.sql.startsWith("SELECT r.*")).pop();
   assert(listSql.sql.indexOf("r.owner_id=?") >= 0 && listSql.sql.indexOf("lead_followups") >= 0 && listSql.sql.indexOf("r.tags=?") >= 0);
+  assert(listSql.sql.indexOf("f.actor_id=?") >= 0 && listSql.args.indexOf("b") >= 0, "resource list must filter by any historical follow-up actor using a bound value");
   await f.service.list(users[2], new URLSearchParams({ scope: "all", tag: "unset" }));
   const unsetSql = f.queries().filter(x => x.sql.startsWith("SELECT r.*")).pop();
   assert(unsetSql.sql.indexOf("TRIM(r.tags)=''" ) >= 0);
@@ -225,6 +226,9 @@ async function run() {
   assert.deepStrictEqual(tasks.groups.pending.items.map(x => x.id).sort(), ["task-blocked", "task-own"], "legacy refusal-list rows must remain eligible for follow-up tasks");
   const taskSql = f.queries().find(x => x.sql.startsWith("SELECT r.* FROM lead_resources r WHERE r.owner_id=?") && x.sql.indexOf("ORDER BY") < 0);
   assert(taskSql.sql.indexOf("lead_do_not_call") < 0);
+  await f.service.tasks(users[0], new URLSearchParams({ followedBy: "b" }));
+  const followedByTaskSql = f.queries().filter(x => x.sql.startsWith("SELECT r.* FROM lead_resources r WHERE r.owner_id=?") && x.sql.indexOf("f.actor_id=?") >= 0).pop();
+  assert(followedByTaskSql && followedByTaskSql.args.indexOf("b") >= 0, "follow-up tasks must support the same historical actor filter");
   f = fixture(); f.add("task-order", "a", "13800000010"); f.state().rows[0].customer_id = "customer-task";
   f.state().followups.push({ lead_id: "task-order", owner_id: "a", content: "最近沟通了报价与送货时间", created_at: "2026-08-20T00:00:00.000Z" });
   f.setBusiness({ users, customers: [{ id: "customer-task", ownerId: "a", name: "任务客户", phone: "13800000010" }], orders: [{ id: "order-task", customerId: "customer-task", no: "XS001", date: "2026/7/1", status: "已完成", amount: 1000, actualPaidAmount: 888.5 }] });
