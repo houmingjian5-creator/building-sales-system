@@ -428,6 +428,11 @@ module.exports = function service(db, secrets, legacy) {
     const ownerResourceWhere = ownerId ? " WHERE owner_id=?" : "", ownerResourceArgs = ownerId ? [ownerId] : [];
     const actorWhere = ownerId ? " AND f.actor_id=?" : "", actorArgs = ownerId ? [ownerId] : [];
     const resources = await q("SELECT owner_id,COUNT(*) total,SUM(customer_id IS NOT NULL) customers FROM lead_resources" + ownerResourceWhere + " GROUP BY owner_id", ownerResourceArgs);
+    const today = Stats.beijingDateKey(new Date());
+    const monthStart = Stats.mysqlUtc(today.slice(0, 8) + "01");
+    const todayStart = Stats.mysqlUtc(today);
+    const tomorrowStart = Stats.mysqlUtc(Stats.addDays(today, 1));
+    const manualEntries = await q("SELECT actor_id,COUNT(*) monthly, SUM(created_at>=?) today FROM lead_assignment_history WHERE action='manual_create' AND created_at>=? AND created_at<?" + (ownerId ? " AND actor_id=?" : "") + " GROUP BY actor_id", [todayStart, monthStart, tomorrowStart].concat(ownerId ? [ownerId] : []));
     const summary = await q("SELECT COUNT(DISTINCT f.lead_id) followed_customers,COUNT(DISTINCT CASE WHEN f.result='connected' THEN f.lead_id END) connected_customers FROM lead_followups f WHERE f.created_at>=? AND f.created_at<?" + actorWhere, [range.start, range.end].concat(actorArgs));
     const approved = await q("SELECT COUNT(*) total FROM lead_resources WHERE owner_id IS NOT NULL AND consent_status='approved'" + (ownerId ? " AND owner_id=?" : ""), ownerResourceArgs);
     const recent = await q("SELECT f.id,f.actor_id,f.actor_name,f.result,f.content,f.created_at,r.id lead_id,r.name,r.phone_mask,r.consent_status FROM lead_followups f JOIN lead_resources r ON r.id=f.lead_id WHERE f.created_at>=? AND f.created_at<?" + actorWhere + " ORDER BY f.created_at DESC,f.id DESC LIMIT 20", [range.start, range.end].concat(actorArgs));
@@ -443,6 +448,7 @@ module.exports = function service(db, secrets, legacy) {
     const trendByDay = new Map(trendRows.map(r => [String(r.day).slice(0, 10), Number(r.total || 0)]));
     return {
       range: { mode: range.mode, from: range.from, to: range.to }, generatedAt: new Date().toISOString(), resources,
+      manualEntries: manualEntries.map(r => ({ actorId: r.actor_id, monthly: Number(r.monthly || 0), today: Number(r.today || 0) })),
       kpis: { followedCustomers: Number(summary[0].followed_customers || 0), connectedCustomers: Number(summary[0].connected_customers || 0), approved: Number(approved[0].total || 0), attributedOrders: attributedOrders.count, attributedAmount: attributedOrders.amount },
       recent: recent.map(r => ({ id: r.id, actorId: r.actor_id, actorName: r.actor_name, result: r.result, content: r.content, createdAt: r.created_at, leadId: r.lead_id, name: r.name, phone: r.phone_mask, wechatStatus: D.publicWechatStatus(r.consent_status) })),
       active: active.map(r => ({ actorId: r.actor_id, actorName: r.actor_name, followedCustomers: Number(r.followed_customers || 0), connectedCustomers: Number(r.connected_customers || 0), lastFollowupAt: r.last_followup_at, attributedOrders: Number(attributedOrders.byActor[r.actor_id] || 0) })),

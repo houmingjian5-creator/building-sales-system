@@ -110,7 +110,8 @@
 .lead-stats-sales-card:nth-child(4n+2) { border-top-color:#16a36b; }
 .lead-stats-sales-card:nth-child(4n+3) { border-top-color:#ee9b21; }
 .lead-stats-sales-card:nth-child(4n+4) { border-top-color:#8663df; }
-.lead-stats-sales-card>div { display:grid; grid-template-columns:1fr 1fr; margin-top:14px; }
+.lead-stats-sales-card .lead-stats-sales-row { display:grid; grid-template-columns:1fr 1fr; margin-top:14px; }
+.lead-stats-sales-card .lead-stats-entry-row { border-top:1px solid #e4e9f1; padding-top:12px; }
 .lead-stats-sales-card span { color:#64748b; }
 .lead-stats-sales-card span+span { padding-left:14px; border-left:1px solid #e4e9f1; }
 .lead-stats-sales-card strong { display:block; color:#15233b; font-size:24px; }

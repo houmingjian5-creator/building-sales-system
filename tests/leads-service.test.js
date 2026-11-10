@@ -25,6 +25,14 @@ function fixture() {
       const owners = args.length ? [args[0]] : Array.from(new Set(state.rows.map(x => x.owner_id)));
       return owners.filter(Boolean).map(owner => ({ owner_id: owner, total: state.rows.filter(x => x.owner_id === owner).length, customers: state.rows.filter(x => x.owner_id === owner && x.customer_id).length }));
     }
+    if (sql.startsWith("SELECT actor_id,COUNT(*) monthly")) {
+      const byActor = new Map();
+      state.history.filter(h => h[4] === "manual_create" && (!args[3] || h[2] === args[3])).forEach(h => {
+        const row = byActor.get(h[2]) || { actor_id: h[2], monthly: 0, today: 0 };
+        row.monthly++; row.today++; byActor.set(h[2], row);
+      });
+      return Array.from(byActor.values());
+    }
     if (sql.startsWith("SELECT COUNT(DISTINCT f.lead_id)")) return [{ followed_customers: 0, connected_customers: 0 }];
     if (sql.startsWith("SELECT COUNT(*) total FROM lead_resources WHERE owner_id IS NOT NULL")) return [{ total: 0 }];
     if (sql.startsWith("SELECT f.id,f.actor_id")) return [];
@@ -101,6 +109,11 @@ async function run() {
   assert(ownerResourceQuery.args[0] === "a" && approvedQuery.args[0] === "a", "resource and approved-WeChat totals must use the selected salesperson");
   assert.strictEqual(actorQueries.length, 5, "summary, recent activity, active sales, result distribution and trend must all be salesperson-scoped");
   assert(actorQueries.every(x => x.args[x.args.length - 1] === "a"), "all follow-up dashboard queries must receive the selected salesperson");
+  const entryFixture = fixture();
+  entryFixture.state().history.push(["manual-1", "resource-1", "a", "甲", "manual_create", null, "a", "", ""]);
+  entryFixture.state().history.push(["claim-1", "resource-2", "b", "乙", "claim", null, "b", "", ""]);
+  const entered = await entryFixture.service.stats(users[2], new URLSearchParams({ owner: "a" }));
+  assert.deepStrictEqual(entered.manualEntries, [{ actorId: "a", monthly: 1, today: 1 }], "manual entry is attributed to its creator, not claims or current ownership");
   const results = await Promise.allSettled([f.service.move(users[0], "request-shared-0001", { action: "claim", ids: ["shared"] }), f.service.move(users[1], "request-shared-0002", { action: "claim", ids: ["shared"] })]);
   assert.strictEqual(results.filter(x => x.status === "fulfilled").length, 1);
   assert.strictEqual(f.state().history.length, 1);
