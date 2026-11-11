@@ -116,7 +116,21 @@ module.exports = function service(db, secrets, legacy) {
     const sql = where.length ? " WHERE " + where.join(" AND ") : "";
     const count = await q("SELECT COUNT(*) AS n FROM lead_resources r" + sql, args);
     const rows = await q("SELECT r.*,fm.last_followup_at,COALESCE(fm.followup_count,0) AS followup_count,(SELECT f.content FROM lead_followups f WHERE f.lead_id=r.id ORDER BY f.created_at DESC,f.id DESC LIMIT 1) AS last_followup_content,COALESCE((SELECT MAX(h.created_at) FROM lead_assignment_history h WHERE h.lead_id=r.id AND ((r.owner_id IS NULL AND h.to_owner IS NULL) OR h.to_owner=r.owner_id)),r.created_at) AS sea_entered_at FROM lead_resources r LEFT JOIN (SELECT lead_id,MAX(created_at) AS last_followup_at,COUNT(*) AS followup_count FROM lead_followups GROUP BY lead_id) fm ON fm.lead_id=r.id" + sql + " ORDER BY " + SORTS[sort] + " LIMIT " + size + " OFFSET " + ((page - 1) * size), args);
-    return { items: rows.map(r => D.publicLead(r, user, secrets)), total: Number(count[0].n), page, pageSize: size };
+    const items = rows.map(r => D.publicLead(r, user, secrets));
+    if (scope === "mine" && rows.some(r => r.customer_id)) {
+      const data = legacy.readDb();
+      const customers = {};
+      (data.customers || []).forEach(customer => { customers[customer.id] = customer; });
+      rows.forEach((row, index) => {
+        const customer = customers[row.customer_id];
+        if (!customer) return;
+        const orders = (data.orders || []).filter(order => Tasks.validOrder(order) && legacy.customerOrderMatchesCustomer(data, order, customer));
+        const amount = orders.reduce((sum, order) => sum + Number(legacy.effectiveOrderAmount(order) || 0), 0);
+        const latest = orders.reduce((day, order) => Math.max(day, Tasks.beijingDay(order.date, true) || 0), 0);
+        items[index].customerOrders = { count: orders.length, amount: Math.round(amount * 100) / 100, lastDate: latest ? new Date(latest * 86400000).toISOString().slice(0, 10) : null };
+      });
+    }
+    return { items, total: Number(count[0].n), page, pageSize: size };
   }
   async function tasks(user, params) {
     await ready();

@@ -19,7 +19,8 @@ function fixture() {
     }
     if (sql.startsWith("SELECT id FROM lead_customer_operations WHERE status='pending'")) return [];
     if (sql.startsWith("SELECT * FROM lead_requests")) return clone(state.requests.filter(x => x.request_key === args[0]));
-    if (sql.startsWith("SELECT COUNT(*) AS n FROM lead_resources r")) return [{ n: 0 }];
+    if (sql.startsWith("SELECT COUNT(*) AS n FROM lead_resources r")) return [{ n: state.rows.filter(x => x.owner_id === args[0]).length }];
+    if (sql.startsWith("SELECT r.*,fm.last_followup_at")) return clone(state.rows.filter(x => x.owner_id === args[0]));
     if (sql.startsWith("SELECT COUNT(*) AS n FROM lead_resources")) return [{ n: state.rows.filter(x => x.owner_id === args[0] && x.id !== args[1]).length }];
     if (sql.startsWith("SELECT owner_id,COUNT(*) total")) {
       const owners = args.length ? [args[0]] : Array.from(new Set(state.rows.map(x => x.owner_id)));
@@ -98,6 +99,19 @@ function fixture() {
     add: function (id, owner, number) { state.rows.push({ id, owner_id: owner || null, phone_key: secrets.hash(number || "13800000001"), phone_cipher: secrets.encrypt(number || "13800000001"), phone_mask: "138****0001", name: id, tags: "", consent_status: "unknown", created_at: "2026-08-01T00:00:00.000Z", version: 1, customer_id: null }); } };
 }
 async function run() {
+  const listFixture = fixture();
+  listFixture.add("linked", "a", "13800000011");
+  listFixture.add("unlinked", "a", "13800000012");
+  listFixture.state().rows[0].customer_id = "customer-linked";
+  listFixture.setBusiness({ users, customers: [{ id: "customer-linked", name: "关联客户", phone: "13800000011", ownerId: "a" }], orders: [
+    { customerId: "customer-linked", date: "2026/9/12", status: "已完成", amount: 1200 },
+    { customerId: "customer-linked", date: "2026/10/2", status: "已确认", actualPaidAmount: 300, amount: 500 },
+    { customerId: "customer-linked", date: "2026/10/3", status: "已退货", amount: 200 },
+    { customerId: "customer-linked", date: "2026/10/4", status: "已完成", type: "return", amount: 100 }
+  ] });
+  const listed = await listFixture.service.list(users[0], new URLSearchParams({ scope: "mine" }));
+  assert.deepStrictEqual(listed.items[0].customerOrders, { count: 2, amount: 1500, lastDate: "2026-10-02" });
+  assert.strictEqual(listed.items[1].customerOrders, undefined, "unlinked resources must not receive an order marker");
   let f = fixture(); f.add("shared");
   await assert.rejects(f.service.stats(users[0], new URLSearchParams()), /只有管理员可以查看外呼数据/);
   f.add("other-owner-resource", "b", "13800000099");

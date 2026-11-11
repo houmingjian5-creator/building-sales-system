@@ -68,6 +68,20 @@
 .lead-list-customer b,.lead-list-customer small { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
 .lead-list-customer b { color:#122033; }
 .lead-list-customer small { color:#536277; font-size:13px; font-variant-numeric:tabular-nums; }
+.lead-list-mine .lead-customer-main { flex:1 1 auto; }
+.lead-list-mine .lead-customer-name-row { display:flex; flex-direction:row; align-items:center; gap:5px; min-width:0; }
+.lead-list-mine .lead-customer-name-row b { min-width:0; }
+.lead-list-mine .lead-customer-star-slot { display:inline-flex; flex:0 0 13px; width:13px; height:15px; align-items:center; justify-content:center; }
+.lead-list-mine .lead-customer-phone { padding-left:18px; }
+.lead-customer-star { position:relative; display:inline-flex; align-items:center; justify-content:center; width:15px; height:17px; padding:0; border:0; background:none; color:#fff9df; font-size:13px; line-height:1; cursor:help; text-shadow:0 0 1px #bb9b49; }
+.lead-customer-star-1 { color:#fff2bc; }
+.lead-customer-star-2 { color:#f9dc76; }
+.lead-customer-star-3 { color:#f0c144; }
+.lead-customer-star-4 { color:#e8ad20; }
+.lead-customer-star-5 { color:#d79405; }
+.lead-customer-tooltip { display:none !important; position:absolute; z-index:20; top:calc(100% + 7px); left:0; width:max-content; max-width:230px; padding:10px 12px; border:1px solid #dbe2ea; border-radius:8px; background:#fff; box-shadow:0 8px 24px rgba(22,34,55,.15); color:#243247; text-align:left; font-size:12px; font-weight:400; line-height:1.6; white-space:normal; }
+.lead-customer-tooltip strong,.lead-customer-tooltip span { display:block; }
+.lead-customer-star:hover .lead-customer-tooltip,.lead-customer-star:focus-visible .lead-customer-tooltip { display:block !important; }
 .lead-list-pill { display:inline-block; max-width:100%; padding:4px 9px; overflow:hidden; border-radius:999px; background:#eef2f7; color:#475569; font-size:12px; text-overflow:ellipsis; white-space:nowrap; vertical-align:middle; }
 .lead-tag-pill { background:#edf2ff; color:#3557c8; }
 .lead-wechat-select { width:100%; min-width:132px; margin:0; padding:8px 28px 8px 9px; font-size:13px; }

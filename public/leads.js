@@ -17,11 +17,19 @@ function leadListTime(value, empty) {
 function leadOrderDate(value) { return value ? String(value).replace(/\//g, "-") : "无"; }
 function leadMoney(value) { return "¥" + Number(value || 0).toLocaleString("zh-CN", { minimumFractionDigits: 2, maximumFractionDigits: 2 }); }
 function leadListPill(value, kind) { return `<span class="lead-list-pill ${kind || ""}">${html(value || "未设置")}</span>`; }
+function leadCustomerStar(orders) {
+  if (!orders) return '<span class="lead-customer-star-slot" aria-hidden="true"></span>';
+  const count = Number(orders.count || 0), amount = Number(orders.amount || 0);
+  const score = Math.min(count / 10, 1) * .5 + Math.min(amount / 20000, 1) * .5;
+  const level = count ? Math.min(5, Math.max(1, Math.ceil(score * 5))) : 0;
+  const summary = `已关联客户；下单频次 ${count} 笔；下单总金额 ${leadMoney(amount)}；上次下单时间 ${orders.lastDate || "暂无"}`;
+  return `<span class="lead-customer-star-slot"><button type="button" class="lead-customer-star lead-customer-star-${level}" aria-label="${html(summary)}">★<span class="lead-customer-tooltip" role="tooltip"><strong>已关联客户</strong><span>下单频次：${count} 笔</span><span>下单总金额：${html(leadMoney(amount))}</span><span>上次下单时间：${html(orders.lastDate || "暂无")}</span></span></button></span>`;
+}
 function renderLeadMineList(items) {
   if (!items.length) return '<p class="lead-list-empty">暂无符合条件的资源</p>';
   return `<div class="lead-list-shell"><div class="lead-list lead-list-mine" role="table" aria-label="我的私海资源">
     <div class="lead-list-head" role="row"><span>客户 / 电话</span><span>标签</span><span>微信状态</span><span>最近跟进时间</span><span>最近跟进内容</span><span>跟进次数</span><span>录入时间</span><span>操作</span></div>
-    ${items.map(r => `<div class="lead-list-row" role="row"><div class="lead-list-customer"><input type="checkbox" aria-label="选择${html(r.name)}" data-lead-id="${r.id}" ${leadsState.selected.indexOf(r.id) >= 0 ? "checked" : ""} onchange="leadSelect('${r.id}',this.checked)"><span><b>${html(r.name)}</b><small>${html(r.phone)}</small></span></div><div data-label="标签">${leadListPill(r.tags || "未设置", "lead-tag-pill")}</div><div data-label="微信状态"><select class="select lead-wechat-select" aria-label="${html(r.name)}的微信状态" onchange="leadWechatStatusSave(this,'${r.id}')">${leadWechatOptions(r.wechatStatus)}</select></div><div data-label="最近跟进时间">${html(leadListTime(r.lastFollowupAt, "未跟进"))}</div><div class="lead-list-content" data-label="最近跟进内容" title="${html(r.lastFollowupContent || "暂无跟进内容")}">${html(r.lastFollowupContent || "暂无跟进内容")}</div><div data-label="跟进次数">${Number(r.followupCount || 0)} 次</div><div data-label="录入时间">${html(leadListTime(r.createdAt, "未知"))}</div><div data-label="操作"><button class="btn lead-list-action" onclick="leadDetail('${r.id}')">详情 / 跟进</button></div></div>`).join("")}
+    ${items.map(r => `<div class="lead-list-row" role="row"><div class="lead-list-customer"><input type="checkbox" aria-label="选择${html(r.name)}" data-lead-id="${r.id}" ${leadsState.selected.indexOf(r.id) >= 0 ? "checked" : ""} onchange="leadSelect('${r.id}',this.checked)"><span class="lead-customer-main"><span class="lead-customer-name-row">${leadCustomerStar(r.customerOrders)}<b>${html(r.name)}</b></span><small class="lead-customer-phone">${html(r.phone)}</small></span></div><div data-label="标签">${leadListPill(r.tags || "未设置", "lead-tag-pill")}</div><div data-label="微信状态"><select class="select lead-wechat-select" aria-label="${html(r.name)}的微信状态" onchange="leadWechatStatusSave(this,'${r.id}')">${leadWechatOptions(r.wechatStatus)}</select></div><div data-label="最近跟进时间">${html(leadListTime(r.lastFollowupAt, "未跟进"))}</div><div class="lead-list-content" data-label="最近跟进内容" title="${html(r.lastFollowupContent || "暂无跟进内容")}">${html(r.lastFollowupContent || "暂无跟进内容")}</div><div data-label="跟进次数">${Number(r.followupCount || 0)} 次</div><div data-label="录入时间">${html(leadListTime(r.createdAt, "未知"))}</div><div data-label="操作"><button class="btn lead-list-action" onclick="leadDetail('${r.id}')">详情 / 跟进</button></div></div>`).join("")}
   </div></div>`;
 }
 function renderLeadTaskList(items, tier) {
