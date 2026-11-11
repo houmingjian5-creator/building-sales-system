@@ -490,6 +490,7 @@ function orderMatchesSearch(db, order, keyword) {
 function customerStatsPayload(db, customer, user) {
   const customerOrders = customerOrdersForUser(db, customer, user).filter((order) => !dashboardIsReturn(order));
   const validSalesOrders = customerOrders.filter(dashboardIsPerformanceOrder);
+  const unpaidOrders = customerOrders.filter(isReceivableOrder);
   const dates = validSalesOrders.map((order) => order.date).filter(Boolean).sort((a, b) => {
     const dateA = dashboardOrderDate(a);
     const dateB = dashboardOrderDate(b);
@@ -501,8 +502,24 @@ function customerStatsPayload(db, customer, user) {
       total: validSalesOrders.reduce((sum, order) => sum + effectiveOrderAmount(order), 0),
       last: dates[0] || "-",
       count: validSalesOrders.length,
+      unpaidTotal: Math.round(unpaidOrders.reduce((sum, order) => sum + effectiveOrderAmount(order), 0) * 100) / 100,
+      unpaidCount: unpaidOrders.length,
     },
   };
+}
+
+function isReceivableOrder(order) {
+  return Boolean(order && !order.deletedAt && !dashboardIsReturn(order)
+    && ["已确认", "已确定", "已发货", "已完成"].includes(order.status)
+    && normalizePayStatus(order.payStatus) === "未付款"
+    && effectiveOrderAmount(order) > 0);
+}
+
+function dashboardReceivableOrders(db, user, salesFilters) {
+  return sortOrdersByCreatedAt(db.orders.filter((order) => {
+    if (!isReceivableOrder(order) || (user.role === "销售人员" && order.salesUserId !== user.id)) return false;
+    return user.role === "销售人员" || !salesFilters.length || salesFilters.includes(order.salesUserId);
+  }));
 }
 
 function dashboardIsPerformanceOrder(order) {
@@ -543,11 +560,8 @@ function dashboardPayload(db, user, salesFilters) {
   const todayPerformance = validOrders.filter((order) => sameDashboardDay(order.date, now));
   const monthOrders = validSalesOrders.filter((order) => sameDashboardMonth(order.date, now));
   const todayOrders = validSalesOrders.filter((order) => sameDashboardDay(order.date, now));
-  const totalReceivableAmount = scopedOrders.filter((order) => {
-    return !dashboardIsReturn(order)
-      && ["已确认", "已确定", "已发货", "已完成"].includes(order.status)
-      && normalizePayStatus(order.payStatus) === "未付款";
-  }).reduce((sum, order) => sum + effectiveOrderAmount(order), 0);
+  const totalReceivableAmount = dashboardReceivableOrders(db, user, salesFilters)
+    .reduce((sum, order) => sum + effectiveOrderAmount(order), 0);
   const monthCustomerIds = Array.from(new Set(monthOrders.map((order) => order.customerId).filter(Boolean)));
   const todayCustomerIds = Array.from(new Set(todayOrders.map((order) => order.customerId).filter(Boolean)));
   const firstDates = {};
@@ -4451,6 +4465,17 @@ async function handleApi(req, res) {
     });
   }
 
+  if (method === "GET" && url.pathname === "/api/dashboard/receivables") {
+    const user = requireUser(req, res);
+    if (!user) return;
+    const salesFilters = user.role === "销售人员" ? [user.id]
+      : String(url.searchParams.get("salesUserIds") || "").split(",").filter(Boolean);
+    const db = readDb();
+    const result = pagedResult(dashboardReceivableOrders(db, user, salesFilters), url, 20);
+    result.items = result.items.map((order) => publicOrder(order, db));
+    return sendJson(res, 200, result);
+  }
+
   if (method === "GET" && url.pathname === "/api/dashboard") {
     const user = requireUser(req, res);
     if (!user) return;
@@ -4578,6 +4603,7 @@ async function handleApi(req, res) {
     if (method === "GET") {
       const keyword = url.searchParams.get("q") || url.searchParams.get("search") || "";
       const ownerId = url.searchParams.get("salesUserId") || url.searchParams.get("ownerId") || "";
+      const unpaidOnly = url.searchParams.get("unpaid") === "1";
       const ids = String(url.searchParams.get("ids") || "").split(",").filter(Boolean);
       let list = db.customers.filter((customer) => user.role !== "销售人员" || customer.ownerId === user.id);
       if (ids.length) list = list.filter((customer) => ids.indexOf(String(customer.id)) >= 0);
@@ -4591,7 +4617,8 @@ async function handleApi(req, res) {
           stats: summary.stats,
         });
       });
-      if (url.searchParams.has("page") || url.searchParams.has("pageSize") || keyword || ownerId || ids.length) {
+      if (unpaidOnly) list = list.filter((customer) => customer.stats.unpaidTotal > 0);
+      if (url.searchParams.has("page") || url.searchParams.has("pageSize") || keyword || ownerId || ids.length || unpaidOnly) {
         return sendJson(res, 200, pagedResult(list, url, 20));
       }
       return sendJson(res, 200, { customers: list });
@@ -5379,6 +5406,8 @@ module.exports.customerOrderMatchesCustomer = customerOrderMatchesCustomer;
 module.exports.customerOrdersForUser = customerOrdersForUser;
 module.exports.orderMatchesSearch = orderMatchesSearch;
 module.exports.customerStatsPayload = customerStatsPayload;
+module.exports.isReceivableOrder = isReceivableOrder;
+module.exports.dashboardReceivableOrders = dashboardReceivableOrders;
 module.exports.sessionTokenHash = sessionTokenHash;
 module.exports.createSession = createSession;
 module.exports.deleteSession = deleteSession;

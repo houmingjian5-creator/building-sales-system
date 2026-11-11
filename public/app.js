@@ -6,6 +6,8 @@ const state = {
   user: null,
   query: "",
   customerOwnerFilter: "全部",
+  customerUnpaidOnly: false,
+  expandedCustomerUnpaidId: "",
   orderQuery: "",
   orderSalesFilter: "全部",
   orderDateFrom: "",
@@ -83,6 +85,8 @@ const state = {
   dashboardSalesFilters: [],
   dashboardSalesMenuOpen: false,
   dashboardCustomerDetail: "",
+  dashboardReceivablesOpen: false,
+  dashboardReceivables: null,
   dashboardTrendMetric: "sales",
   dashboardData: null,
   dashboardLoading: false,
@@ -742,7 +746,8 @@ function renderMobileFilterSheet() {
   if (!state.mobileFilterOpen) return "";
   let fields = "";
   if (state.mobileFilterOpen === "customers") {
-    fields = canChooseSalesperson() ? `<label class="mobile-filter-field"><span>客户归属</span><select class="select" onchange="updateCustomerOwnerFilter(this.value)">${salesFilterOptions(state.customerOwnerFilter)}</select></label>` : `<div class="hint">销售人员仅显示自己的客户。</div>`;
+    fields = (canChooseSalesperson() ? `<label class="mobile-filter-field"><span>客户归属</span><select class="select" onchange="updateCustomerOwnerFilter(this.value)">${salesFilterOptions(state.customerOwnerFilter)}</select></label>` : `<div class="hint">销售人员仅显示自己的客户。</div>`)
+      + `<label class="mobile-filter-field"><span>回款筛选</span><select class="select" onchange="updateCustomerUnpaidFilter(this.value === 'unpaid')"><option value="all" ${state.customerUnpaidOnly ? "" : "selected"}>全部客户</option><option value="unpaid" ${state.customerUnpaidOnly ? "selected" : ""}>仅看未回款</option></select></label>`;
   } else if (state.mobileFilterOpen === "orders") {
     fields = mobileFilterSelect("订单状态", state.orderStatus || "全部", ORDER_STATUS_FILTERS, "updateOrderStatusFilter(this.value)") +
       mobileFilterSelect("付款状态", state.orderPayStatus || "全部", PAY_STATUS_FILTERS, "updateOrderPayFilter(this.value)") +
@@ -878,15 +883,18 @@ function kpi(label, value, type) {
 function customerCard(c) {
   const owner = byId(salesUsers, c.ownerId);
   const stats = c.stats && typeof c.stats === "object" ? c.stats : customerStats(c.id);
+  const unpaidTotal = Number(stats.unpaidTotal || 0);
+  const expanded = state.expandedCustomerUnpaidId === c.id;
   return `
     <article class="customer-card">
       <div class="customer-main">
-        <div class="customer-name">${c.name} <span class="badge success">正常</span></div>
-        <div class="meta"><span>☎ ${c.phone}</span><span>录入：${(owner === null || owner === void 0 ? void 0 : owner.name) || "-"}</span></div>
+        <div class="customer-name">${html(c.name)} <span class="badge success">正常</span></div>
+        <div class="meta"><span>☎ ${html(c.phone)}</span><span>录入：${html((owner === null || owner === void 0 ? void 0 : owner.name) || "-")}</span></div>
       </div>
       <div class="meta customer-stats">
         <span>成交额：<strong>${money(stats.total)}</strong></span>
-        <span>最近成交：${stats.last}</span>
+        ${unpaidTotal > 0 ? `<span class="customer-unpaid-amount">未回款：<strong>${money(unpaidTotal)}</strong></span>` : ""}
+        <span>最近成交：${html(stats.last)}</span>
         <span>共成交 ${stats.count} 单</span>
       </div>
       <div class="customer-actions customer-actions-desktop">
@@ -898,8 +906,37 @@ function customerCard(c) {
         <button type="button" class="mobile-row-primary" onclick="openModal('customerOrders',${jsArg(c.id)})">查看详情</button>
         <details class="mobile-row-more"><summary aria-label="更多操作">•••</summary><div><button type="button" onclick="openModal('customer',${jsArg(c.id)})">编辑客户</button>${isAdmin() ? `<button type="button" class="danger" onclick="deleteCustomer(${JSON.stringify(c.id)})">删除客户</button>` : ""}</div></details>
       </div>
+      ${unpaidTotal > 0 ? `<section class="customer-unpaid-section"><button type="button" class="customer-unpaid-toggle" aria-expanded="${expanded}" onclick="toggleCustomerUnpaid(${jsArg(c.id)})">${expanded ? "收起未回款明细 ▲" : `展开未回款明细（${Number(stats.unpaidCount || 0)} 单）▼`}</button>${expanded ? customerUnpaidDetailHtml(c.id) : ""}</section>` : ""}
     </article>
   `;
+}
+
+function customerUnpaidDetailHtml(id) {
+  const detail = state.customerOrderDetails[id];
+  if (!detail || detail.loading) return '<div class="customer-unpaid-loading">正在加载未回款订单…</div>';
+  if (detail.error) return `<div class="customer-unpaid-loading">${html(detail.error)} <button type="button" onclick="reloadCustomerUnpaid(${jsArg(id)})">重试</button></div>`;
+  const list = (detail.orders || []).filter(isUnpaidSalesOrder);
+  if (!list.length) return '<div class="customer-unpaid-loading">订单回款状态已变化，请刷新列表。</div>';
+  return `<div class="customer-unpaid-orders">${list.map((order) => `<div class="customer-unpaid-order"><strong>${html(order.no || "订单")}</strong><span>下单时间：${html(order.date || "-")}</span><span>状态：${html(order.status || "-")}</span><span>未回款：<b>${money(effectiveOrderAmount(order))}</b></span></div>`).join("")}</div>`;
+}
+
+async function reloadCustomerUnpaid(id) {
+  delete state.customerOrderDetails[id];
+  await toggleCustomerUnpaid(id, true);
+}
+
+async function toggleCustomerUnpaid(id, force) {
+  if (!force && state.expandedCustomerUnpaidId === id) {
+    state.expandedCustomerUnpaidId = "";
+    renderCustomerResults();
+    return;
+  }
+  state.expandedCustomerUnpaidId = id;
+  renderCustomerResults();
+  if (!state.customerOrderDetails[id]) {
+    await loadCustomerOrderHistory(id);
+    if (state.route === "customers" && state.expandedCustomerUnpaidId === id) renderCustomerResults();
+  }
 }
 
 function cartTotal() {
@@ -3598,7 +3635,7 @@ async function loadCustomers(options = {}) {
   const forCreate = Boolean(options.forCreate);
   const page = forCreate ? 1 : currentPage("customers");
   const params = forCreate ? { page: 1, pageSize: 200, salesUserId: canChooseSalesperson() ? options.salesUserId || state.salesUserId : "" } : {
-    page, pageSize: 30, q: state.query,
+    page, pageSize: 30, q: state.query, unpaid: state.customerUnpaidOnly ? "1" : "",
     salesUserId: canChooseSalesperson() ? state.customerOwnerFilter : ""
   };
   const response = await latestApiFetch(forCreate ? "create-customers" : "customers", `/api/customers${queryString(params)}`);
@@ -3606,7 +3643,11 @@ async function loadCustomers(options = {}) {
   const data = await response.json();
   if (!response.ok) throw new Error(data.error || "客户数据加载失败");
   customers = data.items || data.customers || [];
-  if (!forCreate) state.remotePages.customers = data.items ? data : { items: customers, page: 1, pageSize: customers.length, total: customers.length, totalPages: 1 };
+  if (!forCreate) {
+    state.customerOrderDetails = {};
+    state.expandedCustomerUnpaidId = "";
+    state.remotePages.customers = data.items ? data : { items: customers, page: 1, pageSize: customers.length, total: customers.length, totalPages: 1 };
+  }
   state.dataLoaded.customers = true;
 }
 
@@ -3696,8 +3737,9 @@ function renderDashboard() {
         ${dashboardMetric("本月下单客户数", monthCustomers.size, "客", "violet", "本月有效销售单客户去重 · 点击查看", "month")}
         ${dashboardMetric("本月新开客户数", monthNewCustomerIds.size, "新", "orange", "首次有效下单发生在本月 · 点击查看", "new")}
         ${dashboardMetric("本月订单数量", monthOrders.length, "单", "cyan", "有效销售订单，不含退货单")}
-        ${dashboardMetric("待回款金额", money(totalReceivableAmount), "收", "receivable", "全部历史已确认、已发货、已完成且待回款订单")}
+        ${dashboardMetric("待回款金额", money(totalReceivableAmount), "收", "receivable", "全部历史已确认、已发货、已完成且待回款订单 · 点击查看", "receivable")}
       </div>
+      ${dashboardReceivableDetailHtml()}
       ${dashboardCustomerDetailHtml(state.dashboardCustomerDetail, monthCustomers, monthNewCustomerIds, monthOrders, allValidSalesOrders)}
       <div class="dashboard-section-head today-head"><strong>今日动态</strong><span>${now.getMonth() + 1} 月 ${now.getDate()} 日</span></div>
       <div class="dashboard-metric-grid today-metrics">
@@ -3762,6 +3804,8 @@ function toggleDashboardSalesperson(userId) {
   selected.add(userId);
   state.dashboardSalesFilters = Array.from(selected);
   state.dashboardCustomerDetail = "";
+  state.dashboardReceivablesOpen = false;
+  state.dashboardReceivables = null;
   render();
   loadDashboard(true);
 }
@@ -3769,13 +3813,38 @@ function toggleDashboardSalesperson(userId) {
 function clearDashboardSalespeople() {
   state.dashboardSalesFilters = [];
   state.dashboardCustomerDetail = "";
+  state.dashboardReceivablesOpen = false;
+  state.dashboardReceivables = null;
   render();
   loadDashboard(true);
 }
 
 function toggleDashboardCustomerDetail(type) {
+  if (type === "receivable") {
+    state.dashboardReceivablesOpen = !state.dashboardReceivablesOpen;
+    state.dashboardCustomerDetail = "";
+    render();
+    if (state.dashboardReceivablesOpen) loadDashboardReceivables(1);
+    return;
+  }
+  state.dashboardReceivablesOpen = false;
   state.dashboardCustomerDetail = state.dashboardCustomerDetail === type ? "" : type;
   render();
+}
+
+async function loadDashboardReceivables(page) {
+  state.dashboardReceivables = { loading: true, error: "", items: [], page: page || 1, total: 0, totalPages: 0 };
+  if (state.route === "dashboard") render();
+  try {
+    const response = await latestApiFetch("dashboard-receivables", `/api/dashboard/receivables${queryString({ page: page || 1, pageSize: 20, salesUserIds: state.dashboardSalesFilters.join(",") })}`);
+    if (!response) return;
+    const data = await response.json();
+    if (!response.ok) throw new Error(data.error || "待回款订单加载失败");
+    state.dashboardReceivables = data;
+  } catch (error) {
+    state.dashboardReceivables = { loading: false, error: error.message || "待回款订单加载失败", items: [], page: page || 1, total: 0, totalPages: 0 };
+  }
+  if (state.route === "dashboard" && state.dashboardReceivablesOpen) render();
 }
 
 function firstValidCustomerOrderDate(customerId, validSalesOrders) {
@@ -3836,6 +3905,13 @@ function isReturnOrder(order) {
   return (order === null || order === void 0 ? void 0 : order.type) === "return" || String((order === null || order === void 0 ? void 0 : order.no) || "").startsWith("TH") || (order === null || order === void 0 ? void 0 : order.status) === "已退货";
 }
 
+function isUnpaidSalesOrder(order) {
+  return Boolean(order && !order.deletedAt && !isReturnOrder(order)
+    && ["已确认", "已确定", "已发货", "已完成"].includes(order.status)
+    && normalizeClientPayStatus(order.payStatus) === "待回款"
+    && effectiveOrderAmount(order) > 0);
+}
+
 function actualPaidAmount(order) {
   if (!order || order.actualPaidAmount === undefined || order.actualPaidAmount === null || order.actualPaidAmount === "") {
     return null;
@@ -3874,7 +3950,7 @@ function performanceOrderAmount(order) {
 
 function dashboardMetric(label, value, iconText, tone, note = "", detailType = "") {
   const tag = detailType ? "button" : "div";
-  const action = detailType ? ` type="button" onclick="toggleDashboardCustomerDetail(${jsArg(detailType)})"` : "";
+  const action = detailType ? ` type="button" aria-expanded="${detailType === "receivable" ? state.dashboardReceivablesOpen : state.dashboardCustomerDetail === detailType}" onclick="toggleDashboardCustomerDetail(${jsArg(detailType)})"` : "";
   return `<${tag}${action} class="dashboard-metric ${tone} ${detailType ? "clickable" : ""}"><div><div class="dashboard-metric-label">${html(label)}</div><div class="dashboard-metric-value">${html(value)}</div>${note ? `<div class="dashboard-metric-note">${html(note)}</div>` : ""}</div><div class="dashboard-metric-icon">${html(iconText)}</div></${tag}>`;
 }
 
@@ -3885,7 +3961,8 @@ function customerStats(customerId) {
   map((order) => order.date).
   filter(Boolean).
   sort((a, b) => new Date(b) - new Date(a))[0] || "-";
-  return { total, last, count: list.length };
+  const unpaid = list.filter(isUnpaidSalesOrder);
+  return { total, last, count: list.length, unpaidTotal: unpaid.reduce((sum, order) => sum + effectiveOrderAmount(order), 0), unpaidCount: unpaid.length };
 }
 
 function renderCustomers() {
@@ -3893,10 +3970,11 @@ function renderCustomers() {
   const list = remote ? remote.items : visibleCustomers();
   return `
     <div class="mobile-page-tools"><input id="customerSearchInputMobile" class="input" placeholder="搜索客户名称/联系人/电话" value="${html(state.query)}" oninput="updatePageQuery(this)" /><button type="button" class="btn mobile-filter-button" onclick="toggleMobileFilter('customers')">筛选</button><button class="btn primary" onclick="openModal('customer')">新增</button></div>
-    <div class="mobile-filter-chips">${mobileFilterChip("归属", state.customerOwnerFilter, "updateCustomerOwnerFilter('全部')")}</div>
+    <div class="mobile-filter-chips">${mobileFilterChip("归属", state.customerOwnerFilter, "updateCustomerOwnerFilter('全部')")}${state.customerUnpaidOnly ? mobileFilterChip("回款", "仅未回款", "updateCustomerUnpaidFilter(false)") : ""}</div>
     <div class="toolbar filter-toolbar desktop-page-tools">
       <input id="customerSearchInput" class="input" placeholder="搜索客户名称/联系人/电话" value="${html(state.query)}" oninput="updatePageQuery(this)" />
       ${canChooseSalesperson() ? `<select class="select compact-select" onchange="updateCustomerOwnerFilter(this.value)">${salesFilterOptions(state.customerOwnerFilter)}</select>` : ""}
+      <select class="select compact-select" aria-label="回款筛选" onchange="updateCustomerUnpaidFilter(this.value === 'unpaid')"><option value="all" ${state.customerUnpaidOnly ? "" : "selected"}>全部客户</option><option value="unpaid" ${state.customerUnpaidOnly ? "selected" : ""}>仅看未回款</option></select>
       <button class="btn primary" onclick="openModal('customer')">＋ 新增客户</button>
     </div>
     <div id="customerResultsPanel">${customerResultsHtml(list, remote)}</div>
@@ -4130,6 +4208,12 @@ function updateCustomerOwnerFilter(value) {
   state.customerOwnerFilter = value;
   resetPage("customers");
   render();
+  loadCustomers().then(render).catch((error) => alert(error.message));
+}
+
+function updateCustomerUnpaidFilter(value) {
+  state.customerUnpaidOnly = Boolean(value);
+  resetPage("customers");
   loadCustomers().then(render).catch((error) => alert(error.message));
 }
 
@@ -6852,6 +6936,22 @@ function dashboardRemoteDetail(data) {
   </section>`;
 }
 
+function dashboardReceivableDetailHtml() {
+  if (!state.dashboardReceivablesOpen) return "";
+  const data = state.dashboardReceivables;
+  let content = '<div class="empty">正在加载待回款订单…</div>';
+  if (data && data.error) content = `<div class="empty">${html(data.error)} <button class="btn small" onclick="loadDashboardReceivables(${Number(data.page || 1)})">重试</button></div>`;
+  else if (data && !data.loading) {
+    const rows = data.items || [];
+    content = rows.length ? `<div class="dashboard-receivable-list">${rows.map((order) => {
+      const salesperson = byId(salesUsers, order.salesUserId);
+      return `<div class="dashboard-receivable-row"><strong>${html(order.no || "订单")}</strong><span>${html(order.customerName || "未知客户")}</span><span>${html(order.date || "-")}</span><span>${html((salesperson && salesperson.name) || "-")}</span><span>${html(order.status || "-")}</span><b>${money(effectiveOrderAmount(order))}</b></div>`;
+    }).join("")}</div>` : '<div class="empty">暂无待回款订单</div>';
+    if (data.totalPages > 1) content += `<div class="pagination"><span>共 ${Number(data.total)} 单，第 ${Number(data.page)} / ${Number(data.totalPages)} 页</span><button class="btn small" ${data.page <= 1 ? "disabled" : ""} onclick="loadDashboardReceivables(${Number(data.page) - 1})">上一页</button><button class="btn small" ${data.page >= data.totalPages ? "disabled" : ""} onclick="loadDashboardReceivables(${Number(data.page) + 1})">下一页</button></div>`;
+  }
+  return `<section class="dashboard-customer-detail dashboard-receivables-detail"><div class="dashboard-customer-detail-head"><strong>待回款订单明细</strong><button type="button" onclick="toggleDashboardCustomerDetail('receivable')">收起</button></div>${content}</section>`;
+}
+
 function dashboardTrendHtml(trend) {
   const metric = state.dashboardTrendMetric === "orders" ? "orders" : "sales";
   const points = Array.isArray(trend) ? trend : [];
@@ -6918,8 +7018,9 @@ function renderDashboardRemote() {
       ${dashboardMetric("本月下单客户数", metrics.monthCustomerCount || 0, "客", "violet", "本月有效销售单客户去重 · 点击查看", "month")}
       ${dashboardMetric("本月新开客户数", metrics.monthNewCustomerCount || 0, "新", "orange", "首次有效下单发生在本月 · 点击查看", "new")}
       ${dashboardMetric("本月订单数量", metrics.monthOrderCount || 0, "单", "cyan", "有效销售订单，不含退货单")}
-      ${dashboardMetric("待回款金额", money(metrics.totalReceivableAmount || 0), "收", "receivable", "累计至今，不受本月日期限制")}
+      ${dashboardMetric("待回款金额", money(metrics.totalReceivableAmount || 0), "收", "receivable", "累计至今，不受本月日期限制 · 点击查看", "receivable")}
     </div>
+    ${dashboardReceivableDetailHtml()}
     ${dashboardRemoteDetail(data)}
     <div class="dashboard-section-head today-head"><strong>今日动态</strong><span>${generatedAt.getMonth() + 1} 月 ${generatedAt.getDate()} 日</span></div>
     <div class="dashboard-metric-grid today-metrics">

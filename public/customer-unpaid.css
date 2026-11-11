@@ -1,0 +1,24 @@
+.route-customers .customer-card > .customer-unpaid-section { grid-column:1 / -1 !important; grid-row:auto !important; min-width:0; margin-top:2px; padding-top:8px; border-top:1px solid #edf0f5; }
+.customer-unpaid-amount,.customer-unpaid-amount strong { color:#b96b09; }
+.customer-unpaid-toggle { border:0; padding:4px 0; background:none; color:#9b5d09; font:inherit; font-size:12px; font-weight:700; cursor:pointer; }
+.customer-unpaid-toggle:hover,.customer-unpaid-toggle:focus-visible { color:#3159d5; text-decoration:underline; }
+.customer-unpaid-orders { display:grid; gap:6px; margin-top:6px; }
+.customer-unpaid-order { display:flex; flex-wrap:wrap; gap:6px 15px; align-items:center; min-width:0; padding:8px 10px; border:1px solid #f4e0b9; border-radius:7px; background:#fff9ef; color:#665f52; font-size:12px; overflow-wrap:anywhere; }
+.customer-unpaid-order strong { color:#25344d; }
+.customer-unpaid-order b { color:#b96b09; }
+.customer-unpaid-loading { padding:8px 0; color:#71809a; font-size:12px; }
+.customer-unpaid-loading button { border:0; background:none; color:#3159d5; cursor:pointer; }
+.dashboard-receivable-list { display:grid; gap:0; border:1px solid #e5eaf2; border-radius:8px; overflow:hidden; }
+.dashboard-receivable-row { display:grid; grid-template-columns:minmax(150px,1.2fr) minmax(110px,1fr) 110px 90px 90px 110px; gap:10px; padding:10px 12px; border-bottom:1px solid #e5eaf2; align-items:center; font-size:13px; min-width:0; }
+.dashboard-receivable-row:last-child { border-bottom:0; }
+.dashboard-receivable-row:nth-child(even) { background:#f8fafc; }
+.dashboard-receivable-row > * { min-width:0; overflow-wrap:anywhere; }
+.dashboard-receivable-row b { color:#b56a13; text-align:right; }
+.dashboard-receivables-detail .pagination { margin-top:12px; }
+@media (max-width:720px) {
+  .mobile-v2.route-customers .customer-card > .customer-unpaid-section { grid-column:1 / -1 !important; grid-row:3 !important; }
+  .mobile-v2.route-customers .customer-stats .customer-unpaid-amount { display:block !important; grid-column:1 / -1 !important; white-space:normal !important; overflow:visible !important; font-size:11px !important; }
+  .dashboard-receivable-row { grid-template-columns:minmax(0,1.1fr) minmax(0,1fr) 85px; gap:4px 8px; font-size:11px; }
+  .dashboard-receivable-row > :nth-child(3),.dashboard-receivable-row > :nth-child(4),.dashboard-receivable-row > :nth-child(5) { color:#71809a; }
+  .dashboard-receivable-row b { grid-column:3; grid-row:1 / 4; align-self:center; }
+}
