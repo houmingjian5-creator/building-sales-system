@@ -8,6 +8,9 @@ const state = {
   customerOwnerFilter: "全部",
   orderQuery: "",
   orderSalesFilter: "全部",
+  orderDateFrom: "",
+  orderDateTo: "",
+  orderDatePreset: "all",
   productQuery: "",
   category: "全部",
   productSubcategory: "",
@@ -743,7 +746,8 @@ function renderMobileFilterSheet() {
   } else if (state.mobileFilterOpen === "orders") {
     fields = mobileFilterSelect("订单状态", state.orderStatus || "全部", ORDER_STATUS_FILTERS, "updateOrderStatusFilter(this.value)") +
       mobileFilterSelect("付款状态", state.orderPayStatus || "全部", PAY_STATUS_FILTERS, "updateOrderPayFilter(this.value)") +
-      (canChooseSalesperson() ? `<label class="mobile-filter-field"><span>下单销售</span><select class="select" onchange="updateOrderSalesFilter(this.value)">${salesFilterOptions(state.orderSalesFilter)}</select></label>` : "");
+      (canChooseSalesperson() ? `<label class="mobile-filter-field"><span>下单销售</span><select class="select" onchange="updateOrderSalesFilter(this.value)">${salesFilterOptions(state.orderSalesFilter)}</select></label>` : "") +
+      `<label class="mobile-filter-field"><span>开始日期</span><input class="input" type="date" value="${html(state.orderDateFrom)}" onchange="updateOrderDate('from',this.value)"></label><label class="mobile-filter-field"><span>结束日期</span><input class="input" type="date" value="${html(state.orderDateTo)}" onchange="updateOrderDate('to',this.value)"></label><div class="order-date-presets">${orderDatePresetButtons()}</div>`;
   } else if (state.mobileFilterOpen === "products") {
     const primaryCategories = ["全部"].concat(productPrimaryCategories());
     const secondaryCategories = state.category === "全部" ? ["全部"] : ["全部"].concat(productSubcategoriesFor(state.category));
@@ -3627,7 +3631,8 @@ async function loadOrders() {
   const params = {
     page: currentPage("orders"), pageSize: EDIT_PAGE_SIZES.orders, q: state.orderQuery,
     status: state.orderStatus, payStatus: state.orderPayStatus,
-    salesUserId: canChooseSalesperson() ? state.orderSalesFilter : ""
+    salesUserId: canChooseSalesperson() ? state.orderSalesFilter : "",
+    startDate: state.orderDateFrom, endDate: state.orderDateTo
   };
   const response = await latestApiFetch("orders", `/api/orders${queryString(params)}`);
   if (!response) return;
@@ -4093,6 +4098,34 @@ function updateOrderStatusFilter(value) {
   loadOrders().then(render).catch((error) => alert(error.message));
 }
 
+function orderDatePresetButtons() {
+  return [["today", "今日"], ["last7", "近7天"], ["month", "本月"], ["all", "全部"]].map(([key, label]) => `<button type="button" class="btn ${state.orderDatePreset === key ? "primary" : ""}" onclick="setOrderDatePreset('${key}')">${label}</button>`).join("");
+}
+
+function refreshOrderDateFilter() {
+  resetPage("orders");
+  render();
+  loadOrders().then(render).catch((error) => alert(error.message));
+}
+
+function setOrderDatePreset(preset) {
+  const dates = preset === "all" ? { from: "", to: "" } : costDatePresetRange(preset);
+  state.orderDateFrom = dates.from;
+  state.orderDateTo = dates.to;
+  state.orderDatePreset = preset;
+  refreshOrderDateFilter();
+}
+
+function updateOrderDate(side, value) {
+  const from = side === "from" ? value : state.orderDateFrom;
+  const to = side === "to" ? value : state.orderDateTo;
+  if (from && to && from > to) { showToast("开始日期不能晚于结束日期"); render(); return; }
+  state.orderDateFrom = from;
+  state.orderDateTo = to;
+  state.orderDatePreset = "custom";
+  refreshOrderDateFilter();
+}
+
 function updateCustomerOwnerFilter(value) {
   state.customerOwnerFilter = value;
   resetPage("customers");
@@ -4456,6 +4489,7 @@ function renderOrders() {
       <div class="spacer"></div>
       <button class="btn primary" onclick="state.orderType='sale';setRoute('create')">开单</button>
     </div>
+    <div class="order-date-toolbar desktop-page-tools"><strong>订单日期</strong><label>开始日期 <input class="input" type="date" value="${html(state.orderDateFrom)}" onchange="updateOrderDate('from',this.value)"></label><span>至</span><label>结束日期 <input class="input" type="date" value="${html(state.orderDateTo)}" onchange="updateOrderDate('to',this.value)"></label><div class="order-date-presets">${orderDatePresetButtons()}</div></div>
     <div id="orderResultsPanel">${orderResultsHtml(pageData)}</div>
   `;
 }
