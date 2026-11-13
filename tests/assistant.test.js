@@ -116,6 +116,12 @@ assert.strictEqual(server.assistantIsPublicHttpsUrl('https://192.168.1.2/private
 assert.strictEqual(server.assistantIsPublicHttpsUrl('https://[::1]/private'), false);
 assert.strictEqual(server.assistantNeedsSmartModel('搜索最新建材政策'), true);
 assert.strictEqual(server.assistantNeedsSmartModel('你好'), false);
+const pendingCalls = Array.from({ length: 6 }, (_, index) => ({ id: `call-${index + 1}`, function: { name: 'sales_summary', arguments: '{}' } }));
+const providerMessage = { role: 'assistant', content: '', tool_calls: pendingCalls };
+const toolRound = server.assistantToolRound(providerMessage);
+assert.deepStrictEqual(toolRound.calls.map((call) => call.id), ['call-1', 'call-2', 'call-3', 'call-4']);
+assert.deepStrictEqual(toolRound.message.tool_calls.map((call) => call.id), toolRound.calls.map((call) => call.id), 'every forwarded tool call must receive a tool response');
+assert.strictEqual(providerMessage.tool_calls.length, 6, 'provider response should remain unchanged');
 assert.strictEqual(server.assistantToolDefinitions(users.admin).some((tool) => tool.function.name === 'cost_control_summary'), true);
 assert.strictEqual(server.assistantToolDefinitions(users.salesA).some((tool) => tool.function.name === 'cost_control_summary'), false);
 assert.strictEqual(server.assistantToolDefinitions(users.salesA).some((tool) => tool.function.name === 'inactive_customers'), true);

@@ -3355,6 +3355,14 @@ function assistantSourcesFromResults(results) {
   return sources.slice(0, 8);
 }
 
+function assistantToolRound(message, limit = 4) {
+  const calls = message && Array.isArray(message.tool_calls) ? message.tool_calls.slice(0, limit) : [];
+  return {
+    message: Object.assign({}, message, { tool_calls: calls }),
+    calls: calls,
+  };
+}
+
 async function assistantAgentAttempt(db, user, message, history, model, onStage, cancelToken) {
   const tools = assistantToolDefinitions(user);
   const preloadedResults = assistantPreloadedResults(db, user, message);
@@ -3378,12 +3386,13 @@ async function assistantAgentAttempt(db, user, message, history, model, onStage,
       cancelToken: cancelToken,
     });
     usage = response.usage || usage;
-    const toolCalls = response.message && Array.isArray(response.message.tool_calls) ? response.message.tool_calls.slice(0, 4) : [];
+    const toolRound = assistantToolRound(response.message);
+    const toolCalls = toolRound.calls;
     if (!toolCalls.length) {
       finalContent = response.content;
       break;
     }
-    messages.push(response.message);
+    messages.push(toolRound.message);
     const roundResults = [];
     for (const toolCall of toolCalls) {
       const toolName = toolCall && toolCall.function ? toolCall.function.name : '';
@@ -5368,6 +5377,7 @@ module.exports.assistantPrivateSafeWebQuery = assistantPrivateSafeWebQuery;
 module.exports.assistantIsPublicHttpsUrl = assistantIsPublicHttpsUrl;
 module.exports.assistantNormalizeSearchResults = assistantNormalizeSearchResults;
 module.exports.assistantNeedsSmartModel = assistantNeedsSmartModel;
+module.exports.assistantToolRound = assistantToolRound;
 module.exports.assistantToolDefinitions = assistantToolDefinitions;
 module.exports.assistantAgentSystemPrompt = assistantAgentSystemPrompt;
 module.exports.assistantCurrentTurnContent = assistantCurrentTurnContent;
