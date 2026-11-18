@@ -78,6 +78,55 @@ assert.strictEqual(
   false,
   "Desktop Safari must not be mistaken for an iOS device."
 );
+const macSafariDetectorSource = app.slice(
+  app.indexOf("function isSafariBrowser()"),
+  app.indexOf("function dataUrlToBlob(")
+);
+const detectMacSafari = new Function("navigator", `${macSafariDetectorSource}; return isMacSafariBrowser();`);
+assert.strictEqual(
+  detectMacSafari({ userAgent: "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 Version/18.0 Safari/605.1.15", platform: "MacIntel", maxTouchPoints: 0 }),
+  true,
+  "Mac Safari must use the in-page image preview."
+);
+assert.strictEqual(
+  detectMacSafari({ userAgent: "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 Chrome/129.0.0.0 Safari/537.36", platform: "MacIntel", maxTouchPoints: 0 }),
+  false,
+  "Chrome on a Mac must keep its existing download flow."
+);
+assert.strictEqual(
+  detectMacSafari({ userAgent: "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 Version/18.0 Safari/605.1.15", platform: "MacIntel", maxTouchPoints: 5 }),
+  false,
+  "An iPad requesting a desktop site must keep the iOS share flow."
+);
+assert(
+  app.includes('showMacSafariImageSavePreview(filename, canvas.toDataURL("image/png"))') &&
+  app.includes('backdrop.querySelectorAll(".mac-safari-image-save-close")') &&
+  styles.includes(".mac-safari-image-save-modal"),
+  "Mac Safari must show a closable image preview without navigating away from the order detail."
+);
+const macPreviewSource = app.slice(
+  app.indexOf("function showMacSafariImageSavePreview("),
+  app.indexOf("function shareOrderImageOnIOS(")
+);
+const originalOrderDetail = { id: "order-detail" };
+const pageElements = [originalOrderDetail];
+const closeButtons = [{ addEventListener(event, handler) { this.onClick = handler; } }];
+const fakeDocument = {
+  createElement() {
+    const element = {
+      querySelectorAll() { return closeButtons; },
+      remove() { pageElements.splice(pageElements.indexOf(this), 1); }
+    };
+    return element;
+  },
+  body: { appendChild(element) { pageElements.push(element); } }
+};
+const showMacPreview = new Function("document", "html", `${macPreviewSource}; return showMacSafariImageSavePreview;`)(fakeDocument, String);
+showMacPreview("订单.png", "data:image/png;base64,AAAA");
+assert.strictEqual(pageElements.length, 2, "Mac Safari preview must be added above the current order detail.");
+assert(pageElements[1].innerHTML.includes("data:image/png;base64,AAAA"));
+closeButtons[0].onClick();
+assert.deepStrictEqual(pageElements, [originalOrderDetail], "Closing the preview must leave the original order detail intact.");
 assert(
   app.includes("function shareOrderImageOnIOS(") && app.includes("navigator.share(shareData)") && app.includes("showIOSImageSavePreview(filename, dataUrl)") && styles.includes(".ios-image-save-modal"),
   "iOS image exports must use the native share sheet with a long-press save fallback."

@@ -2886,6 +2886,10 @@ function isIOSBrowser() {
   return /iPad|iPhone|iPod/i.test(userAgent) || platform === "MacIntel" && Number(navigator.maxTouchPoints || 0) > 1;
 }
 
+function isMacSafariBrowser() {
+  return /Macintosh/i.test(String(navigator.userAgent || "")) && isSafariBrowser() && !isIOSBrowser();
+}
+
 function dataUrlToBlob(dataUrl) {
   const parts = String(dataUrl || "").split(",");
   const mimeMatch = parts[0].match(/^data:([^;]+);base64$/i);
@@ -2906,6 +2910,19 @@ function showIOSImageSavePreview(filename, dataUrl) {
       <div class="modal-foot"><button type="button" class="btn primary ios-image-save-close">完成</button></div>
     </div>`;
   backdrop.querySelectorAll(".ios-image-save-close").forEach((button) => button.addEventListener("click", () => backdrop.remove()));
+  document.body.appendChild(backdrop);
+}
+
+function showMacSafariImageSavePreview(filename, dataUrl) {
+  const backdrop = document.createElement("div");
+  backdrop.className = "modal-backdrop ios-image-save-backdrop";
+  backdrop.innerHTML = `
+    <div class="modal ios-image-save-modal mac-safari-image-save-modal">
+      <div class="modal-head"><div><h3>保存订单图片</h3><div class="hint">右键点击图片，选择“存储图像为…”。保存后点击关闭，即可回到原订单详情。</div></div><button type="button" class="icon-btn mac-safari-image-save-close">×</button></div>
+      <div class="modal-body"><img src="${dataUrl}" alt="${html(filename)}" /></div>
+      <div class="modal-foot"><button type="button" class="btn primary mac-safari-image-save-close">关闭</button></div>
+    </div>`;
+  backdrop.querySelectorAll(".mac-safari-image-save-close").forEach((button) => button.addEventListener("click", () => backdrop.remove()));
   document.body.appendChild(backdrop);
 }
 
@@ -3134,6 +3151,15 @@ function downloadOrderImage(orderId, deliveryOnly = false) {
     // Files; older iOS versions receive a long-press save preview.
     shareOrderImageOnIOS(filename, canvas.toDataURL("image/png"), successMessage);
     return;
+  }
+  if (isMacSafariBrowser()) {
+    try {
+      showMacSafariImageSavePreview(filename, canvas.toDataURL("image/png"));
+      return;
+    } catch (error) {
+      alert("图片生成失败，请稍后重试");
+      return;
+    }
   }
   if (isSafariBrowser()) {
     // Safari can open canvas blob URLs in a new tab and then lose the temporary
