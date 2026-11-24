@@ -101,6 +101,7 @@ const state = {
   analyticsInactiveDays: 30,
   analyticsMonthCount: 6,
   analyticsTrendMetric: "sales",
+  analyticsTrendView: "daily",
   analyticsMonthlyMetric: "sales",
   analyticsRankingMetric: "sales",
   analyticsCustomerType: "inactive",
@@ -7160,6 +7161,11 @@ function setAnalyticsTrendMetric(metric) {
   render();
 }
 
+function setAnalyticsTrendView(view) {
+  state.analyticsTrendView = view === "cumulative" ? "cumulative" : "daily";
+  render();
+}
+
 function setAnalyticsMonthlyMetric(metric) {
   state.analyticsMonthlyMetric = metric === "orders" ? "orders" : "sales";
   render();
@@ -7243,10 +7249,21 @@ function analyticsRankingCard(data) {
   </section>`;
 }
 
+function analyticsCumulativePoints(points, metric) {
+  let total = 0;
+  return points.map((item) => {
+    total += Number(item[metric] || 0);
+    return Object.assign({}, item, { [metric]: metric === "sales" ? Math.round(total * 100) / 100 : total });
+  });
+}
+
 function analyticsLineChart(data) {
   const metric = state.analyticsTrendMetric === "orders" ? "orders" : "sales";
-  const current = data && data.trend && data.trend.current || [];
-  const previous = data && data.trend && data.trend.previous || [];
+  const cumulative = state.analyticsTrendView === "cumulative";
+  const rawCurrent = data && data.trend && data.trend.current || [];
+  const rawPrevious = data && data.trend && data.trend.previous || [];
+  const current = cumulative ? analyticsCumulativePoints(rawCurrent, metric) : rawCurrent;
+  const previous = cumulative ? analyticsCumulativePoints(rawPrevious, metric) : rawPrevious;
   const values = current.concat(previous).map((item) => Number(item[metric] || 0));
   const max = Math.max(1, ...values);
   const width = 760;
@@ -7267,12 +7284,13 @@ function analyticsLineChart(data) {
   const labelStep = Math.max(1, Math.ceil(current.length / 7));
   const modeLabel = data && data.trend && data.trend.mode === "month" ? "每月" : data && data.trend && data.trend.mode === "week" ? "每周" : "每日";
   return `<section class="analytics-chart-card analytics-daily-card">
-    <div class="analytics-card-head"><div><strong>${modeLabel}业绩变化</strong><span>实线为当前周期，虚线为上一周期</span></div><div class="analytics-chart-tabs"><button class="${metric === "sales" ? "active" : ""}" onclick="setAnalyticsTrendMetric('sales')">销售额</button><button class="${metric === "orders" ? "active" : ""}" onclick="setAnalyticsTrendMetric('orders')">订单数</button></div></div>
+    <div class="analytics-card-head"><div><strong>业绩变化</strong><span>按当前筛选的时间与人员统计</span></div><div class="analytics-chart-tabs"><button class="${metric === "sales" ? "active" : ""}" onclick="setAnalyticsTrendMetric('sales')">销售额</button><button class="${metric === "orders" ? "active" : ""}" onclick="setAnalyticsTrendMetric('orders')">订单数</button></div></div>
+    <div class="analytics-trend-toolbar"><div class="analytics-chart-tabs"><button class="${cumulative ? "" : "active"}" onclick="setAnalyticsTrendView('daily')">${modeLabel}变化</button><button class="${cumulative ? "active" : ""}" onclick="setAnalyticsTrendView('cumulative')">当月累计</button></div><span>实线：${cumulative ? "本期累计" : "当前周期"}　虚线：${cumulative ? "上期同期累计" : "上一周期"}</span></div>
     <div class="analytics-svg-wrap"><svg viewBox="0 0 ${width} ${height}" role="img" aria-label="业绩变化趋势">
       ${[0, 1, 2, 3].map((index) => { const y = top + (bottom - top) * index / 3; return `<line x1="${left}" y1="${y}" x2="${right}" y2="${y}" class="analytics-grid-line"></line><text x="4" y="${y + 4}" class="analytics-axis-label">${metric === "sales" ? Math.round(max * (3 - index) / 3).toLocaleString("zh-CN") : Math.round(max * (3 - index) / 3)}</text>`; }).join("")}
       ${previousCoords.length ? `<polyline points="${previousCoords.map((point) => `${point.x.toFixed(1)},${point.y.toFixed(1)}`).join(" ")}" class="analytics-line previous"></polyline>` : ""}
       ${currentCoords.length ? `<polyline points="${currentCoords.map((point) => `${point.x.toFixed(1)},${point.y.toFixed(1)}`).join(" ")}" class="analytics-line current"></polyline>` : ""}
-      ${currentCoords.map((point, index) => `<circle cx="${point.x.toFixed(1)}" cy="${point.y.toFixed(1)}" r="4" class="analytics-point"><title>${html(point.item.label)}：${metric === "sales" ? money(point.item.sales) : `${point.item.orders} 单`}${point.item.dayChangeRate === null ? "" : `，较前一日 ${point.item.dayChangeRate > 0 ? "+" : ""}${point.item.dayChangeRate}%`}</title></circle>${index % labelStep === 0 || index === currentCoords.length - 1 ? `<text x="${point.x.toFixed(1)}" y="220" text-anchor="middle" class="analytics-x-label">${html(point.item.label)}</text>` : ""}`).join("")}
+      ${currentCoords.map((point, index) => `<circle cx="${point.x.toFixed(1)}" cy="${point.y.toFixed(1)}" r="4" class="analytics-point"><title>${html(point.item.label)}：${metric === "sales" ? money(point.item.sales) : `${point.item.orders} 单`}${cumulative || point.item.dayChangeRate === null ? "" : `，较前一日 ${point.item.dayChangeRate > 0 ? "+" : ""}${point.item.dayChangeRate}%`}</title></circle>${index % labelStep === 0 || index === currentCoords.length - 1 ? `<text x="${point.x.toFixed(1)}" y="220" text-anchor="middle" class="analytics-x-label">${html(point.item.label)}</text>` : ""}`).join("")}
     </svg></div>
   </section>`;
 }

@@ -8161,6 +8161,9 @@ body .ios-image-save-backdrop { z-index: 10020; }
 .analytics-section-title span,
 .analytics-customer-list-head span { color: #8491a3; font-size: 12px; }
 .analytics-head-controls { display: flex; align-items: center; gap: 8px; }
+.analytics-trend-toolbar { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-top: 13px; }
+.analytics-trend-toolbar > span { color: #8491a3; font-size: 11px; text-align: right; }
+.analytics-trend-toolbar .analytics-chart-tabs button { min-height: 30px; padding: 4px 10px; font-size: 12px; }
 .analytics-head-controls select,
 .analytics-section-title select { min-height: 34px; border: 1px solid #dfe5ef; border-radius: 8px; background: #fff; color: #536176; }
 .analytics-svg-wrap { width: 100%; margin-top: 6px; overflow: hidden; }
@@ -8294,6 +8297,9 @@ body .ios-image-save-backdrop { z-index: 10020; }
   .analytics-section-title span,
   .analytics-customer-list-head span { font-size: 9px; }
   .analytics-chart-tabs button { min-height: 29px; padding: 4px 8px; font-size: 9.5px; }
+  .analytics-trend-toolbar { flex-wrap: wrap; gap: 5px; margin-top: 8px; }
+  .analytics-trend-toolbar .analytics-chart-tabs button { min-height: 27px; padding: 3px 7px; font-size: 9px; }
+  .analytics-trend-toolbar > span { width: 100%; font-size: 9px; text-align: left; }
   .analytics-svg-wrap svg { height: 180px; }
   .analytics-bars { gap: 3px; height: 178px; padding: 0; }
   .analytics-bar-column { grid-template-rows: 14px 15px 1fr 15px; }

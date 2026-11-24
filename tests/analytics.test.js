@@ -97,6 +97,14 @@ const detail = server.analyticsCustomerDetailsPayload(db, db.users[0], {
 assert.strictEqual(detail.total, 1);
 assert.strictEqual(detail.items[0].id, "c1");
 
+const cumulativeSource = appSource.slice(appSource.indexOf("function analyticsCumulativePoints("), appSource.indexOf("function analyticsLineChart("));
+const cumulativePoints = new Function(`${cumulativeSource}\nreturn analyticsCumulativePoints;`)();
+const dailyPoints = [{ label: "第一天", sales: 100.1, orders: 1 }, { label: "第二天", sales: 184.9, orders: 2 }, { label: "第三天", sales: 0, orders: 0 }];
+assert.deepStrictEqual(cumulativePoints(dailyPoints, "sales").map((point) => point.sales), [100.1, 285, 285], "累计销售额应逐日叠加，空白日沿用前一天累计值");
+assert.deepStrictEqual(cumulativePoints(dailyPoints, "orders").map((point) => point.orders), [1, 3, 3], "累计订单数应使用与销售额相同的时间序列");
+assert.deepStrictEqual(dailyPoints.map((point) => point.sales), [100.1, 184.9, 0], "切换累计视图不得修改原始每日数据");
+assert.deepStrictEqual(cumulativePoints([{ sales: 80 }, { sales: 0 }], "sales").map((point) => point.sales), [80, 80], "上期累计应独立计算，不得接续本期合计");
+
 assert(appSource.includes('navButton("analytics", "数据分析")'), "桌面侧栏必须提供数据分析入口");
 assert(appSource.includes('mobileMoreRouteButton("analytics", "数据分析")'), "手机更多菜单必须提供数据分析入口");
 assert(appSource.includes("/api/analytics") && appSource.includes("/api/analytics/customers"), "数据分析页面必须读取汇总和客户明细接口");
@@ -106,6 +114,8 @@ assert(appSource.includes("dashboard-analytics-entry") && appSource.includes("�
 assert(appSource.includes('["销售人员", "管理员", "超级管理员"].includes(user.role)'), "数据分析人员筛选必须展示全部可下单角色");
 assert(stylesSource.includes(".analytics-kpi-grid") && stylesSource.includes(".analytics-chart-grid") && stylesSource.includes(".route-analytics"), "数据分析页面必须包含桌面和手机响应式样式");
 assert(stylesSource.includes(".analytics-ranking-card") && stylesSource.includes(".analytics-ranking-row"), "业绩排名卡片必须具备独立响应式样式");
+assert(appSource.includes("setAnalyticsTrendView('daily')") && appSource.includes("setAnalyticsTrendView('cumulative')"), "业绩趋势必须支持每日变化和当月累计切换");
+assert(stylesSource.includes(".analytics-trend-toolbar"), "业绩趋势的切换和图例必须有独立布局");
 assert(/@media \(max-width: 720px\)[\s\S]*?\.analytics-kpi-grid\s*\{\s*grid-template-columns:\s*repeat\(2/.test(stylesSource), "手机端关键指标必须采用双列紧凑布局");
 
 console.log("Analytics permissions, comparison and customer insight tests passed");
